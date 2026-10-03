@@ -18,6 +18,17 @@ npm run build:web  # static web build in dist/
 
 The app starts with a fictional demo territory. "Reset demo data" on the Today tab restores it.
 
+## Build an Android APK
+
+Needs a free Expo account (expo.dev). From the project folder:
+
+```bash
+npx eas-cli@latest login
+npx eas-cli@latest build -p android --profile apk
+```
+
+The build runs in Expo's cloud and ends with a link to download the `.apk`, which installs on any Android phone (allow "install unknown apps"). Use `--profile production` for a Play Store bundle.
+
 ## What's in the MVP
 
 - **Today**: today's planned calls, drafts waiting to be submitted, follow-ups due this week.
