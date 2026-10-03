@@ -1,43 +1,30 @@
-# RepField MVP plan
+# Ava roadmap
 
 ## Stack
 
-| Layer | Choice | Why |
-|---|---|---|
-| App (iOS, Android, web) | Expo SDK 57, React Native 0.86, TypeScript | One codebase for mobile and web; over-the-air updates via EAS |
-| Navigation | Expo Router | File-based routes; same URLs work on web |
-| Local data | AsyncStorage now, SQLite (expo-sqlite) next | Reps work offline in hospitals; calls must save without signal |
-| Backend (phase 2) | Postgres with an API (e.g. Supabase or a Node service) | Accounts, territories, call sync, audit trail |
-| Auth (phase 2) | SSO / OIDC (Azure AD, Okta) | Pharma companies require corporate sign-in |
-| Builds | EAS Build and Submit | No local Xcode or Android Studio needed |
+| Layer | Choice |
+|---|---|
+| App (Android, iOS, web) | Expo SDK 57, React Native 0.86, TypeScript, Expo Router |
+| Server | Node 22, single process, SQLite (`node:sqlite`), Docker; serves the web build too |
+| Rules | `src/data/mutations.ts`, shared by app (offline, instant) and server (enforced) |
+| Builds | Gradle locally or EAS Build in the cloud |
 
-## Phase 1: this MVP (done)
+## Done
 
-- Account list with search, HCP/HCO filter, tiers, affiliations
-- Account detail with call history
-- Call logging: channel, products in order, key messages, notes, next step, follow-up
-- Planned → draft → submitted lifecycle; submitted calls locked
-- Today view with planned calls, drafts and follow-ups
-- Runs on web and in Expo Go; data stored on device
+- Phase 1 (RepField MVP): accounts, call logging, planned → draft → submitted lifecycle, locked submitted calls.
+- Phase 2 (Ava 1.1): new brand and interface; Rep, FLM, SLM and Admin roles with scoped data; team and region dashboards; cycle planning with manager approval; GPS check-in and verification; CSV import with preview and CSV exports; server with sign-in, offline queue and audit log; demo mode.
 
-## Phase 2: real data and sync
+## Next
 
-- Backend with users, territories, and account assignment per rep
-- Offline-first sync: local SQLite queue, push on reconnect, conflict rule "server wins except unsubmitted drafts"
-- Corporate SSO, session timeout, encrypted local storage
-- Audit trail for call submits (who, when, device)
-- Import accounts from a master data source (CSV first, later an HCP data provider)
-
-## Phase 3: field features reps expect from Veeva-style CRMs
-
-- Call planning calendar and route view on a map
-- Sample tracking with signature capture and lot numbers (regulated: needs compliance review)
-- Approved content (CLM): show approved slides during a call and record what was shown
-- Manager dashboards: call reach and frequency by tier, coverage gaps
-- Email with approved templates only
+- Corporate SSO (Azure AD / Okta), session timeout, encrypted on-device storage.
+- Postgres instead of SQLite when the user count grows; per-collection sync instead of whole snapshots.
+- Map view of accounts and a day route; calendar view of planned calls.
+- Approved content (CLM) during calls and tracking which slides were shown.
+- Sample management with signature capture (needs compliance review).
+- Approved-email templates; push notifications for plan approvals.
 
 ## Open decisions for the owner
 
-1. Backend: managed (Supabase) for speed, or a custom service for full control.
-2. First market and its rules (e.g. US Sunshine Act reporting, EU data residency).
-3. Where account master data comes from.
+1. First market and its rules (e.g. NDPR in Nigeria, GDPR in the EU, US Sunshine Act).
+2. Where account master data comes from (CSV now; later an HCP data provider).
+3. Check-in policy: radius, and whether check-in is mandatory for in-person calls.

@@ -1,14 +1,22 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { Linking, StyleSheet, Text, View } from 'react-native';
-import { useStore } from '@/data/store';
+import { useState } from 'react';
+import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
+import { hasLocation, mapsUrl } from '@/data/geo';
+import { callsByAccount, cycleCalls, cycleElapsed } from '@/data/metrics';
+import { useMe, useStore } from '@/data/store';
 import { CallRow } from '@/ui/CallRow';
-import { Button, Card, Empty, SectionTitle, TierBadge, text } from '@/ui/components';
+import { Avatar, Button, Card, Empty, ProgressBar, Row, SectionTitle, TierBadge, text } from '@/ui/components';
+import { confirm, notify } from '@/ui/confirm';
+import { currentFix } from '@/ui/location';
 import { Screen } from '@/ui/Screen';
-import { space } from '@/ui/theme';
+import { colors, space } from '@/ui/theme';
 
 export default function AccountScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getAccount, callsForAccount, accounts } = useStore();
+  const me = useMe();
+  const { data, getAccount, getUser, callsForAccount, accounts, cycle, run } = useStore();
+  const [locating, setLocating] = useState(false);
   const account = getAccount(id);
 
   if (!account) {
@@ -21,58 +29,132 @@ export default function AccountScreen() {
 
   const calls = callsForAccount(account.id);
   const people = account.type === 'HCO' ? accounts.filter((a) => a.affiliation === account.name) : [];
+  const plan = cycle && data.plans.find((p) => p.cycleId === cycle.id && p.ownerId === account.ownerId);
+  const target = plan?.targets.find((t) => t.accountId === account.id);
+  const doneInCycle = cycle ? callsByAccount(cycleCalls(calls.filter((c) => c.ownerId === account.ownerId), cycle)).get(account.id)?.length ?? 0 : 0;
+  const owner = getUser(account.ownerId);
+
+  const pin = () =>
+    confirm(
+      hasLocation(account) ? 'Move the pin here?' : 'Pin location here?',
+      'Use this only while you are at the account. Check-ins are verified against this location.',
+      async () => {
+        setLocating(true);
+        try {
+          const fix = await currentFix();
+          run({ type: 'account.pin', id: account.id, lat: fix.lat, lng: fix.lng });
+        } catch (e) {
+          notify('Location not saved', e instanceof Error ? e.message : String(e));
+        } finally {
+          setLocating(false);
+        }
+      },
+      'Pin',
+    );
 
   return (
     <Screen>
-      <Stack.Screen options={{ title: account.name }} />
+      <Stack.Screen options={{ title: account.type === 'HCP' ? 'Healthcare professional' : 'Organization' }} />
       <Card>
-        <View style={styles.row}>
-          <Text style={[text.title, { fontSize: 20, flex: 1 }]}>{account.name}</Text>
+        <Row gap={space.md}>
+          {account.type === 'HCP' ? (
+            <Avatar name={account.name} size={52} />
+          ) : (
+            <View style={styles.org}>
+              <Ionicons name="business" size={24} color={colors.primary} />
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={text.h2}>{account.name}</Text>
+            <Text style={text.muted}>{account.specialty}</Text>
+          </View>
           <TierBadge tier={account.tier} />
-        </View>
-        <Text style={text.muted}>
-          {account.type === 'HCP' ? 'Healthcare professional' : 'Healthcare organization'} · {account.specialty}
-        </Text>
-        {!!account.affiliation && <Text style={[text.body, { marginTop: space.sm }]}>Works at {account.affiliation}</Text>}
+        </Row>
+        {!!account.affiliation && (
+          <Text
+            style={[text.body, { marginTop: space.md }]}
+            onPress={() => {
+              const org = accounts.find((a) => a.type === 'HCO' && a.name === account.affiliation);
+              if (org) router.push({ pathname: '/account/[id]', params: { id: org.id } });
+            }}
+          >
+            Works at <Text style={text.link}>{account.affiliation}</Text>
+          </Text>
+        )}
         <Text style={[text.body, { marginTop: space.sm }]}>
-          {account.address}, {account.city}
+          {[account.address, account.city].filter(Boolean).join(', ')}
         </Text>
         {!!account.phone && (
-          <Text style={[text.body, styles.link]} onPress={() => Linking.openURL(`tel:${account.phone}`)}>
+          <Text style={[text.link, { marginTop: 4 }]} onPress={() => Linking.openURL(`tel:${account.phone}`)}>
             {account.phone}
           </Text>
         )}
         {!!account.email && (
-          <Text style={[text.body, styles.link]} onPress={() => Linking.openURL(`mailto:${account.email}`)}>
+          <Text style={[text.link, { marginTop: 4 }]} onPress={() => Linking.openURL(`mailto:${account.email}`)}>
             {account.email}
           </Text>
         )}
+        {me.role !== 'Rep' && <Text style={[text.small, { marginTop: space.sm }]}>Territory of {owner?.name}</Text>}
         {!!account.notes && <Text style={[text.muted, { marginTop: space.sm }]}>{account.notes}</Text>}
       </Card>
 
-      <View style={{ marginTop: space.sm }}>
-        <Button title="Log a call" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id } })} />
-      </View>
+      <Card>
+        <Row>
+          <Ionicons name={hasLocation(account) ? 'location' : 'location-outline'} size={20} color={hasLocation(account) ? colors.success : colors.warn} />
+          <View style={{ flex: 1 }}>
+            <Text style={text.title}>{hasLocation(account) ? 'Location pinned' : 'No location yet'}</Text>
+            <Text style={text.muted}>
+              {hasLocation(account) ? `${account.lat.toFixed(5)}, ${account.lng.toFixed(5)} · check-ins within ${data.settings.geofenceM} m count as verified` : 'Pin it during your next visit so check-ins can be verified.'}
+            </Text>
+          </View>
+        </Row>
+        <Row style={{ marginTop: space.md }}>
+          {hasLocation(account) && <Button small title="Open in Maps" icon="map-outline" variant="secondary" onPress={() => Linking.openURL(mapsUrl(account.lat, account.lng))} />}
+          {locating ? <ActivityIndicator color={colors.primary} /> : <Button small title={hasLocation(account) ? 'Re-pin here' : 'Pin my location'} icon="pin-outline" variant="ghost" onPress={pin} />}
+        </Row>
+      </Card>
+
+      {cycle && target && (
+        <Card>
+          <Row style={{ justifyContent: 'space-between', marginBottom: space.sm }}>
+            <Text style={text.title}>{cycle.name} plan</Text>
+            <Text style={text.muted}>
+              {doneInCycle} of {target.planned} calls
+            </Text>
+          </Row>
+          <ProgressBar value={doneInCycle / target.planned} marker={cycleElapsed(cycle)} color={doneInCycle >= target.planned ? colors.success : colors.primary} />
+        </Card>
+      )}
+
+      <Row style={{ marginTop: space.sm }}>
+        <Button title="Log a call" icon="add-circle-outline" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id } })} />
+        <Button title="Plan a visit" icon="calendar-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id, plan: '1' } })} />
+      </Row>
 
       {people.length > 0 && (
         <>
           <SectionTitle>People at this organization</SectionTitle>
           {people.map((p) => (
             <Card key={p.id} onPress={() => router.push({ pathname: '/account/[id]', params: { id: p.id } })}>
-              <Text style={text.title}>{p.name}</Text>
-              <Text style={text.muted}>{p.specialty}</Text>
+              <Row gap={space.md}>
+                <Avatar name={p.name} size={34} />
+                <View style={{ flex: 1 }}>
+                  <Text style={text.title}>{p.name}</Text>
+                  <Text style={text.muted}>{p.specialty}</Text>
+                </View>
+                <TierBadge tier={p.tier} />
+              </Row>
             </Card>
           ))}
         </>
       )}
 
       <SectionTitle>Call history ({calls.length})</SectionTitle>
-      {calls.length ? calls.map((c) => <CallRow key={c.id} call={c} showAccount={false} />) : <Empty>No calls yet.</Empty>}
+      {calls.length ? calls.map((c) => <CallRow key={c.id} call={c} showAccount={false} showRep={me.role !== 'Rep'} />) : <Empty>No calls yet.</Empty>}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  link: { marginTop: 4, color: '#1557B0' },
+  org: { width: 52, height: 52, borderRadius: 14, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
 });

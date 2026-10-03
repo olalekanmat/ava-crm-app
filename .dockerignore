@@ -1,0 +1,9 @@
+node_modules
+android
+ios
+dist
+server/dist
+data
+.test-build
+.expo
+.git

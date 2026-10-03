@@ -1,15 +1,18 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Linking, Text, View } from 'react-native';
 import { formatDateTime } from '@/data/dates';
-import { useStore } from '@/data/store';
-import { Button, Card, Empty, SectionTitle, StatusBadge, text } from '@/ui/components';
-import { confirm } from '@/ui/confirm';
+import { formatDistance, geoStatus, mapsUrl } from '@/data/geo';
+import { useMe, useStore } from '@/data/store';
+import { Avatar, Button, Card, Empty, GeoBadge, Row, SectionTitle, StatusBadge, text } from '@/ui/components';
+import { confirm, notify } from '@/ui/confirm';
 import { Screen } from '@/ui/Screen';
-import { space } from '@/ui/theme';
+import { colors, space } from '@/ui/theme';
 
 export default function CallScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getCall, getAccount, deleteCall } = useStore();
+  const me = useMe();
+  const { getCall, getAccount, getUser, run, data } = useStore();
   const call = getCall(id);
 
   if (!call) {
@@ -20,20 +23,53 @@ export default function CallScreen() {
     );
   }
   const account = getAccount(call.accountId);
+  const owner = getUser(call.ownerId);
   const locked = call.status === 'Submitted';
+  const mine = call.ownerId === me.id;
+  const geo = geoStatus(call, data.settings.geofenceM);
 
   return (
     <Screen>
       <Card onPress={account ? () => router.push({ pathname: '/account/[id]', params: { id: account.id } }) : undefined}>
-        <View style={styles.row}>
-          <Text style={[text.title, { flex: 1, fontSize: 18 }]}>{account?.name ?? 'Unknown account'}</Text>
+        <Row>
+          <Text style={[text.h2, { flex: 1 }]}>{account?.name ?? 'Unknown account'}</Text>
           <StatusBadge status={call.status} />
-        </View>
-        <Text style={text.muted}>
+        </Row>
+        <Text style={[text.muted, { marginTop: 4 }]}>
           {formatDateTime(call.datetime)} · {call.channel}
         </Text>
-        {locked && call.submittedAt && <Text style={[text.muted, { marginTop: 4 }]}>Submitted {formatDateTime(call.submittedAt)}</Text>}
+        {locked && call.submittedAt && <Text style={[text.small, { marginTop: 4 }]}>Submitted {formatDateTime(call.submittedAt)}</Text>}
+        {!mine && owner && (
+          <Row style={{ marginTop: space.md }}>
+            <Avatar name={owner.name} size={26} />
+            <Text style={text.muted}>Logged by {owner.name}</Text>
+          </Row>
+        )}
       </Card>
+
+      {call.channel === 'In person' && (
+        <Card>
+          <Row>
+            <Ionicons name="navigate-circle-outline" size={20} color={colors.primary} />
+            <Text style={[text.title, { flex: 1 }]}>Check-in</Text>
+            {locked ? <GeoBadge status={geo} /> : null}
+          </Row>
+          {call.checkIn ? (
+            <>
+              <Text style={[text.body, { marginTop: space.sm }]}>
+                {formatDateTime(call.checkIn.at)}
+                {call.checkIn.distanceM !== undefined ? ` · ${formatDistance(call.checkIn.distanceM)} from the account` : ' · account has no pinned location'}
+                {call.checkIn.accuracy ? ` · GPS ±${call.checkIn.accuracy} m` : ''}
+              </Text>
+              <Text style={[text.link, { marginTop: 4 }]} onPress={() => Linking.openURL(mapsUrl(call.checkIn!.lat, call.checkIn!.lng))}>
+                Open check-in on map
+              </Text>
+            </>
+          ) : (
+            <Text style={[text.muted, { marginTop: space.sm }]}>No check-in recorded.</Text>
+          )}
+        </Card>
+      )}
 
       <SectionTitle>Products</SectionTitle>
       <Card>
@@ -46,9 +82,7 @@ export default function CallScreen() {
         ) : (
           <Text style={text.muted}>None recorded</Text>
         )}
-        {call.keyMessages.length > 0 && (
-          <Text style={[text.muted, { marginTop: space.sm }]}>Key messages: {call.keyMessages.join(', ')}</Text>
-        )}
+        {call.keyMessages.length > 0 && <Text style={[text.muted, { marginTop: space.sm }]}>Key messages: {call.keyMessages.join(', ')}</Text>}
       </Card>
 
       {(call.notes || call.attendees) && (
@@ -72,27 +106,34 @@ export default function CallScreen() {
       )}
 
       {locked ? (
-        <Text style={[text.muted, { marginTop: space.lg, textAlign: 'center' }]}>Submitted calls are locked for compliance.</Text>
-      ) : (
-        <View style={styles.actions}>
-          <Button title={call.status === 'Planned' ? 'Record this call' : 'Edit'} onPress={() => router.push({ pathname: '/call/edit', params: { id: call.id } })} />
+        <Row style={{ marginTop: space.lg, justifyContent: 'center' }}>
+          <Ionicons name="lock-closed-outline" size={14} color={colors.muted} />
+          <Text style={text.muted}>Submitted calls are locked for compliance.</Text>
+        </Row>
+      ) : mine ? (
+        <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.lg }}>
+          <Button title={call.status === 'Planned' ? 'Record this call' : 'Edit'} icon="create-outline" onPress={() => router.push({ pathname: '/call/edit', params: { id: call.id } })} />
           <Button
             title="Delete"
             variant="danger"
             onPress={() =>
-              confirm('Delete call?', 'This removes the unsubmitted call.', () => {
-                deleteCall(call.id);
-                router.back();
-              }, 'Delete')
+              confirm(
+                'Delete call?',
+                'This removes the unsubmitted call.',
+                () => {
+                  try {
+                    run({ type: 'call.delete', id: call.id });
+                    router.back();
+                  } catch (e) {
+                    notify('Not deleted', e instanceof Error ? e.message : String(e));
+                  }
+                },
+                'Delete',
+              )
             }
           />
         </View>
-      )}
+      ) : null}
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  actions: { flexDirection: 'row', gap: space.sm, marginTop: space.lg },
-});

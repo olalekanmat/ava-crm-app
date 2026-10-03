@@ -1,31 +1,31 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Account, Call } from './types';
 
 /**
- * Local persistence. AsyncStorage maps to on-device storage on iOS/Android and to
- * localStorage on web. This is the seam where a sync backend plugs in later.
+ * Device storage. AsyncStorage maps to on-device storage on iOS/Android and to localStorage
+ * on web. Holds the session, the demo data set, and in server mode an offline cache plus the
+ * queue of changes waiting to sync.
  */
-const KEY = 'repfield:v1';
+export const KEYS = {
+  session: 'ava:session',
+  demo: 'ava:demo:v2',
+  cache: 'ava:cache:v2',
+  outbox: 'ava:outbox:v2',
+};
 
-export interface Snapshot {
-  accounts: Account[];
-  calls: Call[];
-}
-
-export async function loadSnapshot(): Promise<Snapshot | null> {
-  const raw = await AsyncStorage.getItem(KEY);
+export async function loadJson<T>(key: string): Promise<T | null> {
+  const raw = await AsyncStorage.getItem(key);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as Snapshot;
+    return JSON.parse(raw) as T;
   } catch {
     return null;
   }
 }
 
-export async function saveSnapshot(s: Snapshot): Promise<void> {
-  await AsyncStorage.setItem(KEY, JSON.stringify(s));
+export async function saveJson(key: string, value: unknown): Promise<void> {
+  await AsyncStorage.setItem(key, JSON.stringify(value));
 }
 
-export async function clearSnapshot(): Promise<void> {
-  await AsyncStorage.removeItem(KEY);
+export async function removeKeys(...keys: string[]): Promise<void> {
+  await AsyncStorage.multiRemove(keys);
 }

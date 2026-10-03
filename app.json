@@ -1,34 +1,66 @@
 {
   "expo": {
-    "name": "RepField",
-    "slug": "repfield",
-    "version": "1.0.0",
+    "name": "Ava",
+    "slug": "ava",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.repfield.app"
+      "bundleIdentifier": "com.avacrm.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Ava records your location when you check in to a call, so your visit can be verified."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.repfield.app",
-      "versionCode": 1
+      "package": "com.avacrm.app",
+      "versionCode": 2,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
       "output": "single",
-      "bundler": "metro"
+      "bundler": "metro",
+      "name": "Ava",
+      "shortName": "Ava",
+      "themeColor": "#1846C8",
+      "backgroundColor": "#F4F6FB",
+      "description": "Ava field CRM for life-sciences sales teams"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-sharing",
+      "expo-image",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Ava records your location when you check in to a call, so your visit can be verified."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 120,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ]
     ],
-    "scheme": "repfield"
+    "scheme": "ava"
   }
 }
