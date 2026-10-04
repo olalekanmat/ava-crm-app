@@ -32,6 +32,46 @@ npm test             # rules, scoping, CSV, metrics, drive sync, licences, calen
 npm run typecheck
 ```
 
+## Build it
+
+These are the exact commands used to build the Android APK and the web app shipped in `ava-crm-site/AvaCRM/app`. Expo reads `EXPO_PUBLIC_AVA_LICENSE_PUBKEY` from `.env` automatically, so builds always embed the licence public key.
+
+### Android APK
+
+Requires Node 22+, JDK 17 and the Android SDK (with NDK) at `~/android-sdk`.
+
+```bash
+npm ci
+EXPO_OFFLINE=1 CI=1 npx expo prebuild -p android --no-install --clean
+cd android
+export ANDROID_HOME=~/android-sdk ANDROID_SDK_ROOT=~/android-sdk
+echo "sdk.dir=$HOME/android-sdk" > local.properties
+./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
+# APK: android/app/build/outputs/apk/release/app-release.apk
+```
+
+The `android/` folder is generated and not committed. The release build is signed with the debug keystore that prebuild creates, which is fine for side-loading and testing; for Google Play, add your own upload keystore. Before each new release, bump `expo.version` and `expo.android.versionCode` in `app.json`.
+
+Cloud build alternative: `npx eas build -p android --profile preview` (profiles in `eas.json`, needs an Expo account).
+
+### Web app (for avahealthcareltd.com/AvaCRM/app)
+
+```bash
+npm ci
+rm -rf dist
+AVA_WEB_BASE=/AvaCRM/app EXPO_OFFLINE=1 CI=1 npx expo export --platform web --output-dir dist
+# Copy dist/ to ava-crm-site/AvaCRM/app/ and redeploy the site
+```
+
+`AVA_WEB_BASE` makes the web app work from the `/AvaCRM/app` folder (see `app.config.js`). Sign-in client IDs are not baked in; the app reads them at runtime from `https://avahealthcareltd.com/AvaCRM/app-config.json`.
+
+### Checks before any build
+
+```bash
+npm test
+npm run typecheck
+```
+
 ## Code layout
 
 ```
