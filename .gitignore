@@ -43,4 +43,4 @@ yarn-error.*
 # build output
 .test-build/
 server/dist/
-data/
+/data/
