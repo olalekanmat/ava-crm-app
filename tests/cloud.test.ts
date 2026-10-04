@@ -79,7 +79,7 @@ test('admin sets up a company; a rep and FLM join, work offline and sync', async
   // Rita works offline: logs a call and submits her plan.
   const call: Call = { id: 'call_1', accountId: 'acc_1', ownerId: 'usr_rep', datetime: at(10).toISOString(), channel: 'In person', status: 'Submitted', products: [{ product: 'X', priority: 1 }], keyMessages: [], createdAt: at(10).toISOString(), updatedAt: at(10).toISOString() };
   ritaPhone.run({ type: 'call.save', call }, at(20));
-  ritaPhone.run({ type: 'plan.save', plan: { id: 'pln_1', ownerId: 'usr_rep', cycleId: 'cyc_1', status: 'Draft', targets: [{ accountId: 'acc_1', planned: 6 }], updatedAt: at(21).toISOString() } }, at(21));
+  ritaPhone.run({ type: 'plan.save', plan: { id: 'pln_1', ownerId: 'usr_rep', cycleId: 'q2026-4', status: 'Draft', targets: [{ accountId: 'acc_1', planned: 6 }], updatedAt: at(21).toISOString() } }, at(21));
   ritaPhone.run({ type: 'plan.submit', id: 'pln_1' }, at(22));
   assert.equal(rebuild(ritaPhone.cache, at(22))!.snapshot.calls.length, 1, 'visible on the phone before syncing');
   assert.equal((await femiPhone.sync(at(23))).snapshot.calls.length, 0, 'not on the FLM’s phone until Rita syncs');

@@ -15,11 +15,6 @@ export default function SettingsScreen() {
   const { data, run } = useStore();
   const s = data.settings;
   const [geofence, setGeofence] = useState(String(s.geofenceM));
-  const lastEnd = [...data.cycles].sort((a, b) => b.end.localeCompare(a.end))[0]?.end;
-  const nextStart = lastEnd ? toDateKey(addDays(new Date(`${lastEnd}T12:00:00`), 1)) : toDateKey(new Date());
-  const [cycleName, setCycleName] = useState(`Cycle ${data.cycles.length + 1}`);
-  const [cycleStart, setCycleStart] = useState(nextStart);
-  const [cycleEnd, setCycleEnd] = useState(toDateKey(addDays(new Date(`${nextStart}T12:00:00`), 55)));
   const [productName, setProductName] = useState('');
   const [productMessages, setProductMessages] = useState('');
 
@@ -60,30 +55,19 @@ export default function SettingsScreen() {
       </Card>
 
       <SectionTitle>Planning cycles</SectionTitle>
-      {[...data.cycles]
-        .sort((a, b) => a.start.localeCompare(b.start))
-        .map((c) => (
-          <Card key={c.id}>
-            <Row>
+      <Card>
+        <Text style={[text.body, { marginBottom: space.sm }]}>Cycles follow the calendar quarters and are created automatically each year. Reps plan each quarter and send the plan to their manager for approval.</Text>
+        {[...data.cycles]
+          .filter((c) => c.end >= toDateKey(addDays(new Date(), -92)) && c.start <= toDateKey(addDays(new Date(), 200)))
+          .sort((a, b) => a.start.localeCompare(b.start))
+          .map((c) => (
+            <Row key={c.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
               <Text style={[text.title, { flex: 1 }]}>{c.name}</Text>
               <Text style={text.muted}>
                 {formatDate(c.start)} – {formatDate(c.end)}
               </Text>
             </Row>
-          </Card>
-        ))}
-      <Card>
-        <Text style={[text.title, { marginBottom: space.sm }]}>Add a cycle</Text>
-        <Field label="Name" value={cycleName} onChangeText={setCycleName} />
-        <Row>
-          <View style={{ flex: 1 }}>
-            <Field label="Start" value={cycleStart} onChangeText={setCycleStart} placeholder="YYYY-MM-DD" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Field label="End" value={cycleEnd} onChangeText={setCycleEnd} placeholder="YYYY-MM-DD" />
-          </View>
-        </Row>
-        <Button title="Add cycle" variant="secondary" icon="add" onPress={() => attempt({ type: 'cycle.upsert', cycle: { id: newId('cyc'), name: cycleName.trim(), start: cycleStart.trim(), end: cycleEnd.trim() } }, () => setCycleName(`Cycle ${data.cycles.length + 2}`))} />
+          ))}
       </Card>
 
       <SectionTitle>Products</SectionTitle>

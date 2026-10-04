@@ -199,6 +199,8 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
 
     case 'cycle.upsert': {
       adminOnly();
+      // Cycles are now the calendar quarters, created automatically; older custom cycles are ignored.
+      if (s.cycles.some((c) => /^q\d{4}-[1-4]$/.test(c.id))) return s;
       const c = m.cycle;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(c.start) || !/^\d{4}-\d{2}-\d{2}$/.test(c.end)) fail('Use YYYY-MM-DD dates.');
       if (c.end < c.start) fail('The cycle must end after it starts.');

@@ -204,3 +204,22 @@ test('calendar: submitted green, planned blue until its day passes, then red', (
   const days = byDay(s.calls, now);
   assert.ok([...days.values()].some((d) => d.overdue > 0) && [...days.values()].some((d) => d.planned > 0) && [...days.values()].some((d) => d.submitted > 0), 'demo shows all three colours');
 });
+
+test('cycles follow the calendar quarters', async () => {
+  const { quarterCycles, companyCycles, isQuarterId } = await import('../src/data/cycles');
+  const y = quarterCycles(2026, 2026);
+  assert.deepEqual(
+    y.map((c) => [c.id, c.start, c.end]),
+    [
+      ['q2026-1', '2026-01-01', '2026-03-31'],
+      ['q2026-2', '2026-04-01', '2026-06-30'],
+      ['q2026-3', '2026-07-01', '2026-09-30'],
+      ['q2026-4', '2026-10-01', '2026-12-31'],
+    ],
+  );
+  assert.match(y[0].name, /^Cycle 1 · Jan–Mar 2026$/);
+  const cs = companyCycles('2026-10-04T10:00:00Z', new Date('2026-10-04T12:00:00Z'));
+  assert.equal(cs[0].id, 'q2025-1');
+  assert.equal(cs[cs.length - 1].id, 'q2027-4');
+  assert.ok(isQuarterId('q2026-3') && !isQuarterId('cyc_1'));
+});

@@ -7,7 +7,7 @@ import type { User } from '@/data/types';
 import { Hero, heroText } from '@/ui/Brand';
 import { Avatar, Card, Empty, ProgressBar, Row, SectionTitle, text } from '@/ui/components';
 import { Screen } from '@/ui/Screen';
-import { LicenseBanner } from '@/ui/SyncCard';
+import { LicenseBanner, SyncBar } from '@/ui/SyncCard';
 import { colors, paceColor, space } from '@/ui/theme';
 import { TeamHeroStats, TierCoverage } from './TeamDashboard';
 
@@ -17,7 +17,7 @@ import { TeamHeroStats, TierCoverage } from './TeamDashboard';
  */
 export function RegionDashboard({ leader }: { leader: User }) {
   const { data, cycle, syncNow, sync, company } = useStore();
-  if (!cycle) return <Screen><LicenseBanner /><Empty>No cycle is set up yet. An administrator can add one.</Empty></Screen>;
+  if (!cycle) return <Screen><LicenseBanner /><Empty>No planning cycle found. Pull down to refresh.</Empty></Screen>;
   const elapsed = cycleElapsed(cycle);
   const flms = leader.role === 'Admin' ? data.users.filter((u) => u.role === 'FLM' && u.active) : data.users.filter((u) => u.managerId === leader.id && u.role === 'FLM' && u.active);
   const teams = flms.map((f) => ({ flm: f, r: teamRollup(data, f, cycle) }));
@@ -26,6 +26,7 @@ export function RegionDashboard({ leader }: { leader: User }) {
 
   return (
     <Screen wide onRefresh={syncNow} refreshing={sync.syncing}>
+      <SyncBar />
       <LicenseBanner />
       <Hero>
         <Text style={heroText.eyebrow}>

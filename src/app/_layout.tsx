@@ -1,14 +1,27 @@
-import { Stack } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 import { StoreProvider, useStore } from '@/data/store';
 import '@/cloud/background';
 import { HeaderTitle } from '@/ui/Brand';
 import { colors } from '@/ui/theme';
 
-// Closes the Google/Microsoft sign-in popup on the web and hands the result to the app.
-WebBrowser.maybeCompleteAuthSession();
+/** On the web, every page below the tabs gets a visible Back button (phones use the system back). */
+function WebBack({ canGoBack }: { canGoBack?: boolean }) {
+  if (Platform.OS !== 'web') return null;
+  return (
+    <Pressable
+      onPress={() => (canGoBack && router.canGoBack() ? router.back() : router.replace('/'))}
+      accessibilityRole="button"
+      accessibilityLabel="Back"
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 10, marginLeft: 8, marginRight: 4, borderRadius: 8, backgroundColor: pressed || hovered ? colors.primarySoft : 'transparent' })}
+    >
+      <Ionicons name="arrow-back" size={20} color={colors.primary} />
+      <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 15 }}>Back</Text>
+    </Pressable>
+  );
+}
 
 function RootNav() {
   const { ready, session } = useStore();
@@ -29,6 +42,7 @@ function RootNav() {
         headerTitle: ({ children }) => <HeaderTitle title={children} />,
         headerShadowVisible: false,
         contentStyle: { backgroundColor: colors.bg },
+        ...(Platform.OS === 'web' ? { headerLeft: ({ canGoBack }: { canGoBack?: boolean }) => <WebBack canGoBack={canGoBack} />, headerBackVisible: false } : {}),
       }}
     >
       <Stack.Protected guard={!session}>
@@ -41,19 +55,19 @@ function RootNav() {
         <Stack.Screen name="account/new" options={{ title: 'New account', presentation: 'modal' }} />
         <Stack.Screen name="call/[id]" options={{ title: 'Call' }} />
         <Stack.Screen name="call/edit" options={{ title: 'Log call', presentation: 'modal' }} />
-        <Stack.Screen name="plan/[id]" options={{ title: 'Cycle plan' }} />
+        <Stack.Screen name="plan/[id]" options={{ title: 'Quarterly plan' }} />
+        <Stack.Screen name="password" options={{ title: 'Change password' }} />
         <Stack.Screen name="team/[id]" options={{ title: 'Team' }} />
         <Stack.Screen name="overview" options={{ title: 'Organisation overview' }} />
         <Stack.Screen name="export" options={{ title: 'Export data' }} />
         <Stack.Screen name="admin/users" options={{ title: 'Users & roles' }} />
         <Stack.Screen name="admin/user" options={{ title: 'User', presentation: 'modal' }} />
         <Stack.Screen name="admin/import" options={{ title: 'Import CSV' }} />
-        <Stack.Screen name="admin/settings" options={{ title: 'Cycles, products & rules' }} />
+        <Stack.Screen name="admin/settings" options={{ title: 'Products & rules' }} />
         <Stack.Screen name="admin/audit" options={{ title: 'Audit log' }} />
         <Stack.Screen name="admin/company" options={{ title: 'Company & approval' }} />
         <Stack.Screen name="admin/tiers" options={{ title: 'Tier names' }} />
       </Stack.Protected>
-      <Stack.Screen name="oauthredirect" options={{ headerShown: false, title: 'Signing in' }} />
     </Stack>
   );
 }

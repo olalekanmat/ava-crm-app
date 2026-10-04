@@ -63,6 +63,6 @@ export default function CallsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  inner: { flex: 1, padding: space.lg, paddingBottom: 0, width: '100%', maxWidth: 760, alignSelf: 'center' },
+  inner: { flex: 1, padding: space.lg, paddingBottom: 0, width: '100%', maxWidth: 1200, alignSelf: 'center' },
   filters: { flexDirection: 'row', flexWrap: 'wrap' },
 });

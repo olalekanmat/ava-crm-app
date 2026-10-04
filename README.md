@@ -1,25 +1,26 @@
 # Ava CRM
 
-A field CRM for pharma and life-sciences sales teams, built as **one codebase for Android, iOS and web** (Expo). Each company keeps its own data in its own Google Drive, OneDrive or SharePoint; Ava Healthcare only approves companies.
+A field CRM for pharma and life-sciences sales teams, built as **one codebase for Android, iOS and web** (Expo). Each company keeps its own data in its administrator's OneDrive; Ava Healthcare approves companies and relays files, but stores no company data.
 
 ## What's in it
 
 | Who | What they get |
 |---|---|
-| **Rep** | Today view, accounts, call logging with **GPS check-in**, cycle plan, **call calendar** (green submitted, blue planned, red overdue) |
+| **Rep** | Today view, accounts, call logging with **GPS check-in**, quarterly plan sent to the manager for approval, **call calendar** (names shown in landscape/wide screens) (green submitted, blue planned, red overdue) |
 | **FLM** | Team view: plan attainment vs. time elapsed, reach, geo-verified share; approve or send back cycle plans |
 | **SLM** | Region overview: every FLM team side by side, rep ranking, coverage by tier |
-| **Admin** | Company profile and logo, approval status, drive folder and sharing, users and reporting lines, **tier names per team** (default ST, T1, T2, T3), CSV import and export, cycles, products, check-in rules, audit log |
+| **Admin** | Company profile and logo, approval status, company code and OneDrive folder, password resets, users and reporting lines, **tier names per team** (default ST, T1, T2, T3), CSV import and export, products, check-in rules, audit log |
 
-- **Company setup**: the first admin signs in with the company's Microsoft or Google account, enters the company name, logo and details, picks the storage folder and requests approval from `https://avahealthcareltd.com/AvaCRM`.
+- **Company setup** (web): the admin enters the company details and their own password, then links their OneDrive once. Ava CRM creates the company folder and requests approval.
+- **Sign-in**: everyone else uses the company code, work email and password (first password `12345678`, changed at first sign-in).
+- **Cycles**: calendar quarters, created automatically (Cycle 1 = Jan–Mar … Cycle 4 = Oct–Dec).
 - **Company logo** at the top left of every page.
-- **Offline first**: changes are kept on the device and upload on open, hourly while open, in the background when the phone allows, and from the **Sync** button.
+- **Auto-save**: changes save a moment after they are made. Offline, the phone keeps them and uploads when the connection returns (or from the **Sync** button on Home).
 - **Licences**: signed by the approval server, checked in the app; read-only when expired or revoked.
 
-## Modes
+## Live use
 
-- **Demo**: pick a role on the sign-in screen and explore a fictional company stored on the device.
-- **Company**: sign in with Microsoft or Google. See [docs/SETUP.md](docs/SETUP.md) for the one-time registration steps and how the data model works.
+The app runs only against live company data (no demo mode). See [docs/SETUP.md](docs/SETUP.md) for the one-time Microsoft and Netlify steps and how the data model works.
 
 ## Run it
 
@@ -77,8 +78,8 @@ npm run typecheck
 ```
 src/app/            screens (Expo Router); setup.tsx = company setup, sign-in.tsx
   admin/            company & approval, tiers, users, import, settings, audit log
-src/cloud/          drive storage: journal.ts (replay), sync.ts, google.ts, graph.ts,
-                    auth.ts (Microsoft/Google sign-in), license.ts, background.ts, setup.ts
+src/cloud/          relay.ts (sign-in and company folder via the Ava CRM server), journal.ts (replay),
+                    sync.ts, license.ts, background.ts, setup.ts
 src/data/           types, mutations (all rules), sanitize, access, metrics, tiers, calendar, csv, store
 src/screens/        role dashboards and the plan view
 src/ui/             components, calendar, sync card, company form

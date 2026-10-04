@@ -1,8 +1,8 @@
 import * as Linking from 'expo-linking';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Share, Text, View } from 'react-native';
-import { adapterFor, PROVIDER_LABEL } from '@/cloud/connect';
 import { refreshLicense } from '@/cloud/license';
+import { DEFAULT_PASSWORD, folderInfo, loadToken } from '@/cloud/relay';
 import { requestApproval } from '@/cloud/setup';
 import { formatDate, formatDateTime } from '@/data/dates';
 import { useMe, useStore } from '@/data/store';
@@ -13,7 +13,7 @@ import { confirm, notify } from '@/ui/confirm';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
 
-const STATE_LABEL = { active: 'Approved', pending: 'Waiting for approval', none: 'Not requested', expired: 'Expired', revoked: 'Revoked', invalid: 'Not valid', demo: 'Demo' } as const;
+const STATE_LABEL = { active: 'Approved', pending: 'Waiting for approval', none: 'Not requested', expired: 'Expired', revoked: 'Revoked', invalid: 'Not valid' } as const;
 
 /** Admin: company profile, licence and approval, and the drive folder the team shares. */
 export default function CompanyScreen() {
@@ -21,6 +21,10 @@ export default function CompanyScreen() {
   const { company, run, session, license, licenseFile, saveLicense, data, syncNow } = useStore();
   const [draft, setDraft] = useState<Company>(company);
   const [busy, setBusy] = useState<string>();
+  const [folderUrl, setFolderUrl] = useState<string>();
+  useEffect(() => {
+    folderInfo(loadToken).then((f) => setFolderUrl(f?.webUrl));
+  }, []);
   if (me.role !== 'Admin') return <Screen><Empty>Only administrators can change the company.</Empty></Screen>;
   const cloud = session?.mode === 'cloud' ? session : undefined;
 
@@ -55,35 +59,21 @@ export default function CompanyScreen() {
   const resend = () =>
     task('Sending the approval request…', async () => {
       if (!licenseFile || !cloud) throw new Error('This company has no licence file.');
-      const r = await requestApproval(licenseFile, company, me, cloud.folder);
+      const r = await requestApproval(licenseFile, company, me, { ...cloud.folder, webUrl: folderUrl });
       await saveLicense({ ...licenseFile, status: r.status, updatedAt: new Date().toISOString() });
       notify('Request sent', 'Ava Healthcare will review it. This page shows the result after the next check.');
     });
 
-  const members = data.users.filter((u) => u.active && u.id !== me.id);
-  const shareAll = () =>
-    confirm(
-      'Share the folder with your team?',
-      `${members.length} people get edit access to the company folder and an email from ${cloud ? PROVIDER_LABEL[cloud.folder.provider] : 'the drive'}. People who already have access are not affected.`,
-      () =>
-        task('Sharing the folder…', async () => {
-          const drive = adapterFor(cloud!.folder);
-          const failed: string[] = [];
-          for (const u of members) await drive.share(u.email).catch(() => failed.push(u.email));
-          notify('Folder shared', failed.length ? `Shared with ${members.length - failed.length}. Could not share with: ${failed.join(', ')} (check the email, or whether your organisation allows sharing outside it).` : `Shared with ${members.length} people.`);
-        }),
-      'Share',
-    );
-
+  const code = cloud?.companyCode ?? '';
   const invite = () => {
-    const msg = `You have been added to ${company.name} on Ava CRM.\n\n1. Install Ava CRM: https://avahealthcareltd.com/AvaCRM\n2. Sign in with your work ${cloud?.folder.provider === 'google' ? 'Google' : 'Microsoft'} account.\n3. Choose ${company.name}, or paste this folder link: ${cloud?.folder.webUrl ?? ''}`;
+    const msg = `You have been added to ${company.name} on Ava CRM.\n\n1. Install Ava CRM on Android: https://avahealthcareltd.com/AvaCRM (or use the web app: https://avahealthcareltd.com/AvaCRM/app)\n2. Sign in with:\n   Company code: ${code}\n   Email: your work email\n   Password: ${DEFAULT_PASSWORD}\n3. Choose your own password when asked.`;
     if (Platform.OS === 'web') {
       navigator.clipboard?.writeText(msg).then(() => notify('Copied', 'The invitation is on your clipboard. Paste it into an email or chat.'), () => notify('Invitation', msg));
     } else Share.share({ message: msg });
   };
 
   const lic = license.state;
-  const tone = lic === 'active' ? colors.success : lic === 'pending' || lic === 'none' ? colors.warn : lic === 'demo' ? colors.muted : colors.danger;
+  const tone = lic === 'active' ? colors.success : lic === 'pending' || lic === 'none' ? colors.warn : colors.danger;
 
   return (
     <Screen>
@@ -104,7 +94,6 @@ export default function CompanyScreen() {
             Server {licenseFile.server} · requested {formatDate(licenseFile.requestedAt.slice(0, 10))} · last checked {formatDateTime(licenseFile.updatedAt)}
           </Text>
         )}
-        {lic === 'demo' && <Text style={text.muted}>The demo does not need approval.</Text>}
         {cloud && (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md }}>
             <Button small icon="refresh-outline" title="Check now" onPress={checkNow} disabled={!!busy} />
@@ -115,15 +104,25 @@ export default function CompanyScreen() {
 
       {cloud && (
         <>
-          <SectionTitle>Company folder</SectionTitle>
+          <SectionTitle>Team sign-in</SectionTitle>
+          <Card>
+            <Text style={text.muted}>Company code</Text>
+            <Text style={{ fontSize: 32, fontWeight: '800', letterSpacing: 4, color: colors.primaryDark, marginVertical: 4 }} selectable>
+              {code || '—'}
+            </Text>
+            <Text style={text.muted}>Everyone signs in with this code, their work email and a password. New users start with {DEFAULT_PASSWORD} and choose their own password at first sign-in. Add people under Users & roles.</Text>
+            <View style={{ marginTop: space.md }}>
+              <Button small icon="mail-outline" title="Copy invitation message" onPress={invite} />
+            </View>
+          </Card>
+
+          <SectionTitle>Company data</SectionTitle>
           <Card style={{ padding: 0 }}>
-            <ListRow icon="folder-outline" title={cloud.folder.name ?? 'Company folder'} subtitle={`${PROVIDER_LABEL[cloud.folder.provider]} · tap to open`} onPress={cloud.folder.webUrl ? () => Linking.openURL(cloud.folder.webUrl!) : undefined} />
-            <ListRow icon="people-outline" tone={colors.orange} title="Share folder with team" subtitle={`Give the ${members.length} users edit access so they can sign in`} onPress={members.length ? shareAll : undefined} />
-            <ListRow icon="mail-outline" tone={colors.success} title="Invitation message" subtitle="Install link, sign-in steps and the folder link" onPress={invite} />
+            <ListRow icon="folder-outline" title="Open the company folder" subtitle="In your OneDrive · everything your team records is kept here" onPress={folderUrl ? () => Linking.openURL(folderUrl) : undefined} />
             <ListRow icon="sync-outline" title="Sync now" subtitle="Upload changes and refresh the CSV copies in the folder" onPress={() => syncNow(true)} />
           </Card>
           <Text style={[text.small, { marginBottom: space.md }]}>
-            The folder holds one file per person and device with their changes, plus CSV copies of calls, accounts, plans and users that open in Excel. Anyone with access to the folder can read these files, so share it only with your team.
+            The folder holds one file per person and device with their changes, plus CSV copies of calls, accounts, plans and users that open in Excel. Keep it private: your team does not need access to it.
           </Text>
         </>
       )}

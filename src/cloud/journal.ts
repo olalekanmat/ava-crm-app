@@ -1,5 +1,6 @@
 import { applyMutation, describeMutation, RuleError, type Mutation } from '../data/mutations';
 import { sanitizeMutation } from '../data/sanitize';
+import { companyCycles } from '../data/cycles';
 import { emptySnapshot, type Company, type Snapshot, type User } from '../data/types';
 
 /**
@@ -94,9 +95,10 @@ export function parseCompanyFile(text: string): CompanyFile | undefined {
 }
 
 /** The starting point before any journal: the company and its first administrator. */
-export function genesisSnapshot(g: CompanyFile): Snapshot {
+export function genesisSnapshot(g: CompanyFile, now = new Date()): Snapshot {
   const admin: User = { id: g.admin.id, name: g.admin.name, email: g.admin.email.toLowerCase(), role: 'Admin', active: true, createdAt: g.createdAt };
-  return { ...emptySnapshot({ name: g.company?.name || 'My company' }), users: [admin] };
+  // Planning cycles are the calendar quarters (Cycle 1 = Jan–Mar …), created automatically.
+  return { ...emptySnapshot({ name: g.company?.name || 'My company' }), users: [admin], cycles: companyCycles(g.createdAt, now) };
 }
 
 /**
@@ -132,7 +134,7 @@ export function replay(g: CompanyFile, sources: JournalSource[], now = new Date(
 
   items.sort((x, y) => x.e.at.localeCompare(y.e.at) || x.j.userId.localeCompare(y.j.userId) || x.j.deviceId.localeCompare(y.j.deviceId) || x.e.seq - y.e.seq);
 
-  let s = genesisSnapshot(g);
+  let s = genesisSnapshot(g, now);
   for (const { j, e } of items) {
     const at = new Date(e.at);
     const entry: ReplayLogEntry = { at: e.at, userId: j.userId, deviceId: j.deviceId, seq: e.seq, what: String((e.m as { type?: unknown })?.type ?? 'change') };

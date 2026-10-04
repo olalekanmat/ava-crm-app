@@ -1,41 +1,43 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { currentAccount, loadAuthConfig, providerConfigured, restoreAuth, signInWith, signOutAuth, type AuthProvider, type CloudAccount } from '@/cloud/auth';
-import { findCompanies, folderFromLink, PROVIDER_LABEL } from '@/cloud/connect';
-import type { FolderRef } from '@/cloud/drive';
-import type { CompanyFile } from '@/cloud/journal';
-import { joinCompany } from '@/cloud/setup';
-import { buildSeed } from '@/data/seed';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { api, DEFAULT_PASSWORD, saveToken, type LoginResult } from '@/cloud/relay';
+import { openCompany } from '@/cloud/setup';
+import { loadJson, saveJson } from '@/data/storage';
 import { useStore } from '@/data/store';
-import { ROLE_LABEL, type User } from '@/data/types';
 import { mark } from '@/ui/Brand';
-import { Avatar, Banner, Button, Field, text } from '@/ui/components';
+import { Banner, Button, Field, text } from '@/ui/components';
 import { colors, radius, shadow, space } from '@/ui/theme';
 
-const DEMO_USERS: User[] = (() => {
-  const users = buildSeed().users;
-  const pickRole = (r: User['role']) => users.find((u) => u.role === r)!;
-  return [pickRole('Rep'), pickRole('FLM'), pickRole('SLM'), pickRole('Admin')];
-})();
+const REMEMBER = 'ava.signin';
+const SETUP_URL = 'https://avahealthcareltd.com/AvaCRM/app/setup';
 
-const ROLE_BLURB: Record<User['role'], string> = {
-  Rep: 'Today’s calls, call logging with check-in, cycle plan',
-  FLM: 'Team view, plan approvals, check-in compliance',
-  SLM: 'Region overview across first-line teams',
-  Admin: 'Users, CSV import, exports, cycles and rules',
-};
-
+/** Sign in with the company code, work email and password. First sign-in asks for a new password. */
 export default function SignInScreen() {
-  const { signInDemo, enterCloud } = useStore();
-  const [account, setAccount] = useState<CloudAccount | null>(currentAccount());
-  const [companies, setCompanies] = useState<{ folder: FolderRef; company: CompanyFile }[]>();
-  const [link, setLink] = useState('');
+  const { enterCloud } = useStore();
+  const params = useLocalSearchParams<{ company?: string; email?: string; setup?: string }>();
+  const [code, setCode] = useState(params.company ?? '');
+  const [email, setEmail] = useState(params.email ?? '');
+  const [password, setPassword] = useState('');
+  const [pending, setPending] = useState<LoginResult | null>(null);
+  const [next, setNext] = useState('');
+  const [confirmNext, setConfirmNext] = useState('');
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    if (params.company) return;
+    loadJson<{ code: string; email: string }>(REMEMBER).then((r) => {
+      if (r) {
+        setCode((c) => c || r.code);
+        setEmail((e) => e || r.email);
+      }
+    });
+  }, [params.company]);
 
   const attempt = async (label: string, fn: () => Promise<void>) => {
     setBusy(label);
@@ -49,52 +51,41 @@ export default function SignInScreen() {
     }
   };
 
-  const look = (acc: CloudAccount) =>
-    attempt('Looking for your company…', async () => {
-      setCompanies(await findCompanies(acc.provider));
-    });
+  const finish = async (login: LoginResult) => {
+    await saveToken(login.token);
+    await saveJson(REMEMBER, { code: login.companyCode, email: login.user.email });
+    setBusy(`Opening ${login.companyName || 'your company'}…`);
+    const { session, cache } = await openCompany(login);
+    await enterCloud(session, cache);
+  };
 
-  // On the web a page reload keeps the sign-in for this tab.
-  const [, setConfigLoaded] = useState(false);
-  useEffect(() => {
-    loadAuthConfig().finally(() => setConfigLoaded(true));
-    if (!account) restoreAuth().then((acc) => acc && setAccount(acc));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (account && !companies) look(account);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account]);
-
-  const signIn = (p: AuthProvider) =>
-    attempt('Waiting for sign-in…', async () => {
-      const acc = await signInWith(p);
-      if (acc) {
-        setCompanies(undefined);
-        setAccount(acc);
+  const signIn = () =>
+    attempt('Signing in…', async () => {
+      if (!code.trim() || !email.trim() || !password) throw new Error('Enter your company code, email and password.');
+      const r = await api.login(code, email, password);
+      if (r.mustChange) {
+        setPending({ ...r });
+        setNext('');
+        setConfirmNext('');
+        return;
       }
+      await finish(r);
     });
 
-  const open = (folder: FolderRef) =>
-    attempt('Opening your company…', async () => {
-      const { session, cache } = await joinCompany(account!, folder);
-      await enterCloud(session, cache);
+  const changePassword = () =>
+    attempt('Saving your new password…', async () => {
+      if (!pending) return;
+      if (next.length < 8) throw new Error('Choose a password of at least 8 characters.');
+      if (next === DEFAULT_PASSWORD) throw new Error('Choose a password other than 12345678.');
+      if (next !== confirmNext) throw new Error('The two passwords do not match.');
+      const { token } = await api.changePassword(pending.token, password, next);
+      setPassword('');
+      await finish({ ...pending, token, mustChange: false });
     });
 
-  const openLink = () =>
-    attempt('Opening the folder…', async () => {
-      const provider = account!.provider === 'google' ? 'google' : /sharepoint\.com/i.test(link) ? 'sharepoint' : 'onedrive';
-      const folder = await folderFromLink(provider, link);
-      const { session, cache } = await joinCompany(account!, folder);
-      await enterCloud(session, cache);
-    });
-
-  const switchAccount = async () => {
-    await signOutAuth();
-    setAccount(null);
-    setCompanies(undefined);
-    setError(undefined);
+  const setUp = () => {
+    if (Platform.OS === 'web') router.push('/setup');
+    else WebBrowser.openBrowserAsync(SETUP_URL);
   };
 
   return (
@@ -103,60 +94,42 @@ export default function SignInScreen() {
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.brand}>
             <View style={styles.logoWrap}>
-              <Image source={mark} style={{ width: 46, height: 92 }} contentFit="contain" />
+              <Image source={mark} style={{ width: 38, height: 76 }} contentFit="contain" />
             </View>
             <Text style={styles.name}>Ava CRM</Text>
-            <Text style={styles.tagline}>The field CRM your reps actually like using</Text>
+            <Text style={styles.tagline}>Field CRM for pharma sales teams</Text>
           </View>
 
           <View style={styles.card}>
+            {params.setup === 'done' && !pending && <Banner tone="success">Your company is set up and OneDrive is linked. Sign in with the password you chose. Your company code is {params.company}.</Banner>}
             {!!error && <Banner tone="danger">{error}</Banner>}
-            {!account ? (
+
+            {!pending ? (
               <>
-                <Text style={[text.h2, { marginBottom: 4 }]}>Sign in</Text>
-                <Text style={[text.muted, { marginBottom: space.md }]}>Use your work Microsoft or Google account. Your company’s data stays in its own OneDrive, SharePoint or Google Drive.</Text>
-                <View style={{ gap: space.sm }}>
-                  <Button title="Sign in with Microsoft" icon="logo-windows" onPress={() => signIn('microsoft')} disabled={!!busy} />
-                  <Button title="Sign in with Google" icon="logo-google" variant="secondary" onPress={() => signIn('google')} disabled={!!busy} />
-                </View>
-                {(!providerConfigured('microsoft') || !providerConfigured('google')) && (
-                  <Text style={[text.small, { marginTop: space.sm }]}>
-                    {!providerConfigured('microsoft') && !providerConfigured('google') ? 'Sign-in is not connected in this test build yet; use the demo below.' : `${providerConfigured('google') ? 'Microsoft' : 'Google'} sign-in is not connected in this build yet.`}
-                  </Text>
-                )}
+                <Text style={[text.h2, { marginBottom: space.md }]}>Sign in</Text>
+                <Field label="Company code" value={code} onChangeText={(v) => setCode(v.toUpperCase())} autoCapitalize="characters" autoCorrect={false} placeholder="e.g. 7KQ2MD" maxLength={6} hint="The 6-character code from your administrator." />
+                <Field label="Work email" value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" placeholder="name@company.com" />
+                <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoComplete="password" onSubmitEditing={signIn} returnKeyType="go" hint="First time? Use 12345678, then choose your own password." />
+                <Button title="Sign in" icon="log-in-outline" onPress={signIn} disabled={!!busy} />
               </>
             ) : (
               <>
-                <Text style={text.h2}>Choose your company</Text>
-                <Text style={[text.muted, { marginBottom: space.md }]}>
-                  Signed in as {account.email} ({account.provider === 'google' ? 'Google' : 'Microsoft'}).{' '}
-                  <Text style={text.link} onPress={switchAccount}>
-                    Use another account
-                  </Text>
-                </Text>
-                {companies?.map(({ folder, company }) => (
-                  <Pressable key={folder.id} onPress={() => open(folder)} style={({ pressed }) => [styles.role, pressed && { opacity: 0.7 }]} disabled={!!busy}>
-                    <Ionicons name="business" size={26} color={colors.primary} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={text.title}>{company.company.name}</Text>
-                      <Text style={text.muted}>{PROVIDER_LABEL[company.provider]} · {folder.name}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={colors.faint} />
-                  </Pressable>
-                ))}
-                {companies?.length === 0 && <Text style={[text.muted, { marginBottom: space.sm }]}>No company folder is shared with this account yet.</Text>}
-                <View style={{ marginTop: space.md }}>
-                  <Field label="Or paste the company folder link" value={link} onChangeText={setLink} autoCapitalize="none" keyboardType="url" placeholder={account.provider === 'google' ? 'https://drive.google.com/drive/folders/…' : 'https://…sharepoint.com/… or OneDrive link'} hint="Your administrator can send you this link." />
-                  <Button title="Open folder" variant="secondary" icon="folder-open-outline" onPress={openLink} disabled={!link.trim() || !!busy} />
+                <View style={styles.pwHead}>
+                  <Ionicons name="key-outline" size={22} color={colors.primary} />
+                  <Text style={text.h2}>Choose your password</Text>
                 </View>
-                <View style={[styles.divider]} />
-                <Text style={text.title}>Setting up Ava CRM for your company?</Text>
-                <Text style={[text.muted, { marginBottom: space.sm }]}>Company administrators enter the company details, logo and storage folder, then request approval.</Text>
-                <Button title="Set up a new company" icon="add-circle-outline" onPress={() => router.push('/setup')} disabled={!!busy} />
+                <Text style={[text.muted, { marginBottom: space.md }]}>
+                  Welcome, {pending.user.name.split(' ')[0]}. Before you start, replace the starting password with one only you know (at least 8 characters).
+                </Text>
+                <Field label="New password" value={next} onChangeText={setNext} secureTextEntry autoCapitalize="none" autoComplete="new-password" />
+                <Field label="Type it again" value={confirmNext} onChangeText={setConfirmNext} secureTextEntry autoCapitalize="none" autoComplete="new-password" onSubmitEditing={changePassword} returnKeyType="go" />
+                <Button title="Save password and continue" icon="checkmark-circle-outline" onPress={changePassword} disabled={!!busy} />
+                <Button title="Back" variant="ghost" onPress={() => setPending(null)} disabled={!!busy} />
               </>
             )}
+
             {!!busy && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.md }}>
+              <View style={styles.busy}>
                 <ActivityIndicator color={colors.primary} />
                 <Text style={text.muted}>{busy}</Text>
               </View>
@@ -164,20 +137,11 @@ export default function SignInScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={text.h2}>Explore the demo</Text>
-            <Text style={[text.muted, { marginBottom: space.md }]}>A fictional sales organisation, stored only on this device. Pick a role to see its view; you can switch any time under More.</Text>
-            {DEMO_USERS.map((u) => (
-              <Pressable key={u.id} onPress={() => signInDemo(u.id)} style={({ pressed }) => [styles.role, pressed && { opacity: 0.7 }]}>
-                <Avatar name={u.name} size={38} />
-                <View style={{ flex: 1 }}>
-                  <Text style={text.title}>
-                    {ROLE_LABEL[u.role]} · {u.name}
-                  </Text>
-                  <Text style={text.muted}>{ROLE_BLURB[u.role]}</Text>
-                </View>
-              </Pressable>
-            ))}
+            <Text style={text.title}>New to Ava CRM?</Text>
+            <Text style={[text.muted, { marginBottom: space.sm }]}>Company administrators set up the company once and link the company’s OneDrive, where all of its data is kept. Everyone else just signs in.</Text>
+            <Button title="Set up a new company" variant="secondary" icon="business-outline" onPress={setUp} disabled={!!busy} />
           </View>
+          <Text style={styles.footer}>Ava CRM by Ava Healthcare Limited · avahealthcareltd.com</Text>
         </ScrollView>
       </LinearGradient>
     </KeyboardAvoidingView>
@@ -185,12 +149,13 @@ export default function SignInScreen() {
 }
 
 const styles = StyleSheet.create({
-  scroll: { padding: space.lg, paddingTop: 56, paddingBottom: 48, width: '100%', maxWidth: 480, alignSelf: 'center' },
-  brand: { alignItems: 'center', marginBottom: space.xl },
-  logoWrap: { width: 112, height: 112, borderRadius: 32, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', ...shadow },
-  name: { color: '#fff', fontSize: 40, fontWeight: '800', letterSpacing: -1, marginTop: space.md },
+  scroll: { padding: space.lg, paddingTop: 48, paddingBottom: 40, width: '100%', maxWidth: 460, alignSelf: 'center' },
+  brand: { alignItems: 'center', marginBottom: space.lg },
+  logoWrap: { width: 92, height: 92, borderRadius: 26, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', ...shadow },
+  name: { color: '#fff', fontSize: 34, fontWeight: '800', letterSpacing: -0.8, marginTop: space.md },
   tagline: { color: 'rgba(255,255,255,0.88)', fontSize: 15, marginTop: 2, textAlign: 'center' },
   card: { backgroundColor: colors.card, borderRadius: radius.lg + 4, padding: space.lg, marginBottom: space.md, ...shadow },
-  divider: { height: 1, backgroundColor: colors.border, marginVertical: space.lg },
-  role: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm + 2, borderTopWidth: 1, borderTopColor: colors.border },
+  pwHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: 4 },
+  busy: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.md },
+  footer: { color: 'rgba(255,255,255,0.75)', fontSize: 12, textAlign: 'center', marginTop: space.sm },
 });

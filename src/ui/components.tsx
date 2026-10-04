@@ -94,6 +94,7 @@ export function Field({ label, error, hint, ...props }: TextInputProps & { label
       <Text style={styles.label}>{label}</Text>
       <TextInput
         placeholderTextColor={colors.faint}
+        accessibilityLabel={label.replace(/\s*\*$/, '')}
         {...props}
         style={[styles.input, props.multiline && { minHeight: 96, textAlignVertical: 'top' }, !!error && { borderColor: colors.danger }, props.style]}
       />

@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { byDay, calendarState, monthGrid, type CalendarState } from '@/data/calendar';
 import { timeKey, toDateKey } from '@/data/dates';
 import { useStore } from '@/data/store';
@@ -28,6 +28,10 @@ export function CalendarLegend() {
 /** Month view of call plans and submitted calls, with the selected day's calls below. */
 export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: boolean }) {
   const { getAccount, getUser } = useStore();
+  // Wide screens (landscape phones, tablets, computers) show who is being visited inside each day.
+  const { width } = useWindowDimensions();
+  const roomy = width >= 640;
+  const maxNames = width >= 1000 ? 4 : 3;
   const today = toDateKey(new Date());
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
@@ -79,11 +83,25 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
                 <Pressable
                   key={k}
                   onPress={() => setSelected(k)}
-                  style={[styles.cell, edge && { borderColor: edge, borderWidth: 2 }, isSel && styles.cellSelected]}
+                  style={[styles.cell, roomy && styles.cellRoomy, edge && { borderColor: edge, borderWidth: 2 }, isSel && styles.cellSelected]}
                   accessibilityLabel={`${k}${d ? `: ${d.submitted} submitted, ${d.planned} planned, ${d.overdue} overdue` : ''}`}
                 >
                   <Text style={[styles.dayNum, !inMonth && { color: colors.faint }, k === today && styles.today]}>{Number(k.slice(8))}</Text>
-                  {d && (
+                  {d && roomy && (
+                    <View style={styles.names}>
+                      {d.calls.slice(0, maxNames).map((c) => {
+                        const st = calendarState(c);
+                        return (
+                          <Text key={c.id} numberOfLines={1} style={[styles.name, { borderLeftColor: calendarColors[st], color: colors.text }]}>
+                            {getAccount(c.accountId)?.name ?? 'Account'}
+                            {showRep ? ` · ${(getUser(c.ownerId)?.name ?? '').split(' ')[0]}` : ''}
+                          </Text>
+                        );
+                      })}
+                      {d.calls.length > maxNames && <Text style={[text.small, { fontSize: 10 }]}>+{d.calls.length - maxNames} more</Text>}
+                    </View>
+                  )}
+                  {d && !roomy && (
                     <View style={styles.dots}>
                       {(['submitted', 'planned', 'overdue'] as const).map((s) =>
                         d[s] ? (
@@ -135,6 +153,9 @@ const styles = StyleSheet.create({
   weekday: { flex: 1, textAlign: 'center' },
   cell: { flex: 1, minHeight: 52, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: 3, alignItems: 'center', backgroundColor: colors.card },
   cellSelected: { backgroundColor: colors.primarySoft },
+  cellRoomy: { minHeight: 92, alignItems: 'stretch', padding: 4 },
+  names: { gap: 2, marginTop: 3, width: '100%' },
+  name: { fontSize: 10, lineHeight: 13, borderLeftWidth: 3, paddingLeft: 3, backgroundColor: colors.bg, borderRadius: 2, overflow: 'hidden' },
   dayNum: { fontSize: 13, fontWeight: '600', color: colors.text },
   today: { color: '#fff', backgroundColor: colors.primary, borderRadius: 10, overflow: 'hidden', paddingHorizontal: 5 },
   dots: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 2, marginTop: 3 },

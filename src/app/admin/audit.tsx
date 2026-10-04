@@ -12,7 +12,7 @@ export default function AuditScreen() {
   const [onlyRefused, setOnlyRefused] = useState(false);
   const shown = useMemo(() => activity.filter((e) => !onlyRefused || e.error).slice(0, 500), [activity, onlyRefused]);
 
-  if (session?.mode !== 'cloud') return <Screen><Empty>The audit log is built from your company’s drive. It is not available in demo mode.</Empty></Screen>;
+  if (!session) return <Screen><Empty>Sign in to see the audit log.</Empty></Screen>;
   return (
     <Screen>
       <Banner>Every change is kept in your company folder, one file per person and device. This list shows the latest 500.</Banner>

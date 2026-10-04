@@ -22,6 +22,8 @@ export interface CloudCache {
   licenseVersion?: string;
   lastSync?: string;
   lastExport?: string;
+  /** The sign-in list last written to ava-roster.json (administrators). */
+  rosterSent?: string;
 }
 
 export function newCache(companyId: string, userId: string, email: string, deviceId: string): CloudCache {

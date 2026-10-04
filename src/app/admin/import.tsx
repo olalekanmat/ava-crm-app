@@ -49,7 +49,7 @@ export default function ImportScreen() {
       if (kind === 'accounts') run({ type: 'import.accounts', accounts: importAccounts(csv, data).valid });
       else if (kind === 'users') run({ type: 'import.users', users: importUsers(csv, data).valid });
       else run({ type: 'import.products', products: importProducts(csv, data).valid });
-      setResult(`Imported ${preview.valid.length} ${kind}.${preview.rows.length > preview.valid.length ? ` ${preview.rows.length - preview.valid.length} rows with errors were skipped.` : ''}${kind === 'users' && session?.mode === 'cloud' ? ' Open Company & approval and tap Share folder with team so new users can open the company folder.' : ''}`);
+      setResult(`Imported ${preview.valid.length} ${kind}.${preview.rows.length > preview.valid.length ? ` ${preview.rows.length - preview.valid.length} rows with errors were skipped.` : ''}${kind === 'users' ? ` New users sign in with company code ${session?.companyCode ?? ''}, their email and the starting password 12345678.` : ''}`);
       setCsv('');
       setFileName(undefined);
     } catch (e) {

@@ -3,13 +3,13 @@ import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
 import { loadBig, saveBig } from '../data/bigStorage';
 import { KEYS, loadJson } from '../data/storage';
-import { loadAuthConfig, restoreAuth } from './auth';
+import { loadToken } from './relay';
 import { adapterFor } from './connect';
 import type { FolderRef } from './drive';
 import { syncOnce, type CloudCache } from './sync';
 
 /**
- * Hourly sync while the app is closed. Android and iOS decide when background work actually
+ * Background sync while the app is closed. Android and iOS decide when background work actually
  * runs (battery saver, how often the app is used), so this is best effort: the app also syncs
  * on open, every hour while open, and from the Sync button.
  */
@@ -31,8 +31,7 @@ if (Platform.OS !== 'web') {
       const session = await loadJson<{ mode: string; companyId: string; folder: FolderRef }>(KEYS.session);
       const cache = await loadBig<CloudCache>(KEYS.cache);
       if (session?.mode !== 'cloud' || !cache || cache.companyId !== session.companyId) return BackgroundTask.BackgroundTaskResult.Success;
-      await loadAuthConfig();
-      if (!(await restoreAuth())) return BackgroundTask.BackgroundTaskResult.Failed;
+      if (!(await loadToken())) return BackgroundTask.BackgroundTaskResult.Failed;
       const { cache: next } = await syncOnce(adapterFor(session.folder), cache);
       await saveBig(KEYS.cache, next);
       return BackgroundTask.BackgroundTaskResult.Success;

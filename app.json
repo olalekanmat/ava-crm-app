@@ -2,8 +2,8 @@
   "expo": {
     "name": "Ava CRM",
     "slug": "ava",
-    "version": "2.0.0",
-    "orientation": "portrait",
+    "version": "2.1.0",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
@@ -22,7 +22,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.avacrm.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"

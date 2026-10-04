@@ -8,7 +8,7 @@ import { Hero, HeroStat, heroText } from '@/ui/Brand';
 import { CallRow } from '@/ui/CallRow';
 import { Avatar, Banner, Card, Empty, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, text, tierColor } from '@/ui/components';
 import { Screen } from '@/ui/Screen';
-import { LicenseBanner } from '@/ui/SyncCard';
+import { LicenseBanner, SyncBar } from '@/ui/SyncCard';
 import { colors, paceColor, space } from '@/ui/theme';
 
 /** One rep's line on a team dashboard. */
@@ -85,7 +85,7 @@ export function TeamHeroStats({ r }: { r: Rollup }) {
 /** First-line manager view: the reps reporting to `manager`. */
 export function TeamDashboard({ manager }: { manager: User }) {
   const { data, cycle, calls, syncNow, sync } = useStore();
-  if (!cycle) return <Screen><LicenseBanner /><Empty>No cycle is set up yet. An administrator can add one.</Empty></Screen>;
+  if (!cycle) return <Screen><LicenseBanner /><Empty>No planning cycle found. Pull down to refresh.</Empty></Screen>;
   const r = teamRollup(data, manager, cycle);
   const elapsed = cycleElapsed(cycle);
   const teamIds = new Set(r.reps.map((x) => x.rep.id));
@@ -95,6 +95,7 @@ export function TeamDashboard({ manager }: { manager: User }) {
 
   return (
     <Screen wide onRefresh={syncNow} refreshing={sync.syncing}>
+      <SyncBar />
       <LicenseBanner />
       <Hero>
         <Text style={heroText.eyebrow}>

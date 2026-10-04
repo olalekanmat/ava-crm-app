@@ -5,7 +5,7 @@ import { useMe, useStore } from '@/data/store';
 import { Hero, HeroStat, heroText } from '@/ui/Brand';
 import { Card, ListRow, Row, SectionTitle } from '@/ui/components';
 import { Screen } from '@/ui/Screen';
-import { LicenseBanner, SyncCard } from '@/ui/SyncCard';
+import { LicenseBanner, SyncBar } from '@/ui/SyncCard';
 import { colors, space } from '@/ui/theme';
 
 export function AdminHome() {
@@ -27,18 +27,18 @@ export function AdminHome() {
         </Row>
       </Hero>
 
+      <SyncBar />
       <LicenseBanner />
-      {session?.mode === 'cloud' && <SyncCard />}
 
       <SectionTitle>Manage</SectionTitle>
       <Card style={{ padding: 0 }}>
-        <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle="Logo, details, drive folder, licence, share with team" onPress={() => router.push('/admin/company')} />
+        <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle="Company code, logo, details, OneDrive folder, licence" onPress={() => router.push('/admin/company')} />
         <ListRow icon="people-outline" title="Users & roles" subtitle="Reps, FLMs, SLMs and admins; reporting lines" onPress={() => router.push('/admin/users')} />
         <ListRow icon="cloud-upload-outline" tone={colors.orange} title="Import CSV" subtitle="Accounts, users or products from a spreadsheet" onPress={() => router.push('/admin/import')} />
         <ListRow icon="download-outline" tone={colors.success} title="Export data" subtitle="Calls, accounts, plans and team KPIs as CSV" onPress={() => router.push('/export')} />
         <ListRow icon="layers-outline" tone={colors.orange} title="Tier names" subtitle="Tiering for each team (default ST, T1, T2, T3)" onPress={() => router.push('/admin/tiers')} />
-        <ListRow icon="options-outline" tone={colors.crimson} title="Cycles, products & rules" subtitle="Planning cycles, product catalogue, check-in rules" onPress={() => router.push('/admin/settings')} />
-        {session?.mode === 'cloud' && <ListRow icon="document-lock-outline" tone={colors.muted} title="Audit log" subtitle="Every change, who made it and when" onPress={() => router.push('/admin/audit')} />}
+        <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, quarterly cycles" onPress={() => router.push('/admin/settings')} />
+        {<ListRow icon="document-lock-outline" tone={colors.muted} title="Audit log" subtitle="Every change, who made it and when" onPress={() => router.push('/admin/audit')} />}
       </Card>
 
       <SectionTitle>Insights</SectionTitle>

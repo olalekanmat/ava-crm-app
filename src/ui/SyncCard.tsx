@@ -1,54 +1,66 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Text, View } from 'react-native';
-import { signInWith } from '@/cloud/auth';
-import { authFor, PROVIDER_LABEL } from '@/cloud/connect';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { formatDate, formatDateTime } from '@/data/dates';
 import { useStore } from '@/data/store';
-import { Banner, Button, Card, Row, text } from './components';
-import { notify } from './confirm';
-import { colors, space } from './theme';
+import { Banner, Button, text } from './components';
+import { colors, radius, space } from './theme';
 
-/** Sync status and the Sync button (cloud mode). */
+const ago = (iso?: string) => {
+  if (!iso) return 'not yet';
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : formatDateTime(iso);
+};
+
+/**
+ * Compact save status, shown on every Home screen; the phone app adds a Sync button (the web
+ * version saves automatically and only offers Retry after a failed save). Online, changes save
+ * automatically a moment after they are made; offline they wait on the device until the next
+ * sync (automatic when the connection returns, or by tapping Sync).
+ */
+export function SyncBar() {
+  const { session, sync, syncNow, signOut } = useStore();
+  if (!session) return null;
+  const waiting = sync.pending > 0;
+  const problem = !!sync.error;
+  const tone = problem ? colors.warn : waiting ? colors.orange : colors.success;
+  const icon = sync.syncing ? 'sync-outline' : problem ? 'cloud-offline-outline' : waiting ? 'cloud-upload-outline' : 'cloud-done-outline';
+  const title = sync.syncing
+    ? 'Saving to your company’s OneDrive…'
+    : problem
+      ? waiting
+        ? `Offline · ${sync.pending} change${sync.pending > 1 ? 's' : ''} saved on this device`
+        : 'Offline · showing data saved on this device'
+      : waiting
+        ? `${sync.pending} change${sync.pending > 1 ? 's' : ''} waiting to upload`
+        : 'All changes saved';
+  return (
+    <View style={[styles.bar, { borderColor: `${tone}55`, backgroundColor: `${tone}12` }]}>
+      <Ionicons name={icon} size={20} color={tone} />
+      <View style={{ flex: 1 }}>
+        <Text style={[text.title, { fontSize: 14 }]} numberOfLines={1}>
+          {title}
+        </Text>
+        <Text style={text.small} numberOfLines={2}>
+          {sync.needsSignIn ? 'Your sign-in has expired. Sign out and sign in again.' : problem ? sync.error : `Last synced ${ago(sync.lastSync)}`}
+        </Text>
+      </View>
+      {sync.needsSignIn ? (
+        <Button small variant="secondary" title="Sign in" icon="log-in-outline" onPress={signOut} />
+      ) : Platform.OS === 'web' && !problem ? null : (
+        <Button small variant={waiting || problem ? 'primary' : 'secondary'} title={sync.syncing ? 'Syncing' : Platform.OS === 'web' ? 'Retry' : 'Sync'} icon="sync-outline" onPress={() => syncNow(true)} disabled={sync.syncing} />
+      )}
+    </View>
+  );
+}
+
+/** Sync status in detail (More tab): rejected changes and folder warnings. */
 export function SyncCard() {
-  const { session, sync, syncNow, me, clearRejected } = useStore();
-  const [busy, setBusy] = useState(false);
-  if (session?.mode !== 'cloud') return null;
-
-  const reauth = async () => {
-    setBusy(true);
-    try {
-      const acc = await signInWith(authFor(session.folder.provider), session.email);
-      if (acc && acc.email !== session.email) notify('Different account', `Sign in as ${session.email} to sync this company.`);
-      else if (acc) await syncNow();
-    } catch (e) {
-      notify('Sign-in failed', e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  const { session, sync, me, clearRejected } = useStore();
+  if (!session) return null;
   return (
     <>
-      <Card>
-        <Row>
-          <View style={{ flex: 1 }}>
-            <Text style={text.title}>{sync.syncing ? 'Syncing…' : sync.pending ? `${sync.pending} change${sync.pending > 1 ? 's' : ''} waiting to upload` : 'Everything is uploaded'}</Text>
-            <Text style={text.muted}>
-              {PROVIDER_LABEL[session.folder.provider]}
-              {session.folder.name ? ` · ${session.folder.name}` : ''}
-            </Text>
-            <Text style={text.small}>{sync.lastSync ? `Last synced ${formatDateTime(sync.lastSync)}` : 'Not synced yet'} · syncs on open and every hour</Text>
-          </View>
-          <Button small title="Sync" icon="sync-outline" onPress={() => syncNow(true)} disabled={sync.syncing} />
-        </Row>
-        {!!sync.error && <Text style={[text.muted, { color: colors.warn, marginTop: space.sm }]}>{sync.error}</Text>}
-        {sync.needsSignIn && (
-          <View style={{ marginTop: space.sm }}>
-            <Button small variant="secondary" icon="log-in-outline" title={busy ? 'Signing in…' : `Sign in again as ${session.email}`} onPress={reauth} disabled={busy} />
-          </View>
-        )}
-      </Card>
+      <SyncBar />
       {sync.rejected.length > 0 && (
         <>
           <Banner tone="danger">
@@ -61,6 +73,10 @@ export function SyncCard() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  bar: { flexDirection: 'row', alignItems: 'center', gap: space.sm + 2, borderWidth: 1, borderRadius: radius.md, paddingVertical: space.sm + 2, paddingHorizontal: space.md, marginBottom: space.md },
+});
 
 /** Tells people when the company licence stops them from making changes. */
 export function LicenseBanner() {

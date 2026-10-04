@@ -1,27 +1,24 @@
 import * as Network from 'expo-network';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
-import { AuthExpired, loadAuthConfig, restoreAuth, signOutAuth } from '@/cloud/auth';
 import { registerBackgroundSync, setForegroundSync, unregisterBackgroundSync } from '@/cloud/background';
 import { adapterFor } from '@/cloud/connect';
 import type { FolderRef } from '@/cloud/drive';
 import type { ReplayLogEntry } from '@/cloud/journal';
 import { licenseState, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
+import { saveToken } from '@/cloud/relay';
 import { pendingCount, rebuild, syncOnce, writeLicense, type CloudCache } from '@/cloud/sync';
 import { scopeSnapshot } from './access';
 import { removeBig, loadBig, saveBig } from './bigStorage';
 import { currentCycle } from './metrics';
 import { applyMutation, RuleError, type Mutation } from './mutations';
-import { buildSeed } from './seed';
 import { KEYS, loadJson, removeKeys, saveJson } from './storage';
 import { emptySnapshot, type Account, type Call, type Company, type Cycle, type Product, type Snapshot, type User } from './types';
 
-/** Demo mode keeps a fictional company on the device. Cloud mode keeps a real company in its own drive. */
-export type Session =
-  | { mode: 'demo'; userId: string }
-  | { mode: 'cloud'; userId: string; email: string; companyId: string; folder: FolderRef; deviceId: string };
+/** A signed-in person in a company whose data lives in its administrator's OneDrive folder. */
+export type Session = { mode: 'cloud'; userId: string; email: string; companyId: string; companyCode?: string; folder: FolderRef; deviceId: string };
 
-export type CloudSession = Extract<Session, { mode: 'cloud' }>;
+export type CloudSession = Session;
 
 export interface SyncState {
   syncing: boolean;
@@ -47,14 +44,12 @@ interface Store {
   /** What the signed-in user may see. */
   data: Snapshot;
   company: Company;
-  /** Demo mode only: everyone in the demo organisation, for the role switcher. */
-  demoUsers: User[];
   accounts: Account[];
   calls: Call[];
   products: Product[];
   cycle: Cycle | undefined;
   sync: SyncState;
-  license: LicenseState | { state: 'demo' };
+  license: LicenseState;
   licenseFile?: LicenseFile;
   /** False when the licence does not allow changes (read-only). */
   canEdit: boolean;
@@ -67,13 +62,11 @@ interface Store {
   lastCallFor(accountId: string): Call | undefined;
   /** Applies a change. Throws RuleError with a readable message when it is not allowed. */
   run(m: Mutation): void;
-  signInDemo(userId: string): Promise<void>;
   enterCloud(session: CloudSession, cache: CloudCache): Promise<void>;
   signOut(): Promise<void>;
   /** `manual`: the person pressed Sync (admins then also refresh the CSV copies in the drive). */
   syncNow(manual?: boolean): Promise<void>;
   saveLicense(file: LicenseFile): Promise<void>;
-  resetDemoData(): Promise<void>;
   clearRejected(): void;
 }
 
@@ -82,6 +75,10 @@ const NO_SYNC: SyncState = { syncing: false, pending: 0, rejected: [], warnings:
 const StoreContext = createContext<Store | null>(null);
 const byDateDesc = (x: Call, y: Call) => y.datetime.localeCompare(x.datetime);
 const HOUR = 60 * 60 * 1000;
+/** While the app is open and online, fetch the team's changes this often. */
+const POLL_MS = 5 * 60 * 1000;
+/** Changes upload automatically this long after the last edit. */
+const AUTOSAVE_MS = 1500;
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -124,12 +121,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       const s = await loadJson<Session>(KEYS.session);
-      if (s?.mode === 'demo') {
-        const demo = await loadJson<Snapshot>(KEYS.demo);
-        setFull(demo?.company ? demo : buildSeed());
-        setSession(s);
-      } else if (s?.mode === 'cloud') {
-        await Promise.all([restoreAuth(), loadAuthConfig()]);
+      if (s?.mode === 'cloud') {
         const c = await loadBig<CloudCache>(KEYS.cache);
         if (c && c.companyId === s.companyId) {
           await setCache(c, false);
@@ -141,11 +133,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .catch((e) => console.warn('Failed to restore session', e))
       .finally(() => setReady(true));
   }, [setFull, setCache, applyReplay]);
-
-  // Demo data is saved on the device as it changes.
-  useEffect(() => {
-    if (ready && session?.mode === 'demo') saveJson(KEYS.demo, full).catch((e) => console.warn('Failed to save', e));
-  }, [full, session, ready]);
 
   const syncNow = useCallback(async (manual = false) => {
     const s = sessionRef.current;
@@ -167,9 +154,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (c.license && (Date.now() - Date.parse(c.license.updatedAt) > 6 * HOUR || licenseState(c.license, c.companyId).state !== 'active')) {
         try {
           const next = await refreshLicense(c.license);
-          if (next.status !== c.license.status || next.token !== c.license.token) c = await writeLicense(drive, c, next);
+          if (next.status !== c.license.status || next.token !== c.license.token) {
+            // Only administrators write the shared licence file; everyone keeps the renewed copy.
+            c = me?.role === 'Admin' ? await writeLicense(drive, c, next).catch(() => ({ ...c, license: next })) : { ...c, license: next };
+          }
         } catch (e) {
           console.warn('Licence check failed', e);
+        }
+      }
+      // Administrators keep the sign-in list (ava-roster.json) in step with Users & roles.
+      if (me?.role === 'Admin') {
+        const users = rebuild(c)?.snapshot.users ?? [];
+        const roster = users.map(({ id, name, email, role, active }) => ({ id, name, email: email.toLowerCase(), role, active })).sort((x, y) => x.id.localeCompare(y.id));
+        const key = JSON.stringify(roster);
+        if (key !== c.rosterSent && roster.some((u) => u.id === s.userId && u.role === 'Admin' && u.active)) {
+          await drive.write('ava-roster.json', JSON.stringify({ format: 'ava-roster/1', updatedAt: new Date().toISOString(), users: roster }, null, 2));
+          c = { ...c, rosterSent: key };
         }
       }
       await setCache(c);
@@ -184,21 +184,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setSync((x) => ({ ...x, syncing: false, error: msg, needsSignIn: e instanceof AuthExpired || (e as { status?: number }).status === 401 }));
+      setSync((x) => ({ ...x, syncing: false, error: msg, needsSignIn: (e as { status?: number }).status === 401 }));
     } finally {
       syncing.current = false;
     }
   }, [setCache, applyReplay]);
 
-  // Cloud mode: sync when the app opens, every hour while it is open, and when it comes back
-  // to the foreground after a while. The phone may also sync in the background (best effort).
+  // Sync when the app opens, a moment after every change (auto-save), every few minutes while
+  // it is open, and when it comes back to the foreground. Offline changes wait on the device and
+  // upload on the next successful sync, or from the Sync button. The phone may also sync in the
+  // background (best effort).
   useEffect(() => {
     if (session?.mode !== 'cloud') return;
     syncNow();
-    const timer = setInterval(() => syncNow(), HOUR);
+    const timer = setInterval(() => syncNow(), POLL_MS);
     const sub = AppState.addEventListener('change', (st) => {
       const last = cacheRef.current?.lastSync;
-      if (st === 'active' && (!last || Date.now() - Date.parse(last) > 15 * 60 * 1000)) syncNow();
+      if (st === 'active' && (!last || Date.now() - Date.parse(last) > 60 * 1000)) syncNow();
     });
     setForegroundSync(syncNow);
     registerBackgroundSync().catch((e) => console.warn('Background sync unavailable', e));
@@ -210,11 +212,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [session, syncNow]);
 
   const me = useMemo(() => full.users.find((u) => u.id === session?.userId), [full.users, session]);
-  const license = useMemo<Store['license']>(
-    () => (session?.mode === 'cloud' ? licenseState(cache?.license, session.companyId) : { state: 'demo' }),
-    [session, cache?.license],
-  );
-  const licensed = license.state === 'active' || license.state === 'demo';
+  const license = useMemo<Store['license']>(() => licenseState(cache?.license, session?.companyId ?? ''), [session, cache?.license]);
+  const licensed = license.state === 'active';
+  const autosave = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const run = useCallback(
     (m: Mutation) => {
@@ -237,21 +237,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const updated = { ...c, own };
         setCache(updated).catch((e) => console.warn('Failed to save change', e));
         setSync((x) => ({ ...x, pending: pendingCount(updated) }));
+        // Auto-save: upload shortly after the change when online.
+        if (autosave.current) clearTimeout(autosave.current);
+        autosave.current = setTimeout(() => {
+          autosave.current = null;
+          if (syncing.current) setTimeout(() => syncNow(), AUTOSAVE_MS * 2);
+          else syncNow();
+        }, AUTOSAVE_MS);
       }
     },
-    [setFull, setCache, licensed, license.state],
-  );
-
-  const signInDemo = useCallback(
-    async (userId: string) => {
-      const saved = sessionRef.current?.mode === 'demo' ? fullRef.current : await loadJson<Snapshot>(KEYS.demo);
-      const current = saved?.company ? saved : buildSeed();
-      const next: Session = { mode: 'demo', userId };
-      await saveJson(KEYS.session, next);
-      setFull(current);
-      setSession(next);
-    },
-    [setFull],
+    [setFull, setCache, licensed, license.state, syncNow],
   );
 
   const enterCloud = useCallback(
@@ -268,7 +263,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const s = sessionRef.current;
     if (s?.mode === 'cloud') {
       await unregisterBackgroundSync().catch(() => {});
-      await signOutAuth();
+      await saveToken(null);
       await removeBig(KEYS.cache);
     }
     await removeKeys(KEYS.session);
@@ -289,12 +284,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [setCache],
   );
 
-  const resetDemoData = useCallback(async () => {
-    const seed = buildSeed();
-    await saveJson(KEYS.demo, seed);
-    setFull(seed);
-  }, [setFull]);
-
   const value = useMemo<Store>(() => {
     const data = me ? scopeSnapshot(full, me) : EMPTY;
     const accounts = [...data.accounts].sort((x, y) => x.name.localeCompare(y.name));
@@ -308,7 +297,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       me,
       data,
       company: full.company,
-      demoUsers: session?.mode === 'demo' ? full.users : [],
       accounts,
       calls,
       products: data.products.filter((p) => p.active),
@@ -324,15 +312,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       callsForAccount: (accountId) => calls.filter((c) => c.accountId === accountId),
       lastCallFor: (accountId) => calls.find((c) => c.accountId === accountId && c.status === 'Submitted'),
       run,
-      signInDemo,
       enterCloud,
       signOut,
       syncNow,
       saveLicense,
-      resetDemoData,
       clearRejected: () => setSync((x) => ({ ...x, rejected: [] })),
     };
-  }, [full, me, ready, session, sync, license, licensed, cache?.license, activity, run, signInDemo, enterCloud, signOut, syncNow, saveLicense, resetDemoData]);
+  }, [full, me, ready, session, sync, license, licensed, cache?.license, activity, run, enterCloud, signOut, syncNow, saveLicense]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
