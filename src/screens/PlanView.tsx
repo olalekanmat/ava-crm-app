@@ -7,6 +7,7 @@ import { formatDate } from '@/data/dates';
 import { newId } from '@/data/ids';
 import { callsByAccount, cycleCalls, cycleElapsed, daysLeft, pct } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
+import { tierFrequency, tierRank, tiersFor } from '@/data/tiers';
 import type { Cycle, PlanTarget } from '@/data/types';
 import { Avatar, Banner, Button, Card, Chip, Empty, Field, PlanBadge, ProgressBar, Row, SectionTitle, Stepper, TierBadge, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
@@ -51,9 +52,12 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
       }),
     );
 
+  const scheme = tiersFor(data.settings, data.users, ownerId);
+  const freqOf = (tier: string) => tierFrequency(scheme, tier);
+
   if (!plan) {
     if (!isOwner) return <Empty icon="calendar-outline">{owner?.name ?? 'This rep'} has no plan for {cycle.name} yet.</Empty>;
-    const suggested = territory.map((a) => ({ accountId: a.id, planned: data.settings.tierFrequency[a.tier] }));
+    const suggested = territory.filter((a) => freqOf(a.tier) > 0).map((a) => ({ accountId: a.id, planned: freqOf(a.tier) }));
     const total = suggested.reduce((n, t) => n + t.planned, 0);
     return (
       <Card>
@@ -62,7 +66,7 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
           {formatDate(cycle.start)} – {formatDate(cycle.end)}
         </Text>
         <Text style={[text.body, { marginVertical: space.md }]}>
-          Start from a suggested plan: all {territory.length} of your accounts at their tier frequency (A {data.settings.tierFrequency.A}, B {data.settings.tierFrequency.B}, C {data.settings.tierFrequency.C} calls per cycle), {total} calls in total. You can adjust each account before submitting.
+          Start from a suggested plan: all {territory.length} of your accounts at their tier frequency ({scheme.map((t) => `${t.name} ${t.frequency}`).join(', ')} calls per cycle), {total} calls in total. You can adjust each account before submitting.
         </Text>
         <Row>
           <Button title="Use suggested plan" icon="sparkles-outline" onPress={() => saveTargets(suggested)} disabled={!territory.length} />
@@ -78,7 +82,7 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
   const remaining = planned - onPlan;
   const days = workingDaysLeft(cycle);
   const outside = territory.filter((a) => !plan.targets.some((t) => t.accountId === a.id));
-  const byTier = (t: PlanTarget) => ({ A: 0, B: 1, C: 2 })[getAccount(t.accountId)?.tier ?? 'C'];
+  const byTier = (t: PlanTarget) => tierRank(scheme, getAccount(t.accountId)?.tier ?? '');
   const targets = [...plan.targets].sort((a, b) => byTier(a) - byTier(b) || (getAccount(a.accountId)?.name ?? '').localeCompare(getAccount(b.accountId)?.name ?? ''));
 
   return (
@@ -187,7 +191,7 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
           {adding && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
               {outside.map((a) => (
-                <Chip key={a.id} icon="add" label={`${a.name} · ${a.tier}`} onPress={() => saveTargets([...plan.targets, { accountId: a.id, planned: data.settings.tierFrequency[a.tier] }])} />
+                <Chip key={a.id} icon="add" label={`${a.name} · ${a.tier}`} onPress={() => saveTargets([...plan.targets, { accountId: a.id, planned: Math.max(1, freqOf(a.tier)) }])} />
               ))}
             </View>
           )}

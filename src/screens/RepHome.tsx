@@ -8,6 +8,7 @@ import { Hero, HeroStat, heroText } from '@/ui/Brand';
 import { CallRow } from '@/ui/CallRow';
 import { Banner, Button, Card, Empty, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, text } from '@/ui/components';
 import { Screen } from '@/ui/Screen';
+import { LicenseBanner } from '@/ui/SyncCard';
 import { colors, paceColor, space } from '@/ui/theme';
 
 function greeting() {
@@ -36,6 +37,7 @@ export function RepHome() {
 
   return (
     <Screen onRefresh={syncNow} refreshing={sync.syncing}>
+      <LicenseBanner />
       <Hero>
         <Text style={heroText.eyebrow}>{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
         <Text style={heroText.title}>

@@ -40,3 +40,10 @@ export function paceColor(value: number, expected: number): string {
   if (value >= expected * 0.7) return colors.warn;
   return colors.danger;
 }
+
+/** Call calendar edges: green submitted, blue planned (not due yet), red planned and overdue. */
+export const calendarColors = {
+  submitted: '#1E9E5A',
+  planned: '#1846C8',
+  overdue: '#D92D20',
+} as const;

@@ -2,14 +2,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
  * Device storage. AsyncStorage maps to on-device storage on iOS/Android and to localStorage
- * on web. Holds the session, the demo data set, and in server mode an offline cache plus the
- * queue of changes waiting to sync.
+ * on web. Holds the session and the demo data set; the cloud cache lives in bigStorage.
  */
 export const KEYS = {
   session: 'ava:session',
-  demo: 'ava:demo:v2',
-  cache: 'ava:cache:v2',
-  outbox: 'ava:outbox:v2',
+  demo: 'ava:demo:v3',
+  /** Cloud mode: the company's journals, cached for offline use (see bigStorage). */
+  cache: 'ava-cloud-cache-v1',
 };
 
 export async function loadJson<T>(key: string): Promise<T | null> {

@@ -6,7 +6,8 @@ import { formatDate } from '@/data/dates';
 import { hasLocation } from '@/data/geo';
 import { callsByAccount, cycleCalls } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
-import { TIERS, type AccountType, type Tier } from '@/data/types';
+import { allTierNames } from '@/data/tiers';
+import type { AccountType, Tier } from '@/data/types';
 import { Avatar, Button, Card, Chip, Empty, Row, SearchBox, Segmented, TierBadge, text } from '@/ui/components';
 import { colors, space } from '@/ui/theme';
 
@@ -45,14 +46,20 @@ export default function AccountsScreen() {
     );
   }, [accounts, query, filter, tier, owner, planOnly, progress]);
 
+  const tierNames = useMemo(() => {
+    const order = allTierNames(data.settings);
+    const present = new Set(accounts.map((a) => a.tier));
+    return [...order.filter((t) => present.has(t)), ...[...present].filter((t) => !order.includes(t))];
+  }, [accounts, data.settings]);
+
   return (
     <View style={styles.root}>
       <View style={styles.inner}>
         <SearchBox value={query} onChangeText={setQuery} placeholder="Search name, specialty, city" />
         <Segmented options={['All', 'HCP', 'HCO'] as Filter[]} value={filter} onChange={setFilter} labels={{ HCP: 'People', HCO: 'Organizations' }} />
         <View style={styles.filters}>
-          {TIERS.map((t) => (
-            <Chip key={t} label={`Tier ${t}`} selected={tier === t} onPress={() => setTier(tier === t ? null : t)} />
+          {tierNames.map((t) => (
+            <Chip key={t} label={t} selected={tier === t} onPress={() => setTier(tier === t ? null : t)} />
           ))}
           <Chip label="In my plan" icon="calendar-outline" selected={planOnly} onPress={() => setPlanOnly(!planOnly)} />
           {me.role !== 'Rep' &&

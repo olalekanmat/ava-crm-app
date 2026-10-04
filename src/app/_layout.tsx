@@ -1,8 +1,14 @@
 import { Stack } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
 import { StoreProvider, useStore } from '@/data/store';
+import '@/cloud/background';
+import { HeaderTitle } from '@/ui/Brand';
 import { colors } from '@/ui/theme';
+
+// Closes the Google/Microsoft sign-in popup on the web and hands the result to the app.
+WebBrowser.maybeCompleteAuthSession();
 
 function RootNav() {
   const { ready, session } = useStore();
@@ -19,12 +25,15 @@ function RootNav() {
         headerStyle: { backgroundColor: colors.card },
         headerTintColor: colors.primary,
         headerTitleStyle: { color: colors.text, fontWeight: '700' },
+        headerTitleAlign: 'left',
+        headerTitle: ({ children }) => <HeaderTitle title={children} />,
         headerShadowVisible: false,
         contentStyle: { backgroundColor: colors.bg },
       }}
     >
       <Stack.Protected guard={!session}>
         <Stack.Screen name="sign-in" options={{ headerShown: false, title: 'Sign in' }} />
+        <Stack.Screen name="setup" options={{ headerShown: false, title: 'Set up your company' }} />
       </Stack.Protected>
       <Stack.Protected guard={!!session}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Home' }} />
@@ -41,7 +50,10 @@ function RootNav() {
         <Stack.Screen name="admin/import" options={{ title: 'Import CSV' }} />
         <Stack.Screen name="admin/settings" options={{ title: 'Cycles, products & rules' }} />
         <Stack.Screen name="admin/audit" options={{ title: 'Audit log' }} />
+        <Stack.Screen name="admin/company" options={{ title: 'Company & approval' }} />
+        <Stack.Screen name="admin/tiers" options={{ title: 'Tier names' }} />
       </Stack.Protected>
+      <Stack.Screen name="oauthredirect" options={{ headerShown: false, title: 'Signing in' }} />
     </Stack>
   );
 }

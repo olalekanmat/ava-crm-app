@@ -11,7 +11,7 @@ import { colors, space } from '@/ui/theme';
 type Kind = 'accounts' | 'users' | 'products';
 
 const HELP: Record<Kind, string> = {
-  accounts: `Columns: ${ACCOUNT_COLUMNS.join(', ')}. Required: type (HCP/HCO), name, specialty, tier (A/B/C), city, owner_email (the rep). Rows with a matching id, or the same name and city, update the existing account.`,
+  accounts: `Columns: ${ACCOUNT_COLUMNS.join(', ')}. Required: type (HCP/HCO), name, specialty, tier (a name from the rep's team scheme, by default ST, T1, T2 or T3), city, owner_email (the rep). Rows with a matching id, or the same name and city, update the existing account.`,
   users: `Columns: ${USER_COLUMNS.join(', ')}. Role is Rep, FLM, SLM or Admin. A Rep reports to an FLM and an FLM to an SLM; list managers above their reports. Rows with an existing email update that user.`,
   products: `Columns: ${PRODUCT_COLUMNS.join(', ')}. Separate key messages with |. Rows with an existing product name update it.`,
 };
@@ -49,7 +49,7 @@ export default function ImportScreen() {
       if (kind === 'accounts') run({ type: 'import.accounts', accounts: importAccounts(csv, data).valid });
       else if (kind === 'users') run({ type: 'import.users', users: importUsers(csv, data).valid });
       else run({ type: 'import.products', products: importProducts(csv, data).valid });
-      setResult(`Imported ${preview.valid.length} ${kind}.${preview.rows.length > preview.valid.length ? ` ${preview.rows.length - preview.valid.length} rows with errors were skipped.` : ''}${kind === 'users' && session?.mode === 'server' ? ' Set a password for new users under Users & roles so they can sign in.' : ''}`);
+      setResult(`Imported ${preview.valid.length} ${kind}.${preview.rows.length > preview.valid.length ? ` ${preview.rows.length - preview.valid.length} rows with errors were skipped.` : ''}${kind === 'users' && session?.mode === 'cloud' ? ' Open Company & approval and tap Share folder with team so new users can open the company folder.' : ''}`);
       setCsv('');
       setFileName(undefined);
     } catch (e) {

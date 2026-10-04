@@ -1,11 +1,11 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { addDays, formatDate, toDateKey } from '@/data/dates';
 import { newId } from '@/data/ids';
 import type { Mutation } from '@/data/mutations';
 import { useMe, useStore } from '@/data/store';
-import { TIERS } from '@/data/types';
-import { Badge, Button, Card, Empty, Field, Row, SectionTitle, Stepper, TierBadge, ToggleRow, text } from '@/ui/components';
+import { Badge, Button, Card, Empty, Field, ListRow, Row, SectionTitle, ToggleRow, text } from '@/ui/components';
 import { notify } from '@/ui/confirm';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
@@ -14,7 +14,6 @@ export default function SettingsScreen() {
   const me = useMe();
   const { data, run } = useStore();
   const s = data.settings;
-  const [company, setCompany] = useState(s.companyName);
   const [geofence, setGeofence] = useState(String(s.geofenceM));
   const lastEnd = [...data.cycles].sort((a, b) => b.end.localeCompare(a.end))[0]?.end;
   const nextStart = lastEnd ? toDateKey(addDays(new Date(`${lastEnd}T12:00:00`), 1)) : toDateKey(new Date());
@@ -37,11 +36,6 @@ export default function SettingsScreen() {
 
   return (
     <Screen>
-      <SectionTitle>Organisation</SectionTitle>
-      <Card>
-        <Field label="Company name" value={company} onChangeText={setCompany} onBlur={() => company !== s.companyName && attempt({ type: 'settings.update', settings: { companyName: company } })} />
-      </Card>
-
       <SectionTitle>Geotagging</SectionTitle>
       <Card>
         <Field
@@ -60,18 +54,9 @@ export default function SettingsScreen() {
         />
       </Card>
 
-      <SectionTitle>Call frequency by tier</SectionTitle>
-      <Card>
-        {TIERS.map((t) => (
-          <Row key={t} style={{ marginBottom: space.sm }}>
-            <View style={{ flex: 1 }}>
-              <TierBadge tier={t} />
-            </View>
-            <Text style={text.muted}>calls per cycle</Text>
-            <Stepper value={s.tierFrequency[t]} onChange={(v) => attempt({ type: 'settings.update', settings: { tierFrequency: { ...s.tierFrequency, [t]: v } } })} max={30} />
-          </Row>
-        ))}
-        <Text style={text.small}>Used to suggest cycle plans. Reps can adjust per account before submitting.</Text>
+      <SectionTitle>Tiers</SectionTitle>
+      <Card style={{ padding: 0 }}>
+        <ListRow icon="layers-outline" tone={colors.orange} title="Tier names and call frequency" subtitle="Set per team; default ST, T1, T2, T3" onPress={() => router.push('/admin/tiers')} />
       </Card>
 
       <SectionTitle>Planning cycles</SectionTitle>

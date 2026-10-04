@@ -5,14 +5,15 @@ import { formatDateTime } from '@/data/dates';
 import { useMe, useStore } from '@/data/store';
 import { ROLE_LABEL, ROLES } from '@/data/types';
 import { BrandTitle } from '@/ui/Brand';
-import { Avatar, Banner, Button, Card, ListRow, Row, SectionTitle, text } from '@/ui/components';
+import { Avatar, Button, Card, ListRow, Row, SectionTitle, text } from '@/ui/components';
 import { confirm } from '@/ui/confirm';
 import { Screen } from '@/ui/Screen';
+import { SyncCard } from '@/ui/SyncCard';
 import { colors, space } from '@/ui/theme';
 
 export default function MoreScreen() {
   const me = useMe();
-  const { session, demoUsers, sync, syncNow, signOut, signInDemo, resetDemoData, getUser, clearRejected } = useStore();
+  const { session, demoUsers, sync, signOut, signInDemo, resetDemoData, getUser, company } = useStore();
   const demo = session?.mode === 'demo';
   const manager = getUser(me.managerId);
 
@@ -35,26 +36,10 @@ export default function MoreScreen() {
         </Row>
       </Card>
 
-      {session?.mode === 'server' && (
+      {session?.mode === 'cloud' && (
         <>
           <SectionTitle>Sync</SectionTitle>
-          <Card>
-            <Text style={text.title}>{sync.syncing ? 'Syncing…' : sync.pending ? `${sync.pending} change${sync.pending > 1 ? 's' : ''} waiting to sync` : 'All changes synced'}</Text>
-            <Text style={text.muted}>
-              {session.serverUrl}
-              {sync.lastSync ? ` · last synced ${formatDateTime(sync.lastSync)}` : ''}
-            </Text>
-            {!!sync.error && <Text style={[text.muted, { color: colors.warn, marginTop: 4 }]}>{sync.error} Your work is saved on this device and will sync when the server is reachable.</Text>}
-            <View style={{ marginTop: space.md }}>
-              <Button small title="Sync now" icon="sync-outline" variant="secondary" onPress={syncNow} />
-            </View>
-          </Card>
-          {sync.rejected.length > 0 && (
-            <>
-              <Banner tone="danger">The server refused {sync.rejected.length} change{sync.rejected.length > 1 ? 's' : ''}: {sync.rejected.join(' · ')}</Banner>
-              <Button small title="Dismiss" variant="ghost" onPress={clearRejected} />
-            </>
-          )}
+          <SyncCard />
         </>
       )}
 
@@ -82,7 +67,9 @@ export default function MoreScreen() {
       <Card style={{ padding: 0 }}>
         <ListRow icon="download-outline" tone={colors.success} title="Export data" subtitle="CSV files you can open in Excel or Sheets" onPress={() => router.push('/export')} />
         {me.role === 'Admin' && <ListRow icon="cloud-upload-outline" tone={colors.orange} title="Import CSV" subtitle="Accounts, users, products" onPress={() => router.push('/admin/import')} />}
+        {me.role === 'Admin' && <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle={`${company.name} · logo, details, drive folder, licence`} onPress={() => router.push('/admin/company')} />}
         {me.role === 'Admin' && <ListRow icon="people-outline" title="Users & roles" onPress={() => router.push('/admin/users')} />}
+        {me.role === 'Admin' && <ListRow icon="layers-outline" tone={colors.orange} title="Tier names" subtitle="Tiering for each team (default ST, T1, T2, T3)" onPress={() => router.push('/admin/tiers')} />}
         {me.role === 'Admin' && <ListRow icon="options-outline" tone={colors.crimson} title="Cycles, products & rules" onPress={() => router.push('/admin/settings')} />}
         {(me.role === 'SLM' || me.role === 'Admin') && <ListRow icon="globe-outline" title="Organisation overview" onPress={() => router.push('/overview')} />}
       </Card>
@@ -96,13 +83,13 @@ export default function MoreScreen() {
             onPress={() => confirm('Reset demo data?', 'Everything you changed in the demo is replaced with the original sample data.', resetDemoData, 'Reset')}
           />
         )}
-        <Button title={demo ? 'Leave demo' : 'Sign out'} variant="danger" icon="log-out-outline" onPress={() => (demo ? signOut() : confirm('Sign out?', sync.pending ? `${sync.pending} change(s) have not synced yet and will be lost.` : 'You will need your password to sign in again.', signOut, 'Sign out'))} />
+        <Button title={demo ? 'Leave demo' : 'Sign out'} variant="danger" icon="log-out-outline" onPress={() => (demo ? signOut() : confirm('Sign out?', sync.pending ? `${sync.pending} change(s) have not been uploaded yet and will be lost. Tap Sync first.` : 'Your data stays in the company drive. Sign in again with your work account.', signOut, 'Sign out'))} />
       </View>
 
       <View style={{ alignItems: 'center', marginTop: space.xxl, gap: 4 }}>
         <BrandTitle size={22} />
         <Text style={text.small}>
-          Version {Constants.expoConfig?.version ?? '1.0.0'} · {demo ? 'Demo mode, data on this device' : 'Connected to server'}
+          Version {Constants.expoConfig?.version ?? '1.0.0'} · {demo ? 'Demo mode, data on this device' : `${company.name} · data in your company’s drive`}
         </Text>
       </View>
     </Screen>

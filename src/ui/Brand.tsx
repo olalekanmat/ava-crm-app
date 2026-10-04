@@ -2,16 +2,50 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useStore } from '@/data/store';
 import { colors, radius, space } from './theme';
 
 export const mark = require('../../assets/ava-mark.png');
 
-/** Logo mark plus wordmark, for headers and the sign-in screen. */
+/** Ava CRM mark plus wordmark, for the sign-in screen and the About line. */
 export function BrandTitle({ size = 26, light = false }: { size?: number; light?: boolean }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: size * 0.25 }}>
       <Image source={mark} style={{ width: size * 0.5, height: size * 1.05 }} contentFit="contain" />
-      <Text style={{ fontSize: size * 0.82, fontWeight: '800', letterSpacing: -0.5, color: light ? '#fff' : colors.primaryDark }}>Ava</Text>
+      <Text style={{ fontSize: size * 0.82, fontWeight: '800', letterSpacing: -0.5, color: light ? '#fff' : colors.primaryDark }}>
+        Ava <Text style={{ fontWeight: '600', color: light ? 'rgba(255,255,255,0.85)' : colors.primary }}>CRM</Text>
+      </Text>
+    </View>
+  );
+}
+
+/** The company's logo, or its initials when it has none yet. */
+export function CompanyLogo({ size = 32 }: { size?: number }) {
+  const { company } = useStore();
+  if (company.logo) return <Image source={{ uri: company.logo }} style={{ width: size * 1.6, height: size }} contentFit="contain" contentPosition="left" accessibilityLabel={`${company.name} logo`} />;
+  const initials = (company.name || 'Ava CRM')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('');
+  return (
+    <View style={{ width: size, height: size, borderRadius: size / 4, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel={company.name}>
+      <Text style={{ color: '#fff', fontWeight: '800', fontSize: size * 0.4 }}>{initials}</Text>
+    </View>
+  );
+}
+
+/** Header title on every page: the company logo at the top left, then the page title. */
+export function HeaderTitle({ title }: { title?: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, maxWidth: 520 }}>
+      <CompanyLogo size={28} />
+      {!!title && (
+        <Text style={{ fontSize: 17, fontWeight: '700', color: colors.text, flexShrink: 1 }} numberOfLines={1}>
+          {title}
+        </Text>
+      )}
     </View>
   );
 }

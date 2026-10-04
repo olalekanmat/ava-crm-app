@@ -2,11 +2,13 @@ import { router } from 'expo-router';
 import { Text, View } from 'react-native';
 import { cycleElapsed, daysLeft, pct, teamRollup, type RepMetrics, type Rollup } from '@/data/metrics';
 import { useStore } from '@/data/store';
-import { TIERS, type User } from '@/data/types';
+import { allTierNames, tierRankIn } from '@/data/tiers';
+import type { User } from '@/data/types';
 import { Hero, HeroStat, heroText } from '@/ui/Brand';
 import { CallRow } from '@/ui/CallRow';
-import { Avatar, Banner, Card, Empty, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, text } from '@/ui/components';
+import { Avatar, Banner, Card, Empty, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, text, tierColor } from '@/ui/components';
 import { Screen } from '@/ui/Screen';
+import { LicenseBanner } from '@/ui/SyncCard';
 import { colors, paceColor, space } from '@/ui/theme';
 
 /** One rep's line on a team dashboard. */
@@ -40,18 +42,23 @@ export function RepCard({ m, elapsed }: { m: RepMetrics; elapsed: number }) {
 }
 
 export function TierCoverage({ r }: { r: Rollup }) {
+  const { data } = useStore();
+  const known = allTierNames(data.settings);
+  const tiers = [...known.filter((t) => r.reachByTier[t]), ...Object.keys(r.reachByTier).filter((t) => !known.includes(t))];
+  if (!tiers.length) return <Empty icon="layers-outline">No planned accounts yet.</Empty>;
   return (
     <Card>
-      {TIERS.map((t) => {
+      {tiers.map((t, i) => {
         const x = r.reachByTier[t];
         const v = x.targets ? x.reached / x.targets : 0;
+        const rank = tierRankIn(data.settings, t);
         return (
-          <Row key={t} style={{ marginBottom: t === 'C' ? 0 : space.md }}>
+          <Row key={t} style={{ marginBottom: i === tiers.length - 1 ? 0 : space.md }}>
             <View style={{ width: 64 }}>
-              <TierBadge tier={t} />
+              <TierBadge tier={t} rank={rank} />
             </View>
             <View style={{ flex: 1 }}>
-              <ProgressBar value={v} color={t === 'A' ? colors.crimson : t === 'B' ? colors.orange : colors.primary} />
+              <ProgressBar value={v} color={tierColor(rank).fg} />
             </View>
             <Text style={[text.muted, { width: 92, textAlign: 'right' }]}>
               {x.reached}/{x.targets} · {pct(v)}
@@ -78,7 +85,7 @@ export function TeamHeroStats({ r }: { r: Rollup }) {
 /** First-line manager view: the reps reporting to `manager`. */
 export function TeamDashboard({ manager }: { manager: User }) {
   const { data, cycle, calls, syncNow, sync } = useStore();
-  if (!cycle) return <Screen><Empty>No cycle is set up yet. An administrator can add one.</Empty></Screen>;
+  if (!cycle) return <Screen><LicenseBanner /><Empty>No cycle is set up yet. An administrator can add one.</Empty></Screen>;
   const r = teamRollup(data, manager, cycle);
   const elapsed = cycleElapsed(cycle);
   const teamIds = new Set(r.reps.map((x) => x.rep.id));
@@ -88,6 +95,7 @@ export function TeamDashboard({ manager }: { manager: User }) {
 
   return (
     <Screen wide onRefresh={syncNow} refreshing={sync.syncing}>
+      <LicenseBanner />
       <Hero>
         <Text style={heroText.eyebrow}>
           Team view · {cycle.name} · {daysLeft(cycle)} days left

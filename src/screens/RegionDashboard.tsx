@@ -7,6 +7,7 @@ import type { User } from '@/data/types';
 import { Hero, heroText } from '@/ui/Brand';
 import { Avatar, Card, Empty, ProgressBar, Row, SectionTitle, text } from '@/ui/components';
 import { Screen } from '@/ui/Screen';
+import { LicenseBanner } from '@/ui/SyncCard';
 import { colors, paceColor, space } from '@/ui/theme';
 import { TeamHeroStats, TierCoverage } from './TeamDashboard';
 
@@ -15,8 +16,8 @@ import { TeamHeroStats, TierCoverage } from './TeamDashboard';
  * Admins see the same view for the whole organisation.
  */
 export function RegionDashboard({ leader }: { leader: User }) {
-  const { data, cycle, syncNow, sync } = useStore();
-  if (!cycle) return <Screen><Empty>No cycle is set up yet. An administrator can add one.</Empty></Screen>;
+  const { data, cycle, syncNow, sync, company } = useStore();
+  if (!cycle) return <Screen><LicenseBanner /><Empty>No cycle is set up yet. An administrator can add one.</Empty></Screen>;
   const elapsed = cycleElapsed(cycle);
   const flms = leader.role === 'Admin' ? data.users.filter((u) => u.role === 'FLM' && u.active) : data.users.filter((u) => u.managerId === leader.id && u.role === 'FLM' && u.active);
   const teams = flms.map((f) => ({ flm: f, r: teamRollup(data, f, cycle) }));
@@ -25,11 +26,12 @@ export function RegionDashboard({ leader }: { leader: User }) {
 
   return (
     <Screen wide onRefresh={syncNow} refreshing={sync.syncing}>
+      <LicenseBanner />
       <Hero>
         <Text style={heroText.eyebrow}>
           {leader.role === 'Admin' ? 'Organisation overview' : 'Region overview'} · {cycle.name} · {daysLeft(cycle)} days left
         </Text>
-        <Text style={heroText.title}>{leader.role === 'Admin' ? data.settings.companyName : leader.territory ?? 'My region'}</Text>
+        <Text style={heroText.title}>{leader.role === 'Admin' ? company.name : leader.territory ?? 'My region'}</Text>
         <Text style={heroText.body}>
           {teams.length} teams · {all.reps.length} reps · {all.onPlan} of {all.planned} planned calls done
         </Text>

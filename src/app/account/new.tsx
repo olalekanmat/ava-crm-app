@@ -4,7 +4,8 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { repsUnder } from '@/data/access';
 import { newId } from '@/data/ids';
 import { useMe, useStore } from '@/data/store';
-import { TIERS, type AccountType, type Tier } from '@/data/types';
+import { tiersFor } from '@/data/tiers';
+import type { AccountType, Tier } from '@/data/types';
 import { Button, Chip, Field, Label, Row, Segmented, text } from '@/ui/components';
 import { notify } from '@/ui/confirm';
 import { currentFix, type Fix } from '@/ui/location';
@@ -17,7 +18,7 @@ export default function NewAccountScreen() {
   const reps = repsUnder(data.users, me);
   const [ownerId, setOwnerId] = useState(me.role === 'Rep' ? me.id : reps[0]?.id);
   const [type, setType] = useState<AccountType>('HCP');
-  const [tier, setTier] = useState<Tier>('B');
+  const [picked, setTier] = useState<Tier>();
   const [name, setName] = useState('');
   const [specialty, setSpecialty] = useState('');
   const [affiliation, setAffiliation] = useState('');
@@ -29,6 +30,8 @@ export default function NewAccountScreen() {
   const [locating, setLocating] = useState(false);
   const [tried, setTried] = useState(false);
 
+  const scheme = tiersFor(data.settings, data.users, ownerId);
+  const tier = picked && scheme.some((t) => t.name === picked) ? picked : scheme[Math.min(1, scheme.length - 1)].name;
   const orgs = accounts.filter((a) => a.type === 'HCO' && a.ownerId === ownerId);
   const missing = { name: !name.trim(), specialty: !specialty.trim(), city: !city.trim(), owner: !ownerId };
 
@@ -102,7 +105,7 @@ export default function NewAccountScreen() {
         </>
       )}
       <Label>Tier</Label>
-      <Segmented options={TIERS} value={tier} onChange={setTier} labels={{ A: 'Tier A', B: 'Tier B', C: 'Tier C' }} />
+      <Segmented options={scheme.map((t) => t.name)} value={tier} onChange={setTier} />
       <Field label="Address" value={address} onChangeText={setAddress} />
       <Field label="City *" value={city} onChangeText={setCity} error={tried && missing.city ? 'Required' : undefined} />
       <Field label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />

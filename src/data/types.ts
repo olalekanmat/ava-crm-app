@@ -21,8 +21,22 @@ export interface User {
 }
 
 export type AccountType = 'HCP' | 'HCO';
-export type Tier = 'A' | 'B' | 'C';
-export const TIERS: Tier[] = ['A', 'B', 'C'];
+/** A tier name from the account owner's team scheme, e.g. "ST" or "T1". */
+export type Tier = string;
+
+/** One level in a team's tiering scheme. */
+export interface TierDef {
+  name: string;
+  /** Default calls per cycle for accounts in this tier, used to suggest a plan. */
+  frequency: number;
+}
+
+export const DEFAULT_TIERS: TierDef[] = [
+  { name: 'ST', frequency: 8 },
+  { name: 'T1', frequency: 6 },
+  { name: 'T2', frequency: 4 },
+  { name: 'T3', frequency: 2 },
+];
 
 /** A healthcare professional (doctor, pharmacist) or organization (hospital, clinic, pharmacy). */
 export interface Account {
@@ -127,17 +141,34 @@ export interface Product {
   active: boolean;
 }
 
+/** The company using Ava CRM, set up by its administrator. */
+export interface Company {
+  name: string;
+  /** Logo as a small data URI (PNG or JPEG), shown at the top left of every page. */
+  logo?: string;
+  address?: string;
+  city?: string;
+  country?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  /** Business or regulatory registration number. */
+  registrationNo?: string;
+}
+
 export interface Settings {
-  companyName: string;
   /** A check-in within this many metres of the account counts as verified. */
   geofenceM: number;
   /** In-person calls cannot be submitted without a check-in. */
   requireCheckIn: boolean;
-  /** Default calls per cycle by tier, used to suggest a plan. */
-  tierFrequency: Record<Tier, number>;
+  /** Company-wide tiering scheme. */
+  tiers: TierDef[];
+  /** Per-team schemes, keyed by the FLM's user id. Teams without one use `tiers`. */
+  teamTiers: Record<string, TierDef[]>;
 }
 
 export interface Snapshot {
+  company: Company;
   users: User[];
   accounts: Account[];
   calls: Call[];
@@ -148,8 +179,19 @@ export interface Snapshot {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  companyName: 'Ava Demo Pharma',
   geofenceM: 300,
   requireCheckIn: false,
-  tierFrequency: { A: 6, B: 4, C: 2 },
+  tiers: DEFAULT_TIERS,
+  teamTiers: {},
 };
+
+export const emptySnapshot = (company: Company = { name: '' }): Snapshot => ({
+  company,
+  users: [],
+  accounts: [],
+  calls: [],
+  plans: [],
+  cycles: [],
+  products: [],
+  settings: DEFAULT_SETTINGS,
+});

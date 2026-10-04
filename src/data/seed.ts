@@ -1,7 +1,8 @@
 import { addDays, toDateKey } from './dates';
 import { distanceM } from './geo';
-import type { Account, Call, CallChannel, Cycle, CyclePlan, Product, Snapshot, Tier, User } from './types';
-import { DEFAULT_SETTINGS } from './types';
+import { tierFrequency } from './tiers';
+import type { Account, Call, CallChannel, Company, Cycle, CyclePlan, Product, Snapshot, User } from './types';
+import { DEFAULT_SETTINGS, DEFAULT_TIERS } from './types';
 
 /** Small deterministic PRNG so the demo looks the same on every device. */
 function rng(seed: number) {
@@ -58,7 +59,17 @@ const NOTES = [
 ];
 const NEXT = ['Bring outcomes study summary', 'Drop off patient leaflets', 'Book lunch & learn', 'Share formulary dossier', 'Introduce MSL for clinical questions'];
 
-const TIER_FREQ: Record<Tier, number> = DEFAULT_SETTINGS.tierFrequency;
+const freq = (tier: string) => tierFrequency(DEFAULT_TIERS, tier);
+
+export const DEMO_COMPANY: Company = {
+  name: 'Ava Demo Pharma',
+  address: '12 Adeola Odeku St, Victoria Island',
+  city: 'Lagos',
+  country: 'Nigeria',
+  phone: '+234 1 000 0000',
+  email: 'info@example.com',
+  website: 'https://example.com',
+};
 
 /** Fictional demo data, laid out relative to `now` so it always looks current. */
 export function buildSeed(now = new Date()): Snapshot {
@@ -92,7 +103,7 @@ export function buildSeed(now = new Date()): Snapshot {
       const [lat, lng] = jitter(prof.center, 4);
       mine.push({
         id: `acc_${++n}`, type: 'HCO', name: `${ORG_NAMES[orgIdx++ % ORG_NAMES.length]} ${kind.split(' ').slice(-1)[0].replace(/^\w/, (c) => c.toUpperCase())}`,
-        specialty: kind, tier: i === 0 ? 'A' : i === 1 ? 'B' : 'C', address: `${10 + Math.floor(rand() * 180)} ${pick(['Allen Ave', 'Herbert Macaulay Way', 'Adeola Odeku St', 'Admiralty Way', 'Ikorodu Rd', 'Awolowo Rd'])}`,
+        specialty: kind, tier: i === 0 ? 'ST' : i === 1 ? 'T1' : 'T2', address: `${10 + Math.floor(rand() * 180)} ${pick(['Allen Ave', 'Herbert Macaulay Way', 'Adeola Odeku St', 'Admiralty Way', 'Ikorodu Rd', 'Awolowo Rd'])}`,
         city: rep.territory ?? 'Lagos', phone: `+234 80${Math.floor(10000000 + rand() * 89999999)}`, ownerId: rep.id, lat: +lat.toFixed(6), lng: +lng.toFixed(6), createdAt: created,
       });
     }
@@ -104,7 +115,7 @@ export function buildSeed(now = new Date()): Snapshot {
       const atOrg = rand() < 0.8;
       const [lat, lng] = atOrg ? [org.lat! + (rand() - 0.5) * 0.0008, org.lng! + (rand() - 0.5) * 0.0008] : jitter(prof.center, 5);
       mine.push({
-        id: `acc_${++n}`, type: 'HCP', name, specialty: spec, affiliation: atOrg ? org.name : undefined, tier: i < 2 ? 'A' : i < 4 ? 'B' : 'C',
+        id: `acc_${++n}`, type: 'HCP', name, specialty: spec, affiliation: atOrg ? org.name : undefined, tier: i < 1 ? 'ST' : i < 3 ? 'T1' : i < 5 ? 'T2' : 'T3',
         address: atOrg ? org.address : `${5 + Math.floor(rand() * 90)} ${pick(['Opebi Rd', 'Bode Thomas St', 'Ozumba Mbadiwe Ave', 'Lekki-Epe Expy'])}`,
         city: rep.territory ?? 'Lagos', email: `${name.replace(/^Dr\. /, '').split(/[ ,]/)[0].toLowerCase()}@example.com`, ownerId: rep.id,
         lat: +lat.toFixed(6), lng: +lng.toFixed(6), createdAt: created,
@@ -119,7 +130,7 @@ export function buildSeed(now = new Date()): Snapshot {
     if (prof.plan) {
       plans.push({
         id: `pln_${rep.id}`, ownerId: rep.id, cycleId: 'cyc_now', status: prof.plan,
-        targets: mine.map((a) => ({ accountId: a.id, planned: TIER_FREQ[a.tier] })),
+        targets: mine.map((a) => ({ accountId: a.id, planned: freq(a.tier) })),
         submittedAt: prof.plan !== 'Draft' ? addDays(cycleStart, 1).toISOString() : undefined,
         reviewedAt: prof.plan === 'Approved' ? addDays(cycleStart, 2).toISOString() : undefined,
         reviewerId: prof.plan === 'Approved' ? rep.managerId : undefined,
@@ -130,7 +141,7 @@ export function buildSeed(now = new Date()): Snapshot {
     // Submitted call history: from 40 days ago until yesterday, paced per rep.
     const elapsed = 24 / 56;
     for (const a of mine) {
-      const due = Math.round(TIER_FREQ[a.tier] * elapsed * prof.pace + (rand() - 0.4));
+      const due = Math.round(freq(a.tier) * elapsed * prof.pace + (rand() - 0.4));
       const history = due + (rand() < 0.5 ? 1 : 0); // a few calls from the previous cycle
       for (let k = 0; k < history; k++) {
         const inPrev = k >= due;
@@ -180,6 +191,11 @@ export function buildSeed(now = new Date()): Snapshot {
     calls.push(planned(mine[3], at(0, 10, 30), ['Cardiovex']));
     calls.push(planned(mine[0], at(0, 14), [], 'Lunch & learn with clinic staff.'));
     calls.push(planned(mine[5], at(1, 9, 30), ['Glucara XR']));
+    // Coming up, and one planned call that was missed, for the calendar.
+    calls.push(planned(mine[1], at(-2, 11), ['Cardiovex'], 'Missed: clinic closed early.'));
+    calls.push(planned(mine[6], at(3, 10), ['Glucara XR']));
+    calls.push(planned(mine[2], at(6, 15), ['Respira Inhaler']));
+    calls.push(planned(mine[7], at(9, 11, 30), ['Cardiovex']));
     if (prof.pace < 1) {
       calls.push({
         ...planned(mine[4], at(-1, 16), ['Respira Inhaler']), status: 'Saved', channel: 'In person',
@@ -188,8 +204,6 @@ export function buildSeed(now = new Date()): Snapshot {
     }
   }
 
-  return { users, accounts, calls, plans, cycles, products: DEMO_PRODUCTS, settings: { ...DEFAULT_SETTINGS } };
+  return { company: { ...DEMO_COMPANY }, users, accounts, calls, plans, cycles, products: DEMO_PRODUCTS, settings: { ...DEFAULT_SETTINGS } };
 }
 
-/** Passwords the server sets for the demo users on first start. */
-export const DEMO_EMAILS = PEOPLE.map((p) => p.email);

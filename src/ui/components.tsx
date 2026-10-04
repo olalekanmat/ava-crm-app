@@ -2,6 +2,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps, ReactNode } from 'react';
 import { Pressable, StyleSheet, Switch, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
 import type { GeoStatus } from '@/data/geo';
+import { useStore } from '@/data/store';
+import { tierRankIn } from '@/data/tiers';
 import type { CallStatus, PlanStatus, Tier } from '@/data/types';
 import { avatarColor, colors, radius, shadow, space } from './theme';
 
@@ -154,14 +156,25 @@ export function GeoBadge({ status }: { status: GeoStatus }) {
   return <Badge label={status === 'Missing' ? 'No check-in' : status} fg={map.fg} bg={map.bg} icon={map.icon} />;
 }
 
-const TIER_COLORS: Record<Tier, { fg: string; bg: string }> = {
-  A: { fg: colors.crimson, bg: '#FCE8EF' },
-  B: { fg: colors.orange, bg: '#FEEFE4' },
-  C: { fg: colors.primary, bg: colors.primarySoft },
-};
+const TIER_COLORS = [
+  { fg: colors.crimson, bg: '#FCE8EF' },
+  { fg: colors.orange, bg: '#FEEFE4' },
+  { fg: colors.primary, bg: colors.primarySoft },
+  { fg: '#4F7A12', bg: '#EEF6E2' },
+  { fg: colors.muted, bg: colors.bg },
+];
 
-export function TierBadge({ tier }: { tier: Tier }) {
-  return <Badge label={`Tier ${tier}`} fg={TIER_COLORS[tier].fg} bg={TIER_COLORS[tier].bg} />;
+/** Colour for a tier by its position in the team's scheme (0 = top tier). */
+export function tierColor(rank: number) {
+  return TIER_COLORS[Math.min(Math.max(rank, 0), TIER_COLORS.length - 1)];
+}
+
+/** `rank` is the tier's position in its scheme; without it the colour follows the default ST/T1/T2/T3 order. */
+export function TierBadge({ tier, rank }: { tier: Tier; rank?: number }) {
+  const { data } = useStore();
+  const r = rank ?? tierRankIn(data.settings, tier);
+  const c = tierColor(r);
+  return <Badge label={tier} fg={c.fg} bg={c.bg} />;
 }
 
 export function Avatar({ name, size = 40 }: { name: string; size?: number }) {

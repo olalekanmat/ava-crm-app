@@ -22,18 +22,13 @@ export default function UserEditScreen() {
   const [managerId, setManagerId] = useState(existing?.managerId);
   const [territory, setTerritory] = useState(existing?.territory ?? '');
   const [active, setActive] = useState(existing?.active ?? true);
-  const [password, setPassword] = useState('');
   if (me.role !== 'Admin') return <Screen><Empty>Only administrators can manage users.</Empty></Screen>;
 
   const wantManager = MANAGER_ROLE[role];
   const managers = wantManager ? data.users.filter((u) => u.role === wantManager && u.active) : [];
-  const server = session?.mode === 'server';
+  const cloud = session?.mode === 'cloud';
 
   const save = () => {
-    if (server && !existing && password.length < 8) {
-      notify('Password needed', 'Set a temporary password of at least 8 characters so this person can sign in.');
-      return;
-    }
     try {
       run({
         type: 'user.upsert',
@@ -47,7 +42,6 @@ export default function UserEditScreen() {
           active,
           createdAt: existing?.createdAt ?? new Date().toISOString(),
         },
-        password: server && password ? password : undefined,
       });
       router.back();
     } catch (e) {
@@ -74,12 +68,12 @@ export default function UserEditScreen() {
         </>
       )}
       <Field label={role === 'Rep' ? 'Territory' : role === 'FLM' ? 'Team / district' : role === 'SLM' ? 'Region' : 'Department'} value={territory} onChangeText={setTerritory} />
-      <ToggleRow label="Active" value={active} onChange={setActive} hint="Inactive users cannot sign in. Their history is kept." />
-      {server ? (
-        <Field label={existing ? 'Reset password' : 'Temporary password'} value={password} onChangeText={setPassword} secureTextEntry hint={existing ? 'Leave empty to keep the current password.' : 'At least 8 characters. Share it with the user securely.'} />
-      ) : (
-        <Banner>In demo mode there are no passwords. On a server, you set a temporary password here.</Banner>
-      )}
+      <ToggleRow label="Active" value={active} onChange={setActive} hint="Inactive users cannot make changes. Their history is kept. Also remove them from the drive folder." />
+      <Banner>
+        {cloud
+          ? 'This person signs in with this email’s Google or Microsoft account; Ava stores no passwords. After saving, use Share folder with team under Company & approval so they can open the company folder.'
+          : 'In a real company, people sign in with their work Google or Microsoft account. Ava stores no passwords.'}
+      </Banner>
       <View style={{ marginTop: space.md }}>
         <Button title="Save" onPress={save} />
       </View>

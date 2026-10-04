@@ -3,12 +3,12 @@ import { router } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 import { useStore } from '@/data/store';
-import { BrandTitle } from '@/ui/Brand';
+import { HeaderTitle } from '@/ui/Brand';
 import { Avatar } from '@/ui/components';
 import { colors } from '@/ui/theme';
 
 export default function TabsLayout() {
-  const { me, sync, session } = useStore();
+  const { me, sync, session, company } = useStore();
   if (!me) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
@@ -17,10 +17,10 @@ export default function TabsLayout() {
     );
   }
   const isRep = me.role === 'Rep';
-  const offline = session?.mode === 'server' && (!!sync.error || sync.pending > 0);
+  const offline = session?.mode === 'cloud' && (!!sync.error || sync.pending > 0);
   const headerRight = () => (
     <Pressable onPress={() => router.navigate('/more')} style={{ marginRight: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }} accessibilityLabel="Profile and settings">
-      {offline && <Ionicons name="cloud-offline-outline" size={20} color={colors.warn} />}
+      {offline && <Ionicons name={sync.error ? 'cloud-offline-outline' : 'cloud-upload-outline'} size={20} color={colors.warn} />}
       <Avatar name={me.name} size={32} />
     </Pressable>
   );
@@ -38,6 +38,8 @@ export default function TabsLayout() {
         headerStyle: { backgroundColor: colors.card },
         headerShadowVisible: false,
         headerTitleStyle: { color: colors.text, fontWeight: '700' },
+        headerTitleAlign: 'left',
+        headerTitle: ({ children }) => <HeaderTitle title={children} />,
         headerRight,
       }}
     >
@@ -45,7 +47,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: isRep ? 'Today' : me.role === 'Admin' ? 'Admin' : me.role === 'SLM' ? 'Overview' : 'Team',
-          headerTitle: () => <BrandTitle size={26} />,
+          headerTitle: () => <HeaderTitle title={company.name} />,
           tabBarIcon: icon(isRep ? 'today-outline' : me.role === 'Admin' ? 'shield-checkmark-outline' : me.role === 'SLM' ? 'globe-outline' : 'people-circle-outline'),
         }}
       />

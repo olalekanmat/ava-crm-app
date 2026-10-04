@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Ava",
+    "name": "Ava CRM",
     "slug": "ava",
-    "version": "1.1.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -10,7 +10,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.avacrm.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Ava records your location when you check in to a call, so your visit can be verified."
+        "NSLocationWhenInUseUsageDescription": "Ava CRM records your location when you check in to a call, so your visit can be verified."
       }
     },
     "android": {
@@ -22,7 +22,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.avacrm.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
@@ -35,11 +35,11 @@
       "favicon": "./assets/favicon.png",
       "output": "single",
       "bundler": "metro",
-      "name": "Ava",
-      "shortName": "Ava",
+      "name": "Ava CRM",
+      "shortName": "Ava CRM",
       "themeColor": "#1846C8",
       "backgroundColor": "#F4F6FB",
-      "description": "Ava field CRM for life-sciences sales teams"
+      "description": "Ava CRM: field CRM for life-sciences sales teams"
     },
     "plugins": [
       "expo-router",
@@ -48,7 +48,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Ava records your location when you check in to a call, so your visit can be verified."
+          "locationWhenInUsePermission": "Ava CRM records your location when you check in to a call, so your visit can be verified."
         }
       ],
       [
@@ -59,8 +59,14 @@
           "resizeMode": "contain",
           "backgroundColor": "#FFFFFF"
         }
-      ]
+      ],
+      "expo-web-browser",
+      "expo-secure-store",
+      "expo-background-task"
     ],
-    "scheme": "ava"
+    "scheme": [
+      "ava",
+      "com.avacrm.app"
+    ]
   }
 }
