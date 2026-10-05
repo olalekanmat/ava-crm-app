@@ -6,7 +6,8 @@ import { allTierNames, tierRankIn } from '@/data/tiers';
 import type { User } from '@/data/types';
 import { Hero, HeroStat, heroText } from '@/ui/Brand';
 import { CallRow } from '@/ui/CallRow';
-import { Avatar, Banner, Card, Empty, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, text, tierColor } from '@/ui/components';
+import { Banner, Card, Empty, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, UserAvatar, text, tierColor } from '@/ui/components';
+import { Grid } from '@/ui/layout';
 import { Screen } from '@/ui/Screen';
 import { LicenseBanner, SyncBar } from '@/ui/SyncCard';
 import { colors, paceColor, space } from '@/ui/theme';
@@ -16,7 +17,7 @@ export function RepCard({ m, elapsed }: { m: RepMetrics; elapsed: number }) {
   return (
     <Card onPress={() => router.push({ pathname: '/team/[id]', params: { id: m.rep.id } })}>
       <Row gap={space.md}>
-        <Avatar name={m.rep.name} />
+        <UserAvatar user={m.rep} />
         <View style={{ flex: 1 }}>
           <Row style={{ justifyContent: 'space-between' }}>
             <Text style={text.title} numberOfLines={1}>
@@ -132,13 +133,29 @@ export function TeamDashboard({ manager }: { manager: User }) {
       )}
 
       <SectionTitle>Reps</SectionTitle>
-      {sorted.length ? sorted.map((m) => <RepCard key={m.rep.id} m={m} elapsed={elapsed} />) : <Empty>No reps report to {manager.name} yet.</Empty>}
+      {sorted.length ? (
+        <Grid>
+          {sorted.map((m) => (
+            <RepCard key={m.rep.id} m={m} elapsed={elapsed} />
+          ))}
+        </Grid>
+      ) : (
+        <Empty>No reps report to {manager.name} yet.</Empty>
+      )}
 
       <SectionTitle>Coverage by tier</SectionTitle>
       <TierCoverage r={r} />
 
       <SectionTitle>Latest team calls</SectionTitle>
-      {recent.length ? recent.map((c) => <CallRow key={c.id} call={c} showRep />) : <Empty>No submitted calls yet.</Empty>}
+      {recent.length ? (
+        <Grid min={360}>
+          {recent.map((c) => (
+            <CallRow key={c.id} call={c} showRep />
+          ))}
+        </Grid>
+      ) : (
+        <Empty>No submitted calls yet.</Empty>
+      )}
     </Screen>
   );
 }

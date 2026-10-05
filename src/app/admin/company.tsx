@@ -5,6 +5,7 @@ import { refreshLicense } from '@/cloud/license';
 import { DEFAULT_PASSWORD, folderInfo, loadToken } from '@/cloud/relay';
 import { requestApproval } from '@/cloud/setup';
 import { formatDate, formatDateTime } from '@/data/dates';
+import { isAdmin } from '@/data/access';
 import { useMe, useStore } from '@/data/store';
 import type { Company } from '@/data/types';
 import { Badge, Banner, Button, Card, Empty, ListRow, Row, SectionTitle, text } from '@/ui/components';
@@ -25,7 +26,7 @@ export default function CompanyScreen() {
   useEffect(() => {
     folderInfo(loadToken).then((f) => setFolderUrl(f?.webUrl));
   }, []);
-  if (me.role !== 'Admin') return <Screen><Empty>Only administrators can change the company.</Empty></Screen>;
+  if (!isAdmin(me)) return <Screen><Empty>Only administrators can change the company.</Empty></Screen>;
   const cloud = session?.mode === 'cloud' ? session : undefined;
 
   const task = async (label: string, fn: () => Promise<void>) => {

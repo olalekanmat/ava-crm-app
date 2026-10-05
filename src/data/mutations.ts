@@ -1,4 +1,4 @@
-import { manages, visibleOwnerIds } from './access';
+import { isAdmin as hasAdminRights, manages, visibleOwnerIds } from './access';
 import { teamOf, tierSchemeProblem } from './tiers';
 import type { Account, Call, Company, Cycle, CyclePlan, Product, Role, Settings, Snapshot, TierDef, User } from './types';
 
@@ -17,7 +17,13 @@ export type Mutation =
   | { type: 'plan.review'; id: string; approve: boolean; note?: string }
   | { type: 'plan.reopen'; id: string }
   | { type: 'user.upsert'; user: User }
+  /** Deletes people. Their accounts and direct reports move to `transferTo` (someone with the same role). */
+  | { type: 'user.delete'; users: { id: string; transferTo?: string }[] }
+  /** Sets or removes (`photo` absent) a profile picture: the person themselves or an administrator. */
+  | { type: 'user.photo'; id: string; photo?: string }
+  | { type: 'account.delete'; ids: string[] }
   | { type: 'product.upsert'; product: Product }
+  | { type: 'product.delete'; ids: string[] }
   | { type: 'cycle.upsert'; cycle: Cycle }
   | { type: 'settings.update'; settings: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn'>> }
   | { type: 'company.update'; company: Partial<Company> }
@@ -55,14 +61,35 @@ export function callProblems(call: Pick<Call, 'status' | 'datetime' | 'products'
   return errors;
 }
 
+const PHOTO_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+export const MAX_PHOTO_CHARS = 150_000;
+
+/** Tidies a user from a form or CSV: trims text, and the admin flag only applies to a Rep, FLM or SLM. */
+function normalUser(u: User): User {
+  const trim = (v?: string) => v?.trim() || undefined;
+  return {
+    ...u,
+    name: u.name.trim(),
+    email: u.email.trim().toLowerCase(),
+    admin: u.role !== 'Admin' && u.admin ? true : undefined,
+    employeeId: trim(u.employeeId),
+    territory: trim(u.territory),
+    territoryId: trim(u.territoryId),
+  };
+}
+
 function checkUser(s: Snapshot, u: User) {
   if (!u.name.trim()) fail('Name is required.');
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(u.email)) fail(`"${u.email}" is not a valid email.`);
-  const clash = s.users.find((x) => x.email.toLowerCase() === u.email.toLowerCase() && x.id !== u.id);
+  const live = s.users.filter((x) => !x.deletedAt && x.id !== u.id);
+  const clash = live.find((x) => x.email.toLowerCase() === u.email.toLowerCase());
   if (clash) fail(`${u.email} is already used by ${clash.name}.`);
+  const idClash = u.employeeId && live.find((x) => x.employeeId?.toLowerCase() === u.employeeId!.toLowerCase());
+  if (idClash) fail(`User ID ${u.employeeId} is already used by ${idClash.name}.`);
+  if ((u.employeeId?.length ?? 0) > 60 || (u.territoryId?.length ?? 0) > 60) fail('User ID and territory ID must be 60 characters or fewer.');
   const want = MANAGER_ROLE[u.role];
   if (u.managerId) {
-    const m = s.users.find((x) => x.id === u.managerId);
+    const m = s.users.find((x) => x.id === u.managerId && !x.deletedAt);
     if (!m) fail('Manager not found.');
     if (want && m!.role !== want) fail(`A ${u.role} reports to an ${want}, not an ${m!.role}.`);
   }
@@ -71,7 +98,7 @@ function checkUser(s: Snapshot, u: User) {
 /** Applies one mutation as `actor`. Throws RuleError when it is not allowed. */
 export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new Date()): Snapshot {
   const nowIso = now.toISOString();
-  const isAdmin = actor.role === 'Admin';
+  const isAdmin = hasAdminRights(actor);
   const visible = visibleOwnerIds(s.users, actor);
   const adminOnly = () => {
     if (!isAdmin) fail('Only an administrator can do this.');
@@ -81,8 +108,9 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
     case 'account.upsert': {
       const a = m.account;
       const existing = s.accounts.find((x) => x.id === a.id);
+      if (existing?.deletedAt) fail('This account was deleted.');
       if (existing && !visible.has(existing.ownerId)) fail('You cannot edit this account.');
-      const owner = s.users.find((u) => u.id === a.ownerId);
+      const owner = s.users.find((u) => u.id === a.ownerId && !u.deletedAt);
       if (!owner) fail('The account owner was not found.');
       if (!isAdmin && a.ownerId !== actor.id && !manages(s.users, actor, a.ownerId)) fail('You can only add accounts to your own territory or team.');
       if (!a.name.trim() || !a.specialty.trim() || !a.city.trim()) fail('Name, specialty and city are required.');
@@ -90,7 +118,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
     }
 
     case 'account.pin': {
-      const a = s.accounts.find((x) => x.id === m.id) ?? fail('Account not found.');
+      const a = s.accounts.find((x) => x.id === m.id && !x.deletedAt) ?? fail('Account not found.');
       if (!visible.has(a.ownerId)) fail('You cannot edit this account.');
       if (Math.abs(m.lat) > 90 || Math.abs(m.lng) > 180) fail('Invalid coordinates.');
       return { ...s, accounts: s.accounts.map((x) => (x.id === a.id ? { ...x, lat: m.lat, lng: m.lng } : x)) };
@@ -102,7 +130,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (existing?.status === 'Submitted') fail('Submitted calls are locked and cannot be edited.');
       if (existing && existing.ownerId !== actor.id) fail('Only the rep who owns a call can change it.');
       if (c.ownerId !== actor.id) fail('You can only log your own calls.');
-      const account = s.accounts.find((a) => a.id === c.accountId);
+      const account = s.accounts.find((a) => a.id === c.accountId && !a.deletedAt);
       if (!account || !visible.has(account.ownerId)) fail('Choose an account from your territory.');
       const problems = callProblems(c, s.settings, now);
       const first = Object.values(problems)[0];
@@ -133,7 +161,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       const dupe = s.plans.find((x) => x.ownerId === p.ownerId && x.cycleId === p.cycleId && x.id !== p.id);
       if (dupe) fail('You already have a plan for this cycle.');
       for (const t of p.targets) {
-        const a = s.accounts.find((x) => x.id === t.accountId);
+        const a = s.accounts.find((x) => x.id === t.accountId && !x.deletedAt);
         if (!a || !visible.has(a.ownerId)) fail('A plan can only include accounts in your territory.');
         if (!Number.isInteger(t.planned) || t.planned < 1 || t.planned > 50) fail('Planned calls must be between 1 and 50.');
       }
@@ -184,11 +212,71 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
 
     case 'user.upsert': {
       adminOnly();
-      const u = { ...m.user, email: m.user.email.trim().toLowerCase(), name: m.user.name.trim() };
-      if (u.id === actor.id && (!u.active || u.role !== 'Admin')) fail('You cannot remove your own admin access.');
+      const existing = s.users.find((x) => x.id === m.user.id);
+      if (existing?.deletedAt) fail('This person was deleted.');
+      // The photo is changed with user.photo only, so editing someone keeps their picture.
+      const u = { ...normalUser(m.user), photo: existing?.photo, deletedAt: undefined };
+      if (u.id === actor.id && (!u.active || !hasAdminRights(u))) fail('You cannot remove your own admin access.');
       checkUser(s, u);
-      const existing = s.users.find((x) => x.id === u.id);
       return { ...s, users: replaceOrAdd(s.users, { ...u, createdAt: existing?.createdAt ?? u.createdAt ?? nowIso }) };
+    }
+
+    case 'user.delete': {
+      adminOnly();
+      let next = s;
+      for (const { id, transferTo } of m.users) {
+        const u = next.users.find((x) => x.id === id && !x.deletedAt);
+        if (!u) continue; // already deleted, e.g. by another administrator
+        if (u.id === actor.id) fail('You cannot delete yourself.');
+        const owned = next.accounts.filter((a) => a.ownerId === u.id && !a.deletedAt);
+        let to: User | undefined;
+        if (transferTo) {
+          to = next.users.find((x) => x.id === transferTo && !x.deletedAt && x.active) ?? fail('The person taking over was not found or is inactive.');
+          if (to.id === u.id) fail('Choose someone else to take over.');
+          if (to.role !== u.role) fail(`${u.name}'s accounts and team can only move to another ${u.role}; ${to.name} is a ${to.role}.`);
+        }
+        if (owned.length && !to) fail(`${u.name} has ${owned.length} account${owned.length > 1 ? 's' : ''}. Choose who takes ${owned.length > 1 ? 'them' : 'it'} over.`);
+        const teamTiers = { ...next.settings.teamTiers };
+        delete teamTiers[u.id];
+        next = {
+          ...next,
+          // The person stays in the data, hidden, so their submitted calls keep a name.
+          users: next.users.map((x) => (x.id === u.id ? { ...x, active: false, admin: undefined, deletedAt: nowIso } : x.managerId === u.id && !x.deletedAt ? { ...x, managerId: to?.id } : x)),
+          accounts: next.accounts.map((a) => (a.ownerId === u.id && !a.deletedAt ? { ...a, ownerId: to!.id } : a)),
+          // Their planned calls and drafts go; submitted calls are company records and stay.
+          calls: next.calls.filter((c) => c.ownerId !== u.id || c.status === 'Submitted'),
+          plans: next.plans.filter((p) => p.ownerId !== u.id),
+          settings: { ...next.settings, teamTiers },
+        };
+      }
+      return next;
+    }
+
+    case 'user.photo': {
+      const u = s.users.find((x) => x.id === m.id && !x.deletedAt) ?? fail('Person not found.');
+      if (u.id !== actor.id && !isAdmin) fail('You can only change your own photo.');
+      if (m.photo && (!PHOTO_RE.test(m.photo) || m.photo.length > MAX_PHOTO_CHARS)) fail('The photo must be a JPEG or PNG image of about 100 KB or less.');
+      return { ...s, users: s.users.map((x) => (x.id === u.id ? { ...x, photo: m.photo || undefined } : x)) };
+    }
+
+    case 'account.delete': {
+      adminOnly();
+      const ids = new Set(m.ids.filter((id) => s.accounts.some((a) => a.id === id && !a.deletedAt)));
+      if (!ids.size) return s;
+      return {
+        ...s,
+        // Deleted accounts stay in the data, hidden, so submitted calls keep the account's name.
+        accounts: s.accounts.map((a) => (ids.has(a.id) ? { ...a, deletedAt: nowIso } : a)),
+        calls: s.calls.filter((c) => !ids.has(c.accountId) || c.status === 'Submitted'),
+        plans: s.plans.map((p) => (p.targets.some((t) => ids.has(t.accountId)) ? { ...p, targets: p.targets.filter((t) => !ids.has(t.accountId)), updatedAt: nowIso } : p)),
+      };
+    }
+
+    case 'product.delete': {
+      adminOnly();
+      // Calls name their products, so past calls are unaffected.
+      const ids = new Set(m.ids);
+      return { ...s, products: s.products.filter((p) => !ids.has(p.id)) };
     }
 
     case 'product.upsert': {
@@ -229,7 +317,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
 
     case 'tiers.update': {
       adminOnly();
-      const team = m.teamId ? s.users.find((u) => u.id === m.teamId && u.role === 'FLM') ?? fail('Team not found.') : undefined;
+      const team = m.teamId ? s.users.find((u) => u.id === m.teamId && u.role === 'FLM' && !u.deletedAt) ?? fail('Team not found.') : undefined;
       if (!team && !m.tiers) fail('The company needs a default tier scheme.');
       const tiers = m.tiers?.map((t) => ({ name: t.name.trim(), frequency: t.frequency }));
       const problem = tiers && tierSchemeProblem(tiers);
@@ -256,8 +344,9 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       adminOnly();
       let accounts = s.accounts;
       for (const a of m.accounts) {
-        if (!s.users.some((u) => u.id === a.ownerId)) fail(`Owner not found for ${a.name}.`);
+        if (!s.users.some((u) => u.id === a.ownerId && !u.deletedAt)) fail(`Owner not found for ${a.name}.`);
         const existing = accounts.find((x) => x.id === a.id);
+        if (existing?.deletedAt) fail(`${a.name} was deleted. Leave the id empty to add it again.`);
         accounts = replaceOrAdd(accounts, { ...existing, ...a, createdAt: existing?.createdAt ?? nowIso });
       }
       return { ...s, accounts };
@@ -266,9 +355,12 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
     case 'import.users': {
       adminOnly();
       let next = s;
-      for (const u of m.users) {
+      for (const raw of m.users) {
+        const u = normalUser(raw);
         const existing = next.users.find((x) => x.id === u.id);
-        const user = { ...u, createdAt: existing?.createdAt ?? nowIso };
+        if (existing?.deletedAt) fail(`${u.email} was deleted.`);
+        if (u.id === actor.id && (!u.active || !hasAdminRights(u))) fail('You cannot remove your own admin access.');
+        const user = { ...u, photo: existing?.photo, deletedAt: undefined, createdAt: existing?.createdAt ?? nowIso };
         checkUser({ ...next, users: replaceOrAdd(next.users, user) }, user);
         next = { ...next, users: replaceOrAdd(next.users, user) };
       }
@@ -297,6 +389,14 @@ export function describeMutation(m: Mutation): string {
       return `Imported ${m.products.length} products`;
     case 'user.upsert':
       return `Saved user ${m.user.email}`;
+    case 'user.delete':
+      return `Deleted ${m.users.length} user${m.users.length > 1 ? 's' : ''}`;
+    case 'user.photo':
+      return m.photo ? 'Changed a profile photo' : 'Removed a profile photo';
+    case 'account.delete':
+      return `Deleted ${m.ids.length} account${m.ids.length > 1 ? 's' : ''}`;
+    case 'product.delete':
+      return `Deleted ${m.ids.length} product${m.ids.length > 1 ? 's' : ''}`;
     case 'tiers.update':
       return m.teamId ? 'Changed a team’s tier names' : 'Changed the default tier names';
     default:

@@ -5,7 +5,7 @@ import { callsByAccount, cycleCalls, cycleElapsed, pct, repMetrics } from '@/dat
 import { useStore } from '@/data/store';
 import type { User } from '@/data/types';
 import { CallRow } from '@/ui/CallRow';
-import { Avatar, Button, Card, Empty, Kpi, KpiRow, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, text } from '@/ui/components';
+import { Button, Card, Empty, Kpi, KpiRow, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, UserAvatar, text } from '@/ui/components';
 import { Screen } from '@/ui/Screen';
 import { colors, paceColor, space } from '@/ui/theme';
 
@@ -24,7 +24,7 @@ export function RepDetail({ rep }: { rep: User }) {
     <Screen wide>
       <Card>
         <Row gap={space.md}>
-          <Avatar name={rep.name} size={52} />
+          <UserAvatar user={rep} size={52} />
           <View style={{ flex: 1 }}>
             <Text style={text.h2}>{rep.name}</Text>
             <Text style={text.muted}>

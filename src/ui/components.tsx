@@ -1,10 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 import type { ComponentProps, ReactNode } from 'react';
 import { Pressable, StyleSheet, Switch, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
 import type { GeoStatus } from '@/data/geo';
 import { useStore } from '@/data/store';
 import { tierRankIn } from '@/data/tiers';
-import type { CallStatus, PlanStatus, Tier } from '@/data/types';
+import type { CallStatus, PlanStatus, Tier, User } from '@/data/types';
 import { avatarColor, colors, radius, shadow, space } from './theme';
 
 export type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -178,7 +179,10 @@ export function TierBadge({ tier, rank }: { tier: Tier; rank?: number }) {
   return <Badge label={tier} fg={c.fg} bg={c.bg} />;
 }
 
-export function Avatar({ name, size = 40 }: { name: string; size?: number }) {
+export function Avatar({ name, size = 40, photo }: { name: string; size?: number; photo?: string }) {
+  if (photo) {
+    return <Image source={{ uri: photo }} style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: colors.border }} contentFit="cover" accessibilityLabel={name} />;
+  }
   const initials = name
     .replace(/^Dr\.\s*/, '')
     .split(/\s+/)
@@ -190,6 +194,11 @@ export function Avatar({ name, size = 40 }: { name: string; size?: number }) {
       <Text style={{ color: '#fff', fontWeight: '700', fontSize: size * 0.38 }}>{initials}</Text>
     </View>
   );
+}
+
+/** A person's profile picture, or their initials when they have none. */
+export function UserAvatar({ user, size = 40 }: { user: Pick<User, 'name' | 'photo'>; size?: number }) {
+  return <Avatar name={user.name} photo={user.photo} size={size} />;
 }
 
 /** Horizontal bar; `marker` shows where the value should be by now (cycle pace). */

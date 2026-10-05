@@ -12,12 +12,23 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  /** The person's line role. A Rep, FLM or SLM can also be an administrator (`admin`). */
   role: Role;
+  /** Also has administrator rights (dual role), e.g. an SLM who runs the company's setup. */
+  admin?: boolean;
+  /** The company's own ID for this person, e.g. an employee number. Unique when set. */
+  employeeId?: string;
   managerId?: string;
   /** Rep: territory name. FLM: team/district. SLM: region. */
   territory?: string;
+  /** The company's code for the territory, team or region, e.g. "LAG-IKJ-01". */
+  territoryId?: string;
+  /** Profile picture: a small square JPEG data URI. */
+  photo?: string;
   active: boolean;
   createdAt: string;
+  /** Set when an administrator deleted the person. They are hidden everywhere and cannot sign in; submitted calls keep their name. */
+  deletedAt?: string;
 }
 
 export type AccountType = 'HCP' | 'HCO';
@@ -59,6 +70,8 @@ export interface Account {
   lat?: number;
   lng?: number;
   createdAt: string;
+  /** Set when an administrator deleted the account. It is hidden everywhere; submitted calls keep its name. */
+  deletedAt?: string;
 }
 
 export type CallChannel = 'In person' | 'Phone' | 'Video' | 'Email';

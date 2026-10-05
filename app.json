@@ -2,7 +2,7 @@
   "expo": {
     "name": "Ava CRM",
     "slug": "ava",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -10,7 +10,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.avacrm.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Ava CRM records your location when you check in to a call, so your visit can be verified."
+        "NSLocationWhenInUseUsageDescription": "Ava CRM records your location when you check in to a call, so your visit can be verified.",
+        "NSCameraUsageDescription": "Ava CRM uses the camera to take your profile picture.",
+        "NSPhotoLibraryUsageDescription": "Ava CRM uses your photos to set your profile picture."
       }
     },
     "android": {
@@ -22,10 +24,11 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.avacrm.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "CAMERA"
       ],
       "blockedPermissions": [
         "android.permission.ACCESS_BACKGROUND_LOCATION"
@@ -45,6 +48,14 @@
       "expo-router",
       "expo-sharing",
       "expo-image",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Ava CRM uses your photos to set your profile picture.",
+          "cameraPermission": "Ava CRM uses the camera to take your profile picture.",
+          "microphonePermission": false
+        }
+      ],
       [
         "expo-location",
         {

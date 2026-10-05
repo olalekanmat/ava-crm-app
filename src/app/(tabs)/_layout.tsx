@@ -4,7 +4,7 @@ import { Tabs } from 'expo-router/js-tabs';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 import { useStore } from '@/data/store';
 import { HeaderTitle } from '@/ui/Brand';
-import { Avatar } from '@/ui/components';
+import { UserAvatar } from '@/ui/components';
 import { colors } from '@/ui/theme';
 
 export default function TabsLayout() {
@@ -21,7 +21,7 @@ export default function TabsLayout() {
   const headerRight = () => (
     <Pressable onPress={() => router.navigate('/more')} style={{ marginRight: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }} accessibilityLabel="Profile and settings">
       {offline && <Ionicons name={sync.error ? 'cloud-offline-outline' : 'cloud-upload-outline'} size={20} color={colors.warn} />}
-      <Avatar name={me.name} size={32} />
+      <UserAvatar user={me} size={32} />
     </Pressable>
   );
   const icon =

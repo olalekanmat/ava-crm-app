@@ -75,6 +75,8 @@ function user(v: unknown, now: string): User {
   const u = obj(v, 'user');
   return {
     id: str(u.id, 'user id', 80), name: str(u.name, 'name', 200), email: str(u.email, 'email', 200), role: oneOf(u.role, ROLES, 'role'),
+    admin: u.admin === undefined || u.admin === null ? undefined : bool(u.admin, 'admin flag'),
+    employeeId: optStr(u.employeeId, 'user ID', 60), territoryId: optStr(u.territoryId, 'territory ID', 60),
     managerId: optStr(u.managerId, 'manager', 80), territory: optStr(u.territory, 'territory', 200), active: bool(u.active, 'active flag'),
     createdAt: u.createdAt ? iso(u.createdAt, 'date') : now,
   };
@@ -144,6 +146,19 @@ export function sanitizeMutation(raw: unknown, at: Date): Mutation {
       return { type: m.type, id: str(m.id, 'id', 80), approve: bool(m.approve, 'decision'), note: optStr(m.note, 'note', 2000) };
     case 'user.upsert':
       return { type: m.type, user: user(m.user, now) };
+    case 'user.delete':
+      return {
+        type: m.type,
+        users: arr(m.users, 'users', 5000).map((x) => {
+          const o = obj(x, 'user');
+          return { id: str(o.id, 'user id', 80), transferTo: optStr(o.transferTo, 'user id', 80) };
+        }),
+      };
+    case 'user.photo':
+      return { type: m.type, id: str(m.id, 'user id', 80), photo: optStr(m.photo, 'photo', 200_000) };
+    case 'account.delete':
+    case 'product.delete':
+      return { type: m.type, ids: arr(m.ids, 'ids', 20000).map((x) => str(x, 'id', 80)) };
     case 'product.upsert':
       return { type: m.type, product: product(m.product) };
     case 'cycle.upsert':

@@ -8,7 +8,7 @@ import type { ReplayLogEntry } from '@/cloud/journal';
 import { licenseState, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
 import { saveToken } from '@/cloud/relay';
 import { pendingCount, rebuild, syncOnce, writeLicense, type CloudCache } from '@/cloud/sync';
-import { scopeSnapshot } from './access';
+import { isAdmin, scopeSnapshot, withoutDeleted } from './access';
 import { removeBig, loadBig, saveBig } from './bigStorage';
 import { currentCycle } from './metrics';
 import { applyMutation, RuleError, type Mutation } from './mutations';
@@ -35,13 +35,18 @@ export interface SyncState {
 }
 
 /** Changes allowed while a company waits for approval: the admin setting things up. */
-const SETUP_TYPES = new Set<Mutation['type']>(['company.update', 'user.upsert', 'import.users', 'import.accounts', 'import.products', 'product.upsert', 'cycle.upsert', 'settings.update', 'tiers.update', 'account.upsert', 'account.pin']);
+const SETUP_TYPES = new Set<Mutation['type']>([
+  'company.update', 'user.upsert', 'user.delete', 'user.photo', 'import.users', 'import.accounts', 'import.products', 'product.upsert', 'product.delete',
+  'cycle.upsert', 'settings.update', 'tiers.update', 'account.upsert', 'account.pin', 'account.delete',
+]);
 
 interface Store {
   ready: boolean;
   session: Session | null;
   me: User | undefined;
-  /** What the signed-in user may see. */
+  /** The signed-in person has administrator rights (Admin, or a manager who is also an administrator). */
+  admin: boolean;
+  /** What the signed-in user may see. Deleted people and accounts are left out. */
   data: Snapshot;
   company: Company;
   accounts: Account[];
@@ -55,8 +60,10 @@ interface Store {
   canEdit: boolean;
   /** Everything replayed from the journals, newest first (cloud mode). */
   activity: ReplayLogEntry[];
+  /** Also finds deleted accounts, so call history keeps their names. */
   getAccount(id: string): Account | undefined;
   getCall(id: string): Call | undefined;
+  /** Also finds deleted people, so call history keeps their names. */
   getUser(id?: string): User | undefined;
   callsForAccount(accountId: string): Call[];
   lastCallFor(accountId: string): Call | undefined;
@@ -145,7 +152,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (net && net.isInternetReachable === false) throw new Error('No internet connection. Your changes are saved on this device and will upload when you are back online.');
       const drive = adapterFor(s.folder);
       const me = fullRef.current.users.find((u) => u.id === s.userId);
-      let { cache: c } = await syncOnce(drive, c0, { writeExports: me?.role === 'Admin', forceExports: manual });
+      let { cache: c } = await syncOnce(drive, c0, { writeExports: isAdmin(me), forceExports: manual });
       // Keep any changes made while the sync was running.
       const latest = cacheRef.current;
       if (latest && latest.own.entries.length > c.own.entries.length) c = { ...c, own: latest.own };
@@ -156,16 +163,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const next = await refreshLicense(c.license);
           if (next.status !== c.license.status || next.token !== c.license.token) {
             // Only administrators write the shared licence file; everyone keeps the renewed copy.
-            c = me?.role === 'Admin' ? await writeLicense(drive, c, next).catch(() => ({ ...c, license: next })) : { ...c, license: next };
+            c = isAdmin(me) ? await writeLicense(drive, c, next).catch(() => ({ ...c, license: next })) : { ...c, license: next };
           }
         } catch (e) {
           console.warn('Licence check failed', e);
         }
       }
       // Administrators keep the sign-in list (ava-roster.json) in step with Users & roles.
-      if (me?.role === 'Admin') {
-        const users = rebuild(c)?.snapshot.users ?? [];
-        const roster = users.map(({ id, name, email, role, active }) => ({ id, name, email: email.toLowerCase(), role, active })).sort((x, y) => x.id.localeCompare(y.id));
+      // Deleted people are left out, so they cannot sign in. The server only knows the role
+      // "Admin" as administrator, so a manager who is also an administrator is listed as Admin.
+      if (isAdmin(me)) {
+        const users = (rebuild(c)?.snapshot.users ?? []).filter((u) => !u.deletedAt);
+        const roster = users.map((u) => ({ id: u.id, name: u.name, email: u.email.toLowerCase(), role: isAdmin(u) ? 'Admin' : u.role, active: u.active })).sort((x, y) => x.id.localeCompare(y.id));
         const key = JSON.stringify(roster);
         if (key !== c.rosterSent && roster.some((u) => u.id === s.userId && u.role === 'Admin' && u.active)) {
           await drive.write('ava-roster.json', JSON.stringify({ format: 'ava-roster/1', updatedAt: new Date().toISOString(), users: roster }, null, 2));
@@ -221,7 +230,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const s = sessionRef.current;
       const actor = fullRef.current.users.find((u) => u.id === s?.userId);
       if (!s || !actor) throw new Error('Not signed in.');
-      if (s.mode === 'cloud' && !licensed && !(actor.role === 'Admin' && SETUP_TYPES.has(m.type))) {
+      if (s.mode === 'cloud' && !licensed && !(isAdmin(actor) && SETUP_TYPES.has(m.type))) {
         throw new RuleError(
           license.state === 'pending' || license.state === 'none'
             ? 'Your company is waiting for approval. You can view data, but changes are off until it is approved.'
@@ -285,16 +294,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<Store>(() => {
-    const data = me ? scopeSnapshot(full, me) : EMPTY;
+    const scoped = me ? scopeSnapshot(full, me) : EMPTY;
+    const data = withoutDeleted(scoped);
     const accounts = [...data.accounts].sort((x, y) => x.name.localeCompare(y.name));
     const calls = [...data.calls].sort(byDateDesc);
-    const accountById = new Map(data.accounts.map((a) => [a.id, a]));
+    const accountById = new Map(scoped.accounts.map((a) => [a.id, a]));
     const callById = new Map(data.calls.map((c) => [c.id, c]));
-    const userById = new Map(data.users.map((u) => [u.id, u]));
+    const userById = new Map(scoped.users.map((u) => [u.id, u]));
     return {
       ready,
       session,
       me,
+      admin: isAdmin(me),
       data,
       company: full.company,
       accounts,

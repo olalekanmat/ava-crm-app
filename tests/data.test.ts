@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { repsUnder, scopeSnapshot } from '../src/data/access';
-import { exportCalls, importAccounts, importUsers, parseCsv, toCsv } from '../src/data/csv';
+import { isAdmin, repsUnder, roleLabel, scopeSnapshot, withoutDeleted } from '../src/data/access';
+import { exportAccounts, exportCalls, exportUsers, importAccounts, importProducts, importUsers, parseCsv, toCsv } from '../src/data/csv';
 import { byDay, calendarState, monthGrid } from '../src/data/calendar';
 import { distanceM, geoStatus } from '../src/data/geo';
 import { currentCycle, repMetrics, teamRollup } from '../src/data/metrics';
@@ -141,7 +141,7 @@ test('csv import: accounts validate and map owners; users resolve managers in fi
   assert.match(users.rows[2].errors.join(), /FLM/);
   const s3 = applyMutation(s, { type: 'import.users', users: users.valid }, user(s, 'usr_admin'), now);
   assert.equal(s3.users.find((u) => u.email === 'nr@x.com')!.managerId, users.valid[0].id);
-  assert.ok(importAccounts('name\nX\n', s).missingColumns.includes('owner_email'));
+  assert.ok(importAccounts('name\nX\n', s).missingColumns.some((c) => c.startsWith('owner_email')));
 });
 
 test('export: calls CSV has one row per call', () => {
@@ -222,4 +222,135 @@ test('cycles follow the calendar quarters', async () => {
   assert.equal(cs[0].id, 'q2025-1');
   assert.equal(cs[cs.length - 1].id, 'q2027-4');
   assert.ok(isQuarterId('q2026-3') && !isQuarterId('cyc_1'));
+});
+
+test('dual role: a manager who is also an administrator', () => {
+  const s = seed();
+  const admin = user(s, 'usr_admin');
+  const slm = user(s, 'usr_slm');
+  assert.throws(() => applyMutation(s, { type: 'product.delete', ids: ['prd_neurolin'] }, slm, now), /administrator/);
+  const s2 = applyMutation(s, { type: 'user.upsert', user: { ...slm, admin: true } }, admin, now);
+  const slmAdmin = user(s2, 'usr_slm');
+  assert.ok(isAdmin(slmAdmin) && slmAdmin.role === 'SLM');
+  assert.equal(roleLabel(slmAdmin), 'Second-line manager · Administrator');
+  // Admin rights: admin-only changes and the whole organisation's data, while staying the region's SLM.
+  const s3 = applyMutation(s2, { type: 'product.delete', ids: ['prd_neurolin'] }, slmAdmin, now);
+  assert.ok(!s3.products.some((p) => p.id === 'prd_neurolin'));
+  assert.equal(scopeSnapshot(s2, slmAdmin).calls.length, s2.calls.length);
+  assert.equal(repsUnder(s2.users, slmAdmin).length, 4);
+  // The admin flag means nothing on the Admin role itself, and nobody can drop their own admin rights.
+  assert.equal(applyMutation(s, { type: 'user.upsert', user: { ...admin, admin: true } }, admin, now).users.find((u) => u.id === admin.id)!.admin, undefined);
+  assert.throws(() => applyMutation(s3, { type: 'user.upsert', user: { ...slmAdmin, admin: false } }, slmAdmin, now), /your own admin/);
+});
+
+test('user and territory IDs: unique user ID, CSV columns, accounts by territory ID', () => {
+  const s = seed();
+  const admin = user(s, 'usr_admin');
+  const s2 = applyMutation(s, { type: 'user.upsert', user: { ...user(s, 'usr_rep1'), employeeId: ' EMP-1 ', territoryId: 'LAG-IKJ' } }, admin, now);
+  assert.equal(user(s2, 'usr_rep1').employeeId, 'EMP-1');
+  assert.throws(() => applyMutation(s2, { type: 'user.upsert', user: { ...user(s2, 'usr_rep2'), employeeId: 'emp-1' } }, admin, now), /already used by Tunde/);
+
+  const users = importUsers('name,email,role,admin,user_id,manager_email,territory,territory_id\nNew FLM,nf@x.com,FLM,yes,EMP-9,slm@ava.demo,Kano,KAN\nClash,cl@x.com,Rep,,EMP-1,nf@x.com,,\n', s2);
+  assert.equal(users.valid.length, 1);
+  assert.deepEqual([users.valid[0].admin, users.valid[0].employeeId, users.valid[0].territoryId], [true, 'EMP-9', 'KAN']);
+  assert.match(users.rows[1].errors.join(), /EMP-1 is already used/);
+
+  const acc = importAccounts('type,name,specialty,tier,city,territory_id\nHCP,Dr. T,Cardiology,T2,Ikeja,lag-ikj\nHCP,Dr. U,Cardiology,T2,Ikeja,NOPE\n', s2);
+  assert.equal(acc.valid.length, 1);
+  assert.equal(acc.valid[0].ownerId, 'usr_rep1');
+  assert.match(acc.rows[1].errors.join(), /no active rep with territory_id/);
+  // Exports carry the IDs and re-import cleanly.
+  const exported = exportUsers(s2);
+  assert.match(exported, /EMP-1,tunde@ava.demo|EMP-1,flm/);
+  assert.equal(importUsers(exported, s2).rows.filter((r) => r.errors.length).length, 0);
+  assert.equal(importAccounts(exportAccounts(s2), s2).rows.filter((r) => r.errors.length).length, 0);
+});
+
+test('deleting a user: accounts and team move on, open work goes, history stays', () => {
+  const s = seed();
+  const admin = user(s, 'usr_admin');
+  const owned = s.accounts.filter((a) => a.ownerId === 'usr_rep1').length;
+  const submitted = s.calls.filter((c) => c.ownerId === 'usr_rep1' && c.status === 'Submitted').length;
+  assert.ok(owned > 0 && submitted > 0);
+  assert.throws(() => applyMutation(s, { type: 'user.delete', users: [{ id: 'usr_rep1' }] }, admin, now), /Choose who takes/);
+  assert.throws(() => applyMutation(s, { type: 'user.delete', users: [{ id: 'usr_rep1', transferTo: 'usr_flm1' }] }, admin, now), /another Rep/);
+  assert.throws(() => applyMutation(s, { type: 'user.delete', users: [{ id: 'usr_admin' }] }, admin, now), /yourself/);
+  assert.throws(() => applyMutation(s, { type: 'user.delete', users: [{ id: 'usr_rep2', transferTo: 'usr_rep1' }] }, user(s, 'usr_flm1'), now), /administrator/);
+
+  const s2 = applyMutation(s, { type: 'user.delete', users: [{ id: 'usr_rep1', transferTo: 'usr_rep2' }] }, admin, now);
+  const gone = user(s2, 'usr_rep1');
+  assert.ok(gone.deletedAt && !gone.active);
+  assert.equal(s2.accounts.filter((a) => a.ownerId === 'usr_rep2').length, s.accounts.filter((a) => a.ownerId === 'usr_rep2').length + owned);
+  assert.equal(s2.calls.filter((c) => c.ownerId === 'usr_rep1').length, submitted, 'only submitted calls stay');
+  assert.ok(!s2.plans.some((p) => p.ownerId === 'usr_rep1'));
+  assert.ok(!withoutDeleted(s2).users.some((u) => u.id === 'usr_rep1'));
+  assert.equal(teamRollup(s2, user(s2, 'usr_flm1'), currentCycle(s2.cycles, now)!).reps.length, 1);
+  // Deleting is final for that record: it cannot be edited back, but the email can be used again.
+  assert.throws(() => applyMutation(s2, { type: 'user.upsert', user: { ...gone, active: true } }, admin, now), /deleted/);
+  const s3 = applyMutation(s2, { type: 'user.upsert', user: { ...gone, id: 'usr_new', active: true, deletedAt: undefined } }, admin, now);
+  assert.equal(user(s3, 'usr_new').email, 'tunde@ava.demo');
+  // A deleted manager's reps move to the new manager.
+  const s4 = applyMutation(s, { type: 'user.delete', users: [{ id: 'usr_flm1', transferTo: 'usr_flm2' }] }, admin, now);
+  assert.equal(user(s4, 'usr_rep1').managerId, 'usr_flm2');
+  assert.equal(teamRollup(s4, user(s4, 'usr_flm2'), currentCycle(s4.cycles, now)!).reps.length, 4);
+  // Deleting the same person twice (two admins at once) is harmless.
+  assert.equal(applyMutation(s2, { type: 'user.delete', users: [{ id: 'usr_rep1', transferTo: 'usr_rep2' }] }, admin, now), s2);
+});
+
+test('deleting accounts and products, in the app and by CSV', () => {
+  const s = seed();
+  const admin = user(s, 'usr_admin');
+  const rep = user(s, 'usr_rep1');
+  const plan = s.plans.find((p) => p.ownerId === rep.id)!;
+  const acc = s.accounts.find((a) => plan.targets.some((t) => t.accountId === a.id) && s.calls.some((c) => c.accountId === a.id && c.status === 'Submitted'))!;
+  assert.throws(() => applyMutation(s, { type: 'account.delete', ids: [acc.id] }, rep, now), /administrator/);
+  const s2 = applyMutation(s, { type: 'account.delete', ids: [acc.id] }, admin, now);
+  assert.ok(s2.accounts.find((a) => a.id === acc.id)!.deletedAt);
+  assert.ok(!withoutDeleted(s2).accounts.some((a) => a.id === acc.id));
+  assert.ok(!s2.plans.some((p) => p.targets.some((t) => t.accountId === acc.id)));
+  assert.ok(s2.calls.filter((c) => c.accountId === acc.id).every((c) => c.status === 'Submitted'));
+  assert.ok(s2.calls.some((c) => c.accountId === acc.id), 'submitted calls stay in the history');
+  assert.throws(() => applyMutation(s2, { type: 'account.pin', id: acc.id, lat: 1, lng: 1 }, rep, now), /not found/);
+  assert.throws(() => applyMutation(s2, { type: 'account.upsert', account: acc }, admin, now), /deleted/);
+
+  // CSV: the action column deletes; only the identifying columns are needed.
+  const other = s.accounts.find((a) => a.id !== acc.id)!;
+  const r = importAccounts(`action,id,name,city\ndelete,${other.id},,\ndelete,,${other.name},${other.city}\nremove,acc_nope,,\nexplode,x,,\n`, s);
+  assert.deepEqual(r.missingColumns, []);
+  assert.deepEqual(r.deletes, [{ id: other.id, transferTo: undefined }]);
+  assert.match(r.rows[1].errors.join(), /duplicate/);
+  assert.match(r.rows[2].errors.join(), /no account with id/);
+  assert.match(r.rows[3].errors.join(), /action must be/);
+
+  const u = importUsers('action,email,transfer_to_email\ndelete,tunde@ava.demo,chioma@ava.demo\ndelete,kemi@ava.demo,\n', s);
+  assert.deepEqual(u.deletes, [{ id: 'usr_rep1', transferTo: 'usr_rep2' }]);
+  assert.match(u.rows[1].errors.join(), /transfer_to_email/);
+  const s3 = applyMutation(s, { type: 'user.delete', users: u.deletes }, admin, now);
+  assert.ok(user(s3, 'usr_rep1').deletedAt);
+
+  const p = importProducts('action,name\ndelete,glucara xr\ndelete,Nothing\n', s);
+  assert.equal(p.deletes.length, 1);
+  const s4 = applyMutation(s, { type: 'product.delete', ids: p.deletes.map((d) => d.id) }, admin, now);
+  assert.ok(!s4.products.some((x) => x.name === 'Glucara XR'));
+  assert.ok(s4.calls.some((c) => c.products.some((x) => x.product === 'Glucara XR')), 'past calls keep the product name');
+});
+
+test('profile photos: your own, or anyone for an administrator', () => {
+  const s = seed();
+  const photo = 'data:image/jpeg;base64,' + 'A'.repeat(400);
+  const rep = user(s, 'usr_rep1');
+  const s2 = applyMutation(s, { type: 'user.photo', id: rep.id, photo }, rep, now);
+  assert.equal(user(s2, rep.id).photo, photo);
+  assert.throws(() => applyMutation(s, { type: 'user.photo', id: 'usr_rep2', photo }, rep, now), /your own photo/);
+  assert.equal(user(applyMutation(s, { type: 'user.photo', id: 'usr_rep2', photo }, user(s, 'usr_admin'), now), 'usr_rep2').photo, photo);
+  assert.throws(() => applyMutation(s, { type: 'user.photo', id: rep.id, photo: 'data:text/html;base64,AAAA' }, rep, now), /JPEG or PNG/);
+  // Editing someone keeps their picture; removing it clears it.
+  const s3 = applyMutation(s2, { type: 'user.upsert', user: { ...user(s2, rep.id), photo: undefined, territory: 'Ikeja North' } }, user(s, 'usr_admin'), now);
+  assert.equal(user(s3, rep.id).photo, photo);
+  assert.equal(user(applyMutation(s3, { type: 'user.photo', id: rep.id }, rep, now), rep.id).photo, undefined);
+  // The journal sanitizer keeps the new change types and fields.
+  assert.deepEqual(sanitizeMutation({ type: 'user.delete', users: [{ id: 'a', transferTo: 'b', x: 1 }] }, now), { type: 'user.delete', users: [{ id: 'a', transferTo: 'b' }] });
+  const up = sanitizeMutation({ type: 'user.upsert', user: { ...rep, admin: true, employeeId: 'E1', territoryId: 'T1', photo, deletedAt: now.toISOString() } }, now);
+  assert.ok(up.type === 'user.upsert' && up.user.admin && up.user.employeeId === 'E1' && up.user.territoryId === 'T1' && !('photo' in up.user && up.user.photo) && !up.user.deletedAt);
+  assert.throws(() => sanitizeMutation({ type: 'account.delete', ids: 'all' }, now), RuleError);
 });

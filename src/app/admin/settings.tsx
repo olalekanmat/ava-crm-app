@@ -4,9 +4,11 @@ import { Text, View } from 'react-native';
 import { addDays, formatDate, toDateKey } from '@/data/dates';
 import { newId } from '@/data/ids';
 import type { Mutation } from '@/data/mutations';
+import { isAdmin } from '@/data/access';
 import { useMe, useStore } from '@/data/store';
 import { Badge, Button, Card, Empty, Field, ListRow, Row, SectionTitle, ToggleRow, text } from '@/ui/components';
-import { notify } from '@/ui/confirm';
+import { confirm, notify } from '@/ui/confirm';
+import { Grid } from '@/ui/layout';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
 
@@ -18,7 +20,7 @@ export default function SettingsScreen() {
   const [productName, setProductName] = useState('');
   const [productMessages, setProductMessages] = useState('');
 
-  if (me.role !== 'Admin') return <Screen><Empty>Only administrators can change settings.</Empty></Screen>;
+  if (!isAdmin(me)) return <Screen><Empty>Only administrators can change settings.</Empty></Screen>;
 
   const attempt = (m: Mutation, after?: () => void) => {
     try {
@@ -70,17 +72,38 @@ export default function SettingsScreen() {
           ))}
       </Card>
 
-      <SectionTitle>Products</SectionTitle>
-      {data.products.map((p) => (
-        <Card key={p.id}>
-          <Row>
-            <Text style={[text.title, { flex: 1 }]}>{p.name}</Text>
-            {!p.active && <Badge label="Inactive" fg={colors.muted} bg={colors.bg} />}
-            <Button small variant="ghost" title={p.active ? 'Deactivate' : 'Activate'} onPress={() => attempt({ type: 'product.upsert', product: { ...p, active: !p.active } })} />
-          </Row>
-          <Text style={text.muted}>{p.keyMessages.join(' · ') || 'No key messages'}</Text>
-        </Card>
-      ))}
+      <SectionTitle right={<Button small variant="ghost" icon="cloud-upload-outline" title="Import CSV" onPress={() => router.push({ pathname: '/admin/import', params: { kind: 'products' } })} />}>Products ({data.products.length})</SectionTitle>
+      {!data.products.length && <Empty icon="medkit-outline">No products yet. Add one below or import a CSV.</Empty>}
+      <Grid>
+        {[...data.products]
+          .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name))
+          .map((p) => (
+            <Card key={p.id}>
+              <Row>
+                <Text style={[text.title, { flex: 1 }]}>{p.name}</Text>
+                {!p.active && <Badge label="Inactive" fg={colors.muted} bg={colors.bg} />}
+              </Row>
+              <Text style={text.muted}>{p.keyMessages.join(' · ') || 'No key messages'}</Text>
+              <Row style={{ marginTop: space.sm, justifyContent: 'flex-end' }}>
+                <Button small variant="ghost" title={p.active ? 'Deactivate' : 'Activate'} onPress={() => attempt({ type: 'product.upsert', product: { ...p, active: !p.active } })} />
+                <Button
+                  small
+                  variant="ghost"
+                  icon="trash-outline"
+                  title="Delete"
+                  onPress={() =>
+                    confirm(
+                      `Delete ${p.name}?`,
+                      'It disappears from the product list and from new calls. Calls already logged keep the product name. To hide it for now instead, deactivate it.',
+                      () => attempt({ type: 'product.delete', ids: [p.id] }),
+                      'Delete',
+                    )
+                  }
+                />
+              </Row>
+            </Card>
+          ))}
+      </Grid>
       <Card>
         <Text style={[text.title, { marginBottom: space.sm }]}>Add a product</Text>
         <Field label="Name" value={productName} onChangeText={setProductName} />

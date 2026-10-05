@@ -66,6 +66,8 @@ export interface ImportRow<T> {
   item?: T;
   /** True when the row updates an existing record. */
   update?: boolean;
+  /** Set when the row deletes a record (action column says "delete"). */
+  remove?: { id: string; label: string; transferTo?: string };
   errors: string[];
 }
 
@@ -73,33 +75,78 @@ export interface ImportResult<T> {
   rows: ImportRow<T>[];
   missingColumns: string[];
   valid: T[];
+  /** Records to delete, from rows whose action is "delete". */
+  deletes: { id: string; transferTo?: string }[];
 }
 
 function finish<T>(rows: ImportRow<T>[], missingColumns: string[]): ImportResult<T> {
-  return { rows, missingColumns, valid: missingColumns.length ? [] : rows.filter((r) => r.item && !r.errors.length).map((r) => r.item!) };
+  const ok = missingColumns.length ? [] : rows.filter((r) => !r.errors.length);
+  return {
+    rows,
+    missingColumns,
+    valid: ok.filter((r) => r.item).map((r) => r.item!),
+    deletes: ok.filter((r) => r.remove).map((r) => ({ id: r.remove!.id, transferTo: r.remove!.transferTo })),
+  };
 }
 
 const num = (v: string): number | undefined => (v === '' ? undefined : Number(v));
+const yes = (v?: string) => /^(yes|y|true|1|admin)$/i.test((v ?? '').trim());
+const no = (v?: string) => /^(false|no|n|0|inactive)$/i.test((v ?? '').trim());
 
-export const ACCOUNT_COLUMNS = ['id', 'type', 'name', 'specialty', 'affiliation', 'tier', 'address', 'city', 'phone', 'email', 'owner_email', 'lat', 'lng'];
-export const USER_COLUMNS = ['name', 'email', 'role', 'manager_email', 'territory', 'active'];
-export const PRODUCT_COLUMNS = ['name', 'key_messages', 'active'];
+/** The optional action column: blank, add or update keep the record; delete removes it. */
+function actionOf(v?: string): 'upsert' | 'delete' | undefined {
+  const a = (v ?? '').trim().toLowerCase();
+  if (!a || ['add', 'new', 'update', 'edit', 'upsert', 'keep'].includes(a)) return 'upsert';
+  if (['delete', 'remove', 'del'].includes(a)) return 'delete';
+  return undefined;
+}
+const badAction = (v?: string) => `action must be blank, add, update or delete (not "${v ?? ''}")`;
+
+export const ACCOUNT_COLUMNS = ['action', 'id', 'type', 'name', 'specialty', 'affiliation', 'tier', 'address', 'city', 'phone', 'email', 'owner_email', 'territory_id', 'lat', 'lng'];
+export const USER_COLUMNS = ['action', 'name', 'email', 'role', 'admin', 'user_id', 'manager_email', 'territory', 'territory_id', 'active', 'transfer_to_email'];
+export const PRODUCT_COLUMNS = ['action', 'name', 'key_messages', 'active'];
 
 export function importAccounts(text: string, s: Snapshot): ImportResult<Account> {
   const { header, rows } = records(text);
-  const missing = ['type', 'name', 'specialty', 'tier', 'city', 'owner_email'].filter((c) => !header.includes(c));
-  const byEmail = new Map(s.users.map((u) => [u.email.toLowerCase(), u]));
+  const live = s.accounts.filter((a) => !a.deletedAt);
+  const people = s.users.filter((u) => !u.deletedAt);
+  const byEmail = new Map(people.map((u) => [u.email.toLowerCase(), u]));
+  const missing = rows.some((r) => actionOf(r.action) === 'upsert')
+    ? [...['type', 'name', 'specialty', 'tier', 'city'].filter((c) => !header.includes(c)), ...(header.includes('owner_email') || header.includes('territory_id') ? [] : ['owner_email (or territory_id)'])]
+    : header.includes('id') || (header.includes('name') && header.includes('city'))
+      ? []
+      : ['id (or name and city)'];
   const seen = new Set<string>();
   const out = rows.map((r, i): ImportRow<Account> => {
+    const line = i + 2;
+    const action = actionOf(r.action);
+    if (!action) return { line, errors: [badAction(r.action)] };
+    const sameName = (a: Account) => a.name.toLowerCase() === r.name?.toLowerCase() && a.city.toLowerCase() === r.city?.toLowerCase();
+    const existing = r.id ? s.accounts.find((a) => a.id === r.id) : live.find(sameName);
+    if (action === 'delete') {
+      if (!existing || existing.deletedAt) return { line, errors: [r.id ? `no account with id ${r.id}` : `no account named "${r.name ?? ''}" in ${r.city ?? ''}`] };
+      if (seen.has(existing.id)) return { line, errors: ['duplicate row for the same account'] };
+      seen.add(existing.id);
+      return { line, errors: [], remove: { id: existing.id, label: existing.name } };
+    }
     const errors: string[] = [];
+    if (existing?.deletedAt) errors.push(`account ${r.id} was deleted; leave id empty to add it again`);
     const type = r.type?.toUpperCase();
     if (type !== 'HCP' && type !== 'HCO') errors.push('type must be HCP or HCO');
     if (!r.name) errors.push('name is required');
     if (!r.specialty) errors.push('specialty is required');
     if (!r.city) errors.push('city is required');
-    const owner = byEmail.get((r.owner_email ?? '').toLowerCase());
-    if (!owner) errors.push(`no user with email "${r.owner_email ?? ''}"`);
-    else if (owner.role !== 'Rep') errors.push(`${owner.email} is not a rep`);
+    let owner: User | undefined;
+    if (r.owner_email) {
+      owner = byEmail.get(r.owner_email.toLowerCase());
+      if (!owner) errors.push(`no user with email "${r.owner_email}"`);
+    } else if (r.territory_id) {
+      const t = r.territory_id.toLowerCase();
+      const found = people.filter((u) => u.role === 'Rep' && u.active && u.territoryId?.toLowerCase() === t);
+      if (found.length === 1) owner = found[0];
+      else errors.push(found.length ? `territory_id "${r.territory_id}" belongs to ${found.length} reps; give owner_email instead` : `no active rep with territory_id "${r.territory_id}"`);
+    } else errors.push('owner_email or territory_id is required');
+    if (owner && owner.role !== 'Rep') errors.push(`${owner.email} is not a rep`);
     const scheme = tiersFor(s.settings, s.users, owner?.id);
     const tier = scheme.find((t) => t.name.toLowerCase() === (r.tier ?? '').trim().toLowerCase())?.name;
     if (!tier) errors.push(`tier must be one of ${scheme.map((t) => t.name).join(', ')}`);
@@ -108,13 +155,12 @@ export function importAccounts(text: string, s: Snapshot): ImportResult<Account>
     if ((lat === undefined) !== (lng === undefined)) errors.push('give both lat and lng, or neither');
     if (lat !== undefined && (Number.isNaN(lat) || Math.abs(lat) > 90)) errors.push('lat must be between -90 and 90');
     if (lng !== undefined && (Number.isNaN(lng) || Math.abs(lng) > 180)) errors.push('lng must be between -180 and 180');
-    const existing = r.id ? s.accounts.find((a) => a.id === r.id) : s.accounts.find((a) => a.name.toLowerCase() === r.name?.toLowerCase() && a.city.toLowerCase() === r.city?.toLowerCase());
     const id = existing?.id ?? r.id ?? newId('acc');
     if (seen.has(id)) errors.push('duplicate row for the same account');
     seen.add(id);
-    if (errors.length) return { line: i + 2, errors };
+    if (errors.length) return { line, errors };
     return {
-      line: i + 2,
+      line,
       update: !!existing,
       errors,
       item: {
@@ -140,16 +186,46 @@ export function importAccounts(text: string, s: Snapshot): ImportResult<Account>
 
 export function importUsers(text: string, s: Snapshot): ImportResult<User> {
   const { header, rows } = records(text);
-  const missing = ['name', 'email', 'role'].filter((c) => !header.includes(c));
-  // Managers may be defined earlier in the same file.
-  const byEmail = new Map(s.users.map((u) => [u.email.toLowerCase(), u]));
+  const missing = rows.some((r) => actionOf(r.action) === 'upsert') ? ['name', 'email', 'role'].filter((c) => !header.includes(c)) : ['email'].filter((c) => !header.includes(c));
+  // Managers may be defined earlier in the same file. Deleted people do not count.
+  const byEmail = new Map(s.users.filter((u) => !u.deletedAt).map((u) => [u.email.toLowerCase(), u]));
+  const userIds = new Map(s.users.filter((u) => !u.deletedAt && u.employeeId).map((u) => [u.employeeId!.toLowerCase(), u.email.toLowerCase()]));
+  const deleting = new Set<string>();
   const out = rows.map((r, i): ImportRow<User> => {
+    const line = i + 2;
     const errors: string[] = [];
     const email = (r.email ?? '').toLowerCase();
+    const action = actionOf(r.action);
+    if (!action) return { line, errors: [badAction(r.action)] };
+    const existing = byEmail.get(email);
+    if (action === 'delete') {
+      if (!existing) return { line, errors: [`no user with email "${r.email ?? ''}"`] };
+      if (deleting.has(existing.id)) return { line, errors: ['duplicate row for the same user'] };
+      let transferTo: string | undefined;
+      if (r.transfer_to_email) {
+        const to = byEmail.get(r.transfer_to_email.toLowerCase());
+        if (!to) errors.push(`no user with email "${r.transfer_to_email}" to take over`);
+        else if (to.id === existing.id || deleting.has(to.id)) errors.push('transfer_to_email must be someone who stays');
+        else if (to.role !== existing.role) errors.push(`transfer_to_email must be another ${existing.role}`);
+        else transferTo = to.id;
+      }
+      const owned = s.accounts.filter((a) => a.ownerId === existing.id && !a.deletedAt).length;
+      if (owned && !r.transfer_to_email) errors.push(`${existing.email} has ${owned} account${owned > 1 ? 's' : ''}; add transfer_to_email (another ${existing.role}) to move them`);
+      if (errors.length) return { line, errors };
+      deleting.add(existing.id);
+      return { line, errors, remove: { id: existing.id, label: existing.name, transferTo } };
+    }
     const role = ROLES.find((x) => x.toLowerCase() === (r.role ?? '').toLowerCase()) as Role | undefined;
     if (!r.name) errors.push('name is required');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) errors.push('valid email is required');
     if (!role) errors.push('role must be Rep, FLM, SLM or Admin');
+    const userId = (r.user_id ?? '').trim();
+    if (userId) {
+      const owner = userIds.get(userId.toLowerCase());
+      if (owner && owner !== email) errors.push(`user_id ${userId} is already used by ${owner}`);
+      if (userId.length > 60) errors.push('user_id must be 60 characters or fewer');
+    }
+    if ((r.territory_id ?? '').length > 60) errors.push('territory_id must be 60 characters or fewer');
     let managerId: string | undefined;
     if (r.manager_email) {
       const m = byEmail.get(r.manager_email.toLowerCase());
@@ -158,20 +234,23 @@ export function importUsers(text: string, s: Snapshot): ImportResult<User> {
       else if (role === 'FLM' && m.role !== 'SLM') errors.push('an FLM must report to an SLM');
       else managerId = m.id;
     }
-    const existing = byEmail.get(email);
-    if (errors.length) return { line: i + 2, errors };
+    if (errors.length) return { line, errors };
     const user: User = {
       id: existing?.id ?? newId('usr'),
       name: r.name,
       email,
       role: role!,
+      admin: role !== 'Admin' && yes(r.admin) ? true : undefined,
+      employeeId: userId || undefined,
       managerId,
       territory: r.territory || undefined,
-      active: !/^(false|no|0|inactive)$/i.test(r.active ?? ''),
+      territoryId: r.territory_id || undefined,
+      active: !no(r.active),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     };
     byEmail.set(email, user);
-    return { line: i + 2, errors, update: !!existing, item: user };
+    if (userId) userIds.set(userId.toLowerCase(), email);
+    return { line, errors, update: !!existing, item: user };
   });
   return finish(out, missing);
 }
@@ -179,18 +258,28 @@ export function importUsers(text: string, s: Snapshot): ImportResult<User> {
 export function importProducts(text: string, s: Snapshot): ImportResult<Product> {
   const { header, rows } = records(text);
   const missing = ['name'].filter((c) => !header.includes(c));
+  const removed = new Set<string>();
   const out = rows.map((r, i): ImportRow<Product> => {
-    if (!r.name) return { line: i + 2, errors: ['name is required'] };
+    const line = i + 2;
+    const action = actionOf(r.action);
+    if (!action) return { line, errors: [badAction(r.action)] };
+    if (!r.name) return { line, errors: ['name is required'] };
     const existing = s.products.find((p) => p.name.toLowerCase() === r.name.toLowerCase());
+    if (action === 'delete') {
+      if (!existing) return { line, errors: [`no product named "${r.name}"`] };
+      if (removed.has(existing.id)) return { line, errors: ['duplicate row for the same product'] };
+      removed.add(existing.id);
+      return { line, errors: [], remove: { id: existing.id, label: existing.name } };
+    }
     return {
-      line: i + 2,
+      line,
       errors: [],
       update: !!existing,
       item: {
         id: existing?.id ?? newId('prd'),
         name: r.name,
         keyMessages: (r.key_messages ?? '').split('|').map((x) => x.trim()).filter(Boolean),
-        active: !/^(false|no|0|inactive)$/i.test(r.active ?? ''),
+        active: !no(r.active),
       },
     };
   });
@@ -199,32 +288,33 @@ export function importProducts(text: string, s: Snapshot): ImportResult<Product>
 
 export const TEMPLATES = {
   accounts: toCsv(ACCOUNT_COLUMNS, [
-    ['', 'HCP', 'Dr. Jane Doe', 'Cardiology', 'City Hospital', 'ST', '1 Main St', 'Lakeview', '+1 555 0100', 'jane@example.com', 'rep@example.com', '6.4541', '3.3947'],
-    ['', 'HCO', 'City Hospital', 'Teaching hospital', '', 'T1', '1 Main St', 'Lakeview', '', '', 'rep@example.com', '', ''],
+    ['', '', 'HCP', 'Dr. Jane Doe', 'Cardiology', 'City Hospital', 'ST', '1 Main St', 'Lakeview', '+1 555 0100', 'jane@example.com', 'rep@example.com', '', '6.4541', '3.3947'],
+    ['', '', 'HCO', 'City Hospital', 'Teaching hospital', '', 'T1', '1 Main St', 'Lakeview', '', '', '', 'LAG-IKJ-01', '', ''],
   ]),
   users: toCsv(USER_COLUMNS, [
-    ['Sam Regional', 'sam@example.com', 'SLM', '', 'West region', 'yes'],
-    ['Fola Manager', 'fola@example.com', 'FLM', 'sam@example.com', 'Lagos district', 'yes'],
-    ['Ade Rep', 'ade@example.com', 'Rep', 'fola@example.com', 'Ikeja', 'yes'],
+    ['', 'Sam Regional', 'sam@example.com', 'SLM', 'yes', 'EMP-001', '', 'West region', 'WEST', 'yes', ''],
+    ['', 'Fola Manager', 'fola@example.com', 'FLM', 'no', 'EMP-002', 'sam@example.com', 'Lagos district', 'LAG', 'yes', ''],
+    ['', 'Ade Rep', 'ade@example.com', 'Rep', 'no', 'EMP-003', 'fola@example.com', 'Ikeja', 'LAG-IKJ-01', 'yes', ''],
   ]),
-  products: toCsv(PRODUCT_COLUMNS, [['Cardiovex', 'Efficacy vs. standard of care|Once-daily dosing', 'yes']]),
+  products: toCsv(PRODUCT_COLUMNS, [['', 'Cardiovex', 'Efficacy vs. standard of care|Once-daily dosing', 'yes']]),
 };
 
 // ---------- Exports ----------
 
-const userName = (s: Snapshot, id?: string) => s.users.find((u) => u.id === id)?.name ?? '';
-const userEmail = (s: Snapshot, id?: string) => s.users.find((u) => u.id === id)?.email ?? '';
+const userOf = (s: Snapshot, id?: string) => (id ? s.users.find((u) => u.id === id) : undefined);
+const userName = (s: Snapshot, id?: string) => userOf(s, id)?.name ?? '';
+const userEmail = (s: Snapshot, id?: string) => userOf(s, id)?.email ?? '';
 
 export function exportCalls(s: Snapshot): string {
   const accounts = new Map(s.accounts.map((a) => [a.id, a]));
   return toCsv(
-    ['call_id', 'status', 'datetime', 'rep', 'rep_email', 'account', 'account_type', 'tier', 'city', 'channel', 'products', 'key_messages', 'attendees', 'notes', 'next_step', 'follow_up', 'checkin_lat', 'checkin_lng', 'checkin_accuracy_m', 'checkin_distance_m', 'geo_status', 'submitted_at'],
+    ['call_id', 'status', 'datetime', 'rep', 'rep_email', 'rep_user_id', 'territory_id', 'account', 'account_type', 'tier', 'city', 'channel', 'products', 'key_messages', 'attendees', 'notes', 'next_step', 'follow_up', 'checkin_lat', 'checkin_lng', 'checkin_accuracy_m', 'checkin_distance_m', 'geo_status', 'submitted_at'],
     [...s.calls]
       .sort((a, b) => a.datetime.localeCompare(b.datetime))
       .map((c) => {
         const a = accounts.get(c.accountId);
         return [
-          c.id, c.status, c.datetime, userName(s, c.ownerId), userEmail(s, c.ownerId), a?.name, a?.type, a?.tier, a?.city, c.channel,
+          c.id, c.status, c.datetime, userName(s, c.ownerId), userEmail(s, c.ownerId), userOf(s, c.ownerId)?.employeeId, userOf(s, c.ownerId)?.territoryId, a?.name, a?.type, a?.tier, a?.city, c.channel,
           c.products.map((p) => p.product).join(' | '), c.keyMessages.join(' | '), c.attendees, c.notes, c.nextStep, c.followUpDate,
           c.checkIn?.lat, c.checkIn?.lng, c.checkIn?.accuracy, c.checkIn?.distanceM, geoStatus(c, s.settings.geofenceM), c.submittedAt,
         ];
@@ -235,12 +325,19 @@ export function exportCalls(s: Snapshot): string {
 export function exportAccounts(s: Snapshot): string {
   return toCsv(
     ACCOUNT_COLUMNS,
-    s.accounts.map((a) => [a.id, a.type, a.name, a.specialty, a.affiliation, a.tier, a.address, a.city, a.phone, a.email, userEmail(s, a.ownerId), a.lat, a.lng]),
+    s.accounts
+      .filter((a) => !a.deletedAt)
+      .map((a) => ['', a.id, a.type, a.name, a.specialty, a.affiliation, a.tier, a.address, a.city, a.phone, a.email, userEmail(s, a.ownerId), userOf(s, a.ownerId)?.territoryId, a.lat, a.lng]),
   );
 }
 
 export function exportUsers(s: Snapshot): string {
-  return toCsv(USER_COLUMNS, s.users.map((u) => [u.name, u.email, u.role, userEmail(s, u.managerId), u.territory, u.active ? 'yes' : 'no']));
+  return toCsv(
+    USER_COLUMNS,
+    s.users
+      .filter((u) => !u.deletedAt)
+      .map((u) => ['', u.name, u.email, u.role, u.admin ? 'yes' : '', u.employeeId, userEmail(s, u.managerId), u.territory, u.territoryId, u.active ? 'yes' : 'no', '']),
+  );
 }
 
 /** One row per rep and planned account: planned vs done in the cycle. */
@@ -259,12 +356,12 @@ export function exportCyclePlans(s: Snapshot, cycle: Cycle): string {
 
 /** One row per rep: the KPIs managers look at. */
 export function exportTeamSummary(s: Snapshot, cycle: Cycle): string {
-  const reps = s.users.filter((u) => u.role === 'Rep');
+  const reps = s.users.filter((u) => u.role === 'Rep' && !u.deletedAt);
   return toCsv(
-    ['cycle', 'rep', 'manager', 'territory', 'plan_status', 'calls_submitted', 'planned_calls', 'on_plan_calls', 'attainment_pct', 'reach_pct', 'geo_verified_pct', 'off_site_calls', 'missing_checkins', 'open_drafts'],
+    ['cycle', 'rep', 'user_id', 'manager', 'territory', 'territory_id', 'plan_status', 'calls_submitted', 'planned_calls', 'on_plan_calls', 'attainment_pct', 'reach_pct', 'geo_verified_pct', 'off_site_calls', 'missing_checkins', 'open_drafts'],
     reps.map((r) => {
       const m = repMetrics(s, r, cycle);
-      return [cycle.name, r.name, userName(s, r.managerId), r.territory, m.plan?.status ?? 'None', m.calls, m.planned, m.onPlan, Math.round(m.attainment * 100), Math.round(m.reach * 100), Math.round(m.geoVerified * 100), m.offSite, m.missingCheckIn, m.drafts];
+      return [cycle.name, r.name, r.employeeId, userName(s, r.managerId), r.territory, r.territoryId, m.plan?.status ?? 'None', m.calls, m.planned, m.onPlan, Math.round(m.attainment * 100), Math.round(m.reach * 100), Math.round(m.geoVerified * 100), m.offSite, m.missingCheckIn, m.drafts];
     }),
   );
 }

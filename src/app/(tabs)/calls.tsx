@@ -1,19 +1,23 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { geoStatus } from '@/data/geo';
 import { useMe, useStore } from '@/data/store';
 import type { CallStatus } from '@/data/types';
 import { CallCalendar } from '@/ui/CallCalendar';
 import { CallRow } from '@/ui/CallRow';
 import { Button, Chip, Empty, Segmented, text } from '@/ui/components';
+import { columnsFor, useLayout } from '@/ui/layout';
 import { colors, space } from '@/ui/theme';
 
 type Filter = 'All' | CallStatus;
 
 export default function CallsScreen() {
   const me = useMe();
-  const { calls, data, getUser } = useStore();
+  const { calls, data, getUser, syncNow, sync } = useStore();
+  const { maxWide, pad, width } = useLayout();
+  const cols = columnsFor(Math.min(width, maxWide) - 2 * pad, 360, 3);
+  const refresh = <RefreshControl refreshing={sync.syncing} onRefresh={() => syncNow()} tintColor={colors.primary} />;
   const isRep = me.role === 'Rep';
   const [filter, setFilter] = useState<Filter>(isRep ? 'All' : 'Submitted');
   const [rep, setRep] = useState<string | null>(null);
@@ -30,7 +34,7 @@ export default function CallsScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={styles.inner}>
+      <View style={[styles.inner, { maxWidth: maxWide, padding: pad }]}>
         {isRep && (
           <View style={{ marginBottom: space.md }}>
             <Button title="Log a call" icon="add-circle-outline" onPress={() => router.push('/call/edit')} />
@@ -43,18 +47,26 @@ export default function CallsScreen() {
           {!isRep && reps.map((u) => <Chip key={u!.id} label={u!.name.split(' ')[0]} selected={rep === u!.id} onPress={() => setRep(rep === u!.id ? null : u!.id)} />)}
         </View>
         {view === 'Calendar' ? (
-          <ScrollView contentContainerStyle={{ paddingBottom: space.xl }}>
+          <ScrollView contentContainerStyle={{ paddingBottom: space.xl }} refreshControl={refresh}>
             <CallCalendar calls={rep ? calls.filter((c) => c.ownerId === rep) : calls} showRep={!isRep} />
           </ScrollView>
         ) : (
-        <FlatList
-          data={visible}
-          keyExtractor={(c) => c.id}
-          ListHeaderComponent={<Text style={[text.small, { marginBottom: space.sm }]}>{visible.length} calls</Text>}
-          renderItem={({ item }) => <CallRow call={item} showRep={!isRep} />}
-          ListEmptyComponent={<Empty icon="chatbubbles-outline">No calls here.</Empty>}
-          contentContainerStyle={{ paddingBottom: space.xl }}
-        />
+          <FlatList
+            key={`cols-${cols}`}
+            data={visible}
+            keyExtractor={(c) => c.id}
+            numColumns={cols}
+            columnWrapperStyle={cols > 1 ? { gap: space.sm } : undefined}
+            refreshControl={refresh}
+            ListHeaderComponent={<Text style={[text.small, { marginBottom: space.sm }]}>{visible.length} calls</Text>}
+            renderItem={({ item }) => (
+              <View style={{ flex: 1, maxWidth: `${100 / cols}%` }}>
+                <CallRow call={item} showRep={!isRep} />
+              </View>
+            )}
+            ListEmptyComponent={<Empty icon="chatbubbles-outline">No calls here.</Empty>}
+            contentContainerStyle={{ paddingBottom: space.xl }}
+          />
         )}
       </View>
     </View>
@@ -63,6 +75,6 @@ export default function CallsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  inner: { flex: 1, padding: space.lg, paddingBottom: 0, width: '100%', maxWidth: 1200, alignSelf: 'center' },
+  inner: { flex: 1, paddingBottom: 0, width: '100%', alignSelf: 'center' },
   filters: { flexDirection: 'row', flexWrap: 'wrap' },
 });

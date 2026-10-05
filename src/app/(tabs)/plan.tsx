@@ -7,7 +7,8 @@ import { cycleElapsed, pct, repMetrics } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
 import type { PlanStatus } from '@/data/types';
 import { PlanView } from '@/screens/PlanView';
-import { Avatar, Card, Chip, Empty, PlanBadge, ProgressBar, Row, SectionTitle, text } from '@/ui/components';
+import { Card, Chip, Empty, PlanBadge, ProgressBar, Row, SectionTitle, UserAvatar, text } from '@/ui/components';
+import { Grid } from '@/ui/layout';
 import { Screen } from '@/ui/Screen';
 import { paceColor, space } from '@/ui/theme';
 
@@ -61,31 +62,33 @@ export default function PlanTab() {
       <Text style={text.muted}>{pending ? `${pending} waiting for approval` : 'Nothing waiting for approval'}</Text>
       <SectionTitle>Reps</SectionTitle>
       {reps.length === 0 && <Empty>No reps in your team yet.</Empty>}
-      {reps.map((m) => (
-        <Card
-          key={m.rep.id}
-          onPress={() => (m.plan ? router.push({ pathname: '/plan/[id]', params: { id: m.plan.id } }) : router.push({ pathname: '/team/[id]', params: { id: m.rep.id } }))}
-        >
-          <Row gap={space.md}>
-            <Avatar name={m.rep.name} />
-            <View style={{ flex: 1 }}>
-              <Text style={text.title}>{m.rep.name}</Text>
-              <Text style={text.muted}>
-                {m.targets} accounts · {m.planned} calls planned
-              </Text>
-            </View>
-            <PlanBadge status={m.plan?.status ?? 'None'} />
-          </Row>
-          {m.plan && (
-            <Row style={{ marginTop: space.md }}>
+      <Grid>
+        {reps.map((m) => (
+          <Card
+            key={m.rep.id}
+            onPress={() => (m.plan ? router.push({ pathname: '/plan/[id]', params: { id: m.plan.id } }) : router.push({ pathname: '/team/[id]', params: { id: m.rep.id } }))}
+          >
+            <Row gap={space.md}>
+              <UserAvatar user={m.rep} />
               <View style={{ flex: 1 }}>
-                <ProgressBar value={m.attainment} marker={elapsed} color={paceColor(m.attainment, elapsed)} height={6} />
+                <Text style={text.title}>{m.rep.name}</Text>
+                <Text style={text.muted}>
+                  {m.targets} accounts · {m.planned} calls planned
+                </Text>
               </View>
-              <Text style={text.muted}>{pct(m.attainment)}</Text>
+              <PlanBadge status={m.plan?.status ?? 'None'} />
             </Row>
-          )}
-        </Card>
-      ))}
+            {m.plan && (
+              <Row style={{ marginTop: space.md }}>
+                <View style={{ flex: 1 }}>
+                  <ProgressBar value={m.attainment} marker={elapsed} color={paceColor(m.attainment, elapsed)} height={6} />
+                </View>
+                <Text style={text.muted}>{pct(m.attainment)}</Text>
+              </Row>
+            )}
+          </Card>
+        ))}
+      </Grid>
     </Screen>
   );
 }

@@ -9,7 +9,7 @@ import { callsByAccount, cycleCalls, cycleElapsed, daysLeft, pct } from '@/data/
 import { useMe, useStore } from '@/data/store';
 import { tierFrequency, tierRank, tiersFor } from '@/data/tiers';
 import type { Cycle, PlanTarget } from '@/data/types';
-import { Avatar, Banner, Button, Card, Chip, Empty, Field, PlanBadge, ProgressBar, Row, SectionTitle, Stepper, TierBadge, text } from '@/ui/components';
+import { Banner, Button, Card, Chip, Empty, Field, PlanBadge, ProgressBar, Row, SectionTitle, Stepper, TierBadge, UserAvatar, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
 import { colors, paceColor, space } from '@/ui/theme';
 
@@ -90,7 +90,7 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
       {!isOwner && owner && (
         <Card>
           <Row gap={space.md}>
-            <Avatar name={owner.name} />
+            <UserAvatar user={owner} />
             <View style={{ flex: 1 }}>
               <Text style={text.title}>{owner.name}</Text>
               <Text style={text.muted}>{owner.territory}</Text>

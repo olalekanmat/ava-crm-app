@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
+import { isAdmin } from '@/data/access';
 import { useMe, useStore } from '@/data/store';
 import { teamOf, tierSchemeProblem } from '@/data/tiers';
 import type { TierDef } from '@/data/types';
@@ -39,7 +40,7 @@ export default function TiersScreen() {
     [data, scope],
   );
 
-  if (me.role !== 'Admin') return <Screen><Empty>Only administrators can change tiers.</Empty></Screen>;
+  if (!isAdmin(me)) return <Screen><Empty>Only administrators can change tiers.</Empty></Screen>;
 
   const editing = !scope || useCustom;
   const set = (i: number, patch: Partial<Draft>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));

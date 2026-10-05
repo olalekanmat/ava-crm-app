@@ -5,7 +5,7 @@ import { repsUnder } from '@/data/access';
 import { useStore } from '@/data/store';
 import type { User } from '@/data/types';
 import { Hero, heroText } from '@/ui/Brand';
-import { Avatar, Card, Empty, ProgressBar, Row, SectionTitle, text } from '@/ui/components';
+import { Card, Empty, ProgressBar, Row, SectionTitle, UserAvatar, text } from '@/ui/components';
 import { Screen } from '@/ui/Screen';
 import { LicenseBanner, SyncBar } from '@/ui/SyncCard';
 import { colors, paceColor, space } from '@/ui/theme';
@@ -46,7 +46,7 @@ export function RegionDashboard({ leader }: { leader: User }) {
           <View key={flm.id} style={{ flexGrow: 1, flexBasis: 300 }}>
             <Card onPress={() => router.push({ pathname: '/team/[id]', params: { id: flm.id } })}>
               <Row gap={space.md}>
-                <Avatar name={flm.name} />
+                <UserAvatar user={flm} />
                 <View style={{ flex: 1 }}>
                   <Text style={text.title}>{flm.territory ?? flm.name}</Text>
                   <Text style={text.muted}>

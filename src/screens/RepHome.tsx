@@ -7,6 +7,7 @@ import { useMe, useStore } from '@/data/store';
 import { Hero, HeroStat, heroText } from '@/ui/Brand';
 import { CallRow } from '@/ui/CallRow';
 import { Banner, Button, Card, Empty, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, text } from '@/ui/components';
+import { Grid } from '@/ui/layout';
 import { Screen } from '@/ui/Screen';
 import { LicenseBanner, SyncBar } from '@/ui/SyncCard';
 import { colors, paceColor, space } from '@/ui/theme';
@@ -36,7 +37,7 @@ export function RepHome() {
     .slice(0, 4);
 
   return (
-    <Screen onRefresh={syncNow} refreshing={sync.syncing}>
+    <Screen wide onRefresh={syncNow} refreshing={sync.syncing}>
       <SyncBar />
       <LicenseBanner />
       <Hero>
@@ -87,52 +88,66 @@ export function RepHome() {
       )}
 
       <SectionTitle>Today's calls</SectionTitle>
-      {todays.length ? todays.map((c) => <CallRow key={c.id} call={c} />) : <Empty icon="sunny-outline">Nothing scheduled. Plan a visit from your behind-plan accounts below.</Empty>}
+      {todays.length ? (
+        <Grid min={360}>
+          {todays.map((c) => (
+            <CallRow key={c.id} call={c} />
+          ))}
+        </Grid>
+      ) : (
+        <Empty icon="sunny-outline">Nothing scheduled. Plan a visit from your behind-plan accounts below.</Empty>
+      )}
 
       {drafts.length > 0 && (
         <>
           <SectionTitle>Drafts to submit</SectionTitle>
-          {drafts.map((c) => (
-            <CallRow key={c.id} call={c} />
-          ))}
+          <Grid min={360}>
+            {drafts.map((c) => (
+              <CallRow key={c.id} call={c} />
+            ))}
+          </Grid>
         </>
       )}
 
       {behind.length > 0 && (
         <>
           <SectionTitle>Behind plan</SectionTitle>
-          {behind.map(({ t, done: n, account }) => (
-            <Card key={t.accountId} onPress={() => router.push({ pathname: '/account/[id]', params: { id: t.accountId } })}>
-              <Row>
-                <Text style={[text.title, { flex: 1 }]} numberOfLines={1}>
-                  {account!.name}
-                </Text>
-                <TierBadge tier={account!.tier} />
-              </Row>
-              <Row style={{ marginTop: space.sm }}>
-                <View style={{ flex: 1 }}>
-                  <ProgressBar value={n / t.planned} marker={elapsed} color={colors.orange} height={6} />
-                </View>
-                <Text style={text.muted}>
-                  {n}/{t.planned}
-                </Text>
-                <Button small title="Schedule" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: t.accountId, plan: '1' } })} />
-              </Row>
-            </Card>
-          ))}
+          <Grid>
+            {behind.map(({ t, done: n, account }) => (
+              <Card key={t.accountId} onPress={() => router.push({ pathname: '/account/[id]', params: { id: t.accountId } })}>
+                <Row>
+                  <Text style={[text.title, { flex: 1 }]} numberOfLines={1}>
+                    {account!.name}
+                  </Text>
+                  <TierBadge tier={account!.tier} />
+                </Row>
+                <Row style={{ marginTop: space.sm }}>
+                  <View style={{ flex: 1 }}>
+                    <ProgressBar value={n / t.planned} marker={elapsed} color={colors.orange} height={6} />
+                  </View>
+                  <Text style={text.muted}>
+                    {n}/{t.planned}
+                  </Text>
+                  <Button small title="Schedule" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: t.accountId, plan: '1' } })} />
+                </Row>
+              </Card>
+            ))}
+          </Grid>
         </>
       )}
 
       {followUps.length > 0 && (
         <>
           <SectionTitle>Follow-ups due this week</SectionTitle>
-          {followUps.map((c) => (
-            <Card key={c.id} onPress={() => router.push({ pathname: '/account/[id]', params: { id: c.accountId } })}>
-              <Text style={text.title}>{getAccount(c.accountId)?.name}</Text>
-              <Text style={text.muted}>Due {c.followUpDate}</Text>
-              {!!c.nextStep && <Text style={[text.body, { marginTop: 4 }]}>{c.nextStep}</Text>}
-            </Card>
-          ))}
+          <Grid>
+            {followUps.map((c) => (
+              <Card key={c.id} onPress={() => router.push({ pathname: '/account/[id]', params: { id: c.accountId } })}>
+                <Text style={text.title}>{getAccount(c.accountId)?.name}</Text>
+                <Text style={text.muted}>Due {c.followUpDate}</Text>
+                {!!c.nextStep && <Text style={[text.body, { marginTop: 4 }]}>{c.nextStep}</Text>}
+              </Card>
+            ))}
+          </Grid>
         </>
       )}
     </Screen>

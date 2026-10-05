@@ -6,8 +6,9 @@ import { hasLocation, mapsUrl } from '@/data/geo';
 import { callsByAccount, cycleCalls, cycleElapsed } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
 import { CallRow } from '@/ui/CallRow';
-import { Avatar, Button, Card, Empty, ProgressBar, Row, SectionTitle, TierBadge, text } from '@/ui/components';
+import { Avatar, Banner, Button, Card, Empty, ProgressBar, Row, SectionTitle, TierBadge, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
+import { Grid } from '@/ui/layout';
 import { currentFix } from '@/ui/location';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
@@ -15,7 +16,7 @@ import { colors, space } from '@/ui/theme';
 export default function AccountScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const me = useMe();
-  const { data, getAccount, getUser, callsForAccount, accounts, cycle, run } = useStore();
+  const { data, getAccount, getUser, callsForAccount, accounts, cycle, run, admin } = useStore();
   const [locating, setLocating] = useState(false);
   const account = getAccount(id);
 
@@ -33,6 +34,29 @@ export default function AccountScreen() {
   const target = plan?.targets.find((t) => t.accountId === account.id);
   const doneInCycle = cycle ? callsByAccount(cycleCalls(calls.filter((c) => c.ownerId === account.ownerId), cycle)).get(account.id)?.length ?? 0 : 0;
   const owner = getUser(account.ownerId);
+  const deleted = !!account.deletedAt;
+  const openCalls = calls.filter((c) => c.status !== 'Submitted').length;
+
+  const remove = () =>
+    confirm(
+      `Delete ${account.name}?`,
+      [
+        'It disappears from account lists and plans.',
+        openCalls ? `${openCalls} planned or draft call${openCalls > 1 ? 's are' : ' is'} removed.` : '',
+        'Submitted calls stay in the history. This cannot be undone.',
+      ]
+        .filter(Boolean)
+        .join(' '),
+      () => {
+        try {
+          run({ type: 'account.delete', ids: [account.id] });
+          router.back();
+        } catch (e) {
+          notify('Not deleted', e instanceof Error ? e.message : String(e));
+        }
+      },
+      'Delete',
+    );
 
   const pin = () =>
     confirm(
@@ -55,6 +79,7 @@ export default function AccountScreen() {
   return (
     <Screen>
       <Stack.Screen options={{ title: account.type === 'HCP' ? 'Healthcare professional' : 'Organization' }} />
+      {deleted && <Banner tone="warn" icon="trash-outline">This account was deleted by an administrator. Its submitted calls are kept below.</Banner>}
       <Card>
         <Row gap={space.md}>
           {account.type === 'HCP' ? (
@@ -98,21 +123,23 @@ export default function AccountScreen() {
         {!!account.notes && <Text style={[text.muted, { marginTop: space.sm }]}>{account.notes}</Text>}
       </Card>
 
-      <Card>
-        <Row>
-          <Ionicons name={hasLocation(account) ? 'location' : 'location-outline'} size={20} color={hasLocation(account) ? colors.success : colors.warn} />
-          <View style={{ flex: 1 }}>
-            <Text style={text.title}>{hasLocation(account) ? 'Location pinned' : 'No location yet'}</Text>
-            <Text style={text.muted}>
-              {hasLocation(account) ? `${account.lat.toFixed(5)}, ${account.lng.toFixed(5)} · check-ins within ${data.settings.geofenceM} m count as verified` : 'Pin it during your next visit so check-ins can be verified.'}
-            </Text>
-          </View>
-        </Row>
-        <Row style={{ marginTop: space.md }}>
-          {hasLocation(account) && <Button small title="Open in Maps" icon="map-outline" variant="secondary" onPress={() => Linking.openURL(mapsUrl(account.lat, account.lng))} />}
-          {locating ? <ActivityIndicator color={colors.primary} /> : <Button small title={hasLocation(account) ? 'Re-pin here' : 'Pin my location'} icon="pin-outline" variant="ghost" onPress={pin} />}
-        </Row>
-      </Card>
+      {!deleted && (
+        <Card>
+          <Row>
+            <Ionicons name={hasLocation(account) ? 'location' : 'location-outline'} size={20} color={hasLocation(account) ? colors.success : colors.warn} />
+            <View style={{ flex: 1 }}>
+              <Text style={text.title}>{hasLocation(account) ? 'Location pinned' : 'No location yet'}</Text>
+              <Text style={text.muted}>
+                {hasLocation(account) ? `${account.lat.toFixed(5)}, ${account.lng.toFixed(5)} · check-ins within ${data.settings.geofenceM} m count as verified` : 'Pin it during your next visit so check-ins can be verified.'}
+              </Text>
+            </View>
+          </Row>
+          <Row style={{ marginTop: space.md }}>
+            {hasLocation(account) && <Button small title="Open in Maps" icon="map-outline" variant="secondary" onPress={() => Linking.openURL(mapsUrl(account.lat, account.lng))} />}
+            {locating ? <ActivityIndicator color={colors.primary} /> : <Button small title={hasLocation(account) ? 'Re-pin here' : 'Pin my location'} icon="pin-outline" variant="ghost" onPress={pin} />}
+          </Row>
+        </Card>
+      )}
 
       {cycle && target && (
         <Card>
@@ -126,31 +153,49 @@ export default function AccountScreen() {
         </Card>
       )}
 
-      <Row style={{ marginTop: space.sm }}>
-        <Button title="Log a call" icon="add-circle-outline" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id } })} />
-        <Button title="Plan a visit" icon="calendar-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id, plan: '1' } })} />
-      </Row>
+      {!deleted && (
+        <Row style={{ marginTop: space.sm }}>
+          <Button title="Log a call" icon="add-circle-outline" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id } })} />
+          <Button title="Plan a visit" icon="calendar-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id, plan: '1' } })} />
+        </Row>
+      )}
 
       {people.length > 0 && (
         <>
           <SectionTitle>People at this organization</SectionTitle>
-          {people.map((p) => (
-            <Card key={p.id} onPress={() => router.push({ pathname: '/account/[id]', params: { id: p.id } })}>
-              <Row gap={space.md}>
-                <Avatar name={p.name} size={34} />
-                <View style={{ flex: 1 }}>
-                  <Text style={text.title}>{p.name}</Text>
-                  <Text style={text.muted}>{p.specialty}</Text>
-                </View>
-                <TierBadge tier={p.tier} />
-              </Row>
-            </Card>
-          ))}
+          <Grid>
+            {people.map((p) => (
+              <Card key={p.id} onPress={() => router.push({ pathname: '/account/[id]', params: { id: p.id } })}>
+                <Row gap={space.md}>
+                  <Avatar name={p.name} size={34} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={text.title}>{p.name}</Text>
+                    <Text style={text.muted}>{p.specialty}</Text>
+                  </View>
+                  <TierBadge tier={p.tier} />
+                </Row>
+              </Card>
+            ))}
+          </Grid>
         </>
       )}
 
       <SectionTitle>Call history ({calls.length})</SectionTitle>
-      {calls.length ? calls.map((c) => <CallRow key={c.id} call={c} showAccount={false} showRep={me.role !== 'Rep'} />) : <Empty>No calls yet.</Empty>}
+      {calls.length ? (
+        <Grid>
+          {calls.map((c) => (
+            <CallRow key={c.id} call={c} showAccount={false} showRep={me.role !== 'Rep'} />
+          ))}
+        </Grid>
+      ) : (
+        <Empty>No calls yet.</Empty>
+      )}
+
+      {admin && !deleted && (
+        <View style={{ marginTop: space.xl }}>
+          <Button title="Delete account" variant="danger" icon="trash-outline" onPress={remove} />
+        </View>
+      )}
     </Screen>
   );
 }

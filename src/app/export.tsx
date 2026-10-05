@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { exportAccounts, exportCalls, exportCyclePlans, exportTeamSummary, exportUsers } from '@/data/csv';
 import { todayKey } from '@/data/dates';
+import { isAdmin } from '@/data/access';
 import { useMe, useStore } from '@/data/store';
 import { Banner, Button, Card, Row, text, type IconName } from '@/ui/components';
 import { notify } from '@/ui/confirm';
@@ -21,7 +22,7 @@ export default function ExportScreen() {
     { key: 'accounts', icon: 'business-outline', title: 'Accounts', desc: 'Same columns as the import template, so it can be edited and re-imported', count: `${data.accounts.length} rows`, build: () => exportAccounts(data), show: true },
     { key: 'plans', icon: 'calendar-outline', title: `Cycle plans (${cycle?.name ?? '–'})`, desc: 'Planned vs done per rep and account', count: `${data.plans.filter((p) => p.cycleId === cycle?.id).length} plans`, build: () => (cycle ? exportCyclePlans(data, cycle) : ''), show: !!cycle },
     { key: 'team', icon: 'stats-chart-outline', title: `Team KPIs (${cycle?.name ?? '–'})`, desc: 'Attainment, reach, geo-verified share and drafts per rep', count: `${data.users.filter((u) => u.role === 'Rep').length} reps`, build: () => (cycle ? exportTeamSummary(data, cycle) : ''), show: !!cycle && me.role !== 'Rep' },
-    { key: 'users', icon: 'people-outline', title: 'Users', desc: 'Same columns as the user import template', count: `${data.users.length} rows`, build: () => exportUsers(data), show: me.role === 'Admin' },
+    { key: 'users', icon: 'people-outline', title: 'Users', desc: 'Same columns as the user import template', count: `${data.users.length} rows`, build: () => exportUsers(data), show: isAdmin(me) },
   ];
 
   const run = async (key: string, build: () => string) => {
@@ -37,7 +38,7 @@ export default function ExportScreen() {
   return (
     <Screen>
       <Text style={[text.muted, { marginBottom: space.md }]}>
-        {me.role === 'Admin' ? 'Exports include the whole organisation.' : me.role === 'Rep' ? 'Exports include your own data.' : 'Exports include your team’s data.'} Files are UTF-8 CSV and open in Excel, Google Sheets or Power BI.
+        {isAdmin(me) ? 'Exports include the whole organisation.' : me.role === 'Rep' ? 'Exports include your own data.' : 'Exports include your team’s data.'} Files are UTF-8 CSV and open in Excel, Google Sheets or Power BI.
       </Text>
       {!!done && <Banner tone="success">{done} is ready.</Banner>}
       {items

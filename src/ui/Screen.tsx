@@ -1,8 +1,12 @@
 import type { ReactNode } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { colors, space } from './theme';
+import { useLayout } from './layout';
+import { colors } from './theme';
 
-/** Scrollable page with a max width so the web layout reads well on desktop. */
+/**
+ * Scrollable page with a max width so the web layout reads well on desktop. `wide` pages (lists and
+ * dashboards) use the whole width when the phone is turned sideways.
+ */
 export function Screen({
   children,
   scroll = true,
@@ -16,7 +20,8 @@ export function Screen({
   onRefresh?: () => void;
   refreshing?: boolean;
 }) {
-  const inner = [styles.inner, { maxWidth: wide ? 1040 : 760 }];
+  const { maxWide, pad } = useLayout();
+  const inner = [styles.inner, { maxWidth: wide ? maxWide : 760, padding: pad }];
   if (!scroll) return <View style={[styles.root, inner]}>{children}</View>;
   return (
     <ScrollView
@@ -32,5 +37,5 @@ export function Screen({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  inner: { padding: space.lg, width: '100%', alignSelf: 'center', paddingBottom: 56 },
+  inner: { width: '100%', alignSelf: 'center', paddingBottom: 56 },
 });

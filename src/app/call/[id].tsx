@@ -4,7 +4,7 @@ import { Linking, Text, View } from 'react-native';
 import { formatDateTime } from '@/data/dates';
 import { formatDistance, geoStatus, mapsUrl } from '@/data/geo';
 import { useMe, useStore } from '@/data/store';
-import { Avatar, Button, Card, Empty, GeoBadge, Row, SectionTitle, StatusBadge, text } from '@/ui/components';
+import { Button, Card, Empty, GeoBadge, Row, SectionTitle, StatusBadge, UserAvatar, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
@@ -41,7 +41,7 @@ export default function CallScreen() {
         {locked && call.submittedAt && <Text style={[text.small, { marginTop: 4 }]}>Submitted {formatDateTime(call.submittedAt)}</Text>}
         {!mine && owner && (
           <Row style={{ marginTop: space.md }}>
-            <Avatar name={owner.name} size={26} />
+            <UserAvatar user={owner} size={26} />
             <Text style={text.muted}>Logged by {owner.name}</Text>
           </Row>
         )}

@@ -1,4 +1,16 @@
-import type { Snapshot, User } from './types';
+import { ROLE_LABEL, type Snapshot, type User } from './types';
+
+/** True for administrators, including a Rep, FLM or SLM who is also an administrator. */
+export const isAdmin = (u?: User | null): boolean => !!u && (u.role === 'Admin' || u.admin === true);
+
+/** "First-line manager" or, for a dual role, "First-line manager · Administrator". */
+export const roleLabel = (u: User): string => (u.role !== 'Admin' && u.admin ? `${ROLE_LABEL[u.role]} · Administrator` : ROLE_LABEL[u.role]);
+
+/** Leaves out deleted people and accounts (they stay in the data only for call history). */
+export function withoutDeleted(s: Snapshot): Snapshot {
+  if (!s.users.some((u) => u.deletedAt) && !s.accounts.some((a) => a.deletedAt)) return s;
+  return { ...s, users: s.users.filter((u) => !u.deletedAt), accounts: s.accounts.filter((a) => !a.deletedAt) };
+}
 
 /** Direct reports of a manager. */
 export function reportsOf(users: User[], managerId: string): User[] {
@@ -35,13 +47,13 @@ export function subtree(users: User[], user: User): User[] {
 
 /** User ids whose accounts, calls and plans this user may see: themselves and everyone below them. */
 export function visibleOwnerIds(users: User[], user: User): Set<string> {
-  if (user.role === 'Admin') return new Set(users.map((u) => u.id));
+  if (isAdmin(user)) return new Set(users.map((u) => u.id));
   return new Set([user.id, ...subtree(users, user).map((u) => u.id)]);
 }
 
 /** True when `manager` is above `userId` in the reporting line (or is an admin). */
 export function manages(users: User[], manager: User, userId: string): boolean {
-  if (manager.role === 'Admin') return true;
+  if (isAdmin(manager)) return true;
   let cur = users.find((u) => u.id === userId);
   for (let i = 0; cur?.managerId && i < 5; i++) {
     if (cur.managerId === manager.id) return true;
@@ -52,7 +64,7 @@ export function manages(users: User[], manager: User, userId: string): boolean {
 
 /** The part of the data a user is allowed to see. The server sends only this. */
 export function scopeSnapshot(s: Snapshot, user: User): Snapshot {
-  if (user.role === 'Admin') return s;
+  if (isAdmin(user)) return s;
   const owners = visibleOwnerIds(s.users, user);
   // Names of people in view plus the user's own reporting line.
   const people = new Set(owners);

@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { Platform, StyleSheet, Text, View } from 'react-native';
+import { isAdmin } from '@/data/access';
 import { formatDate, formatDateTime } from '@/data/dates';
 import { useStore } from '@/data/store';
 import { Banner, Button, text } from './components';
@@ -69,7 +70,7 @@ export function SyncCard() {
           <Button small title="Dismiss" variant="ghost" onPress={clearRejected} />
         </>
       )}
-      {me?.role === 'Admin' && sync.warnings.length > 0 && <Banner tone="warn">Ignored in the company folder: {sync.warnings.join(' ')}</Banner>}
+      {isAdmin(me) && sync.warnings.length > 0 && <Banner tone="warn">Ignored in the company folder: {sync.warnings.join(' ')}</Banner>}
     </>
   );
 }
@@ -82,7 +83,7 @@ const styles = StyleSheet.create({
 export function LicenseBanner() {
   const { session, license, me } = useStore();
   if (session?.mode !== 'cloud' || !me) return null;
-  const admin = me.role === 'Admin';
+  const admin = isAdmin(me);
   const go = admin ? () => router.push('/admin/company') : undefined;
   const msg = (() => {
     switch (license.state) {

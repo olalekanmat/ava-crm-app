@@ -9,7 +9,9 @@ A field CRM for pharma and life-sciences sales teams, built as **one codebase fo
 | **Rep** | Today view, accounts, call logging with **GPS check-in**, quarterly plan sent to the manager for approval, **call calendar** (names shown in landscape/wide screens) (green submitted, blue planned, red overdue) |
 | **FLM** | Team view: plan attainment vs. time elapsed, reach, geo-verified share; approve or send back cycle plans |
 | **SLM** | Region overview: every FLM team side by side, rep ranking, coverage by tier |
-| **Admin** | Company profile and logo, approval status, company code and OneDrive folder, password resets, users and reporting lines, **tier names per team** (default ST, T1, T2, T3), CSV import and export, products, check-in rules, audit log |
+| **Admin** | Company profile and logo, approval status, company code and OneDrive folder, password resets, users and reporting lines with **user IDs and territory IDs**, search and filters on users, **tier names per team** (default ST, T1, T2, T3), CSV import and export, products, check-in rules, audit log, **deleting users, accounts and products** (in the app or by CSV) |
+
+An FLM or SLM (or a rep) can also be an administrator: switch on **Also an administrator** on their user page. They keep their own home screen and dashboards and get the admin pages under *More*.
 
 - **Company setup** (web): the admin enters the company details and their own password, then links their OneDrive once. Ava CRM creates the company folder and requests approval.
 - **Sign-in**: everyone else uses the company code, work email and password (first password `12345678`, changed at first sign-in).
@@ -17,6 +19,23 @@ A field CRM for pharma and life-sciences sales teams, built as **one codebase fo
 - **Company logo** at the top left of every page.
 - **Auto-save**: changes save a moment after they are made. Offline, the phone keeps them and uploads when the connection returns (or from the **Sync** button on Home).
 - **Licences**: signed by the approval server, checked in the app; read-only when expired or revoked.
+- **Profile pictures**: everyone can add a photo from *More → My profile* (camera or gallery); admins can set one for any user.
+- **Landscape and large screens**: lists, dashboards and the call calendar use the full width and show cards in columns. Pull down on any list to sync.
+
+## CSV formats
+
+Download the templates from *Admin → Import CSV*. The first row must hold the column names; column order does not matter.
+
+| File | Columns |
+|---|---|
+| Accounts | `action`, `id`, `type`, `name`, `specialty`, `affiliation`, `tier`, `address`, `city`, `phone`, `email`, `owner_email`, `territory_id`, `lat`, `lng` |
+| Users | `action`, `name`, `email`, `role`, `admin`, `user_id`, `manager_email`, `territory`, `territory_id`, `active`, `transfer_to_email` |
+| Products | `action`, `name`, `key_messages`, `active` |
+
+- **`action`**: leave it blank (or write `add` / `update`) to add or update the row; write `delete` to delete it. A file with only delete rows needs just `action` plus `id` (accounts), `email` (users) or `name` (products).
+- **Accounts** are assigned to a rep by `owner_email`, or by the rep's `territory_id` when `owner_email` is blank. Deleting an account keeps its submitted calls in the history and removes its planned calls and plan targets.
+- **Users**: `role` is Rep, FLM, SLM or Admin; `admin` = yes gives a Rep, FLM or SLM admin rights too; `user_id` is your own staff ID (unique). When you delete someone who owns accounts or manages people, `transfer_to_email` names who takes them over (same role).
+- **Products** are matched by name. Deleted products stay on calls already logged.
 
 ## Live use
 
@@ -78,11 +97,12 @@ npm run typecheck
 ```
 src/app/            screens (Expo Router); setup.tsx = company setup, sign-in.tsx
   admin/            company & approval, tiers, users, import, settings, audit log
+  profile.tsx       my profile and photo
 src/cloud/          relay.ts (sign-in and company folder via the Ava CRM server), journal.ts (replay),
                     sync.ts, license.ts, background.ts, setup.ts
 src/data/           types, mutations (all rules), sanitize, access, metrics, tiers, calendar, csv, store
 src/screens/        role dashboards and the plan view
-src/ui/             components, calendar, sync card, company form
+src/ui/             components, calendar, sync card, company form, layout (columns), photo picker
 tests/              node:test suite
 ```
 

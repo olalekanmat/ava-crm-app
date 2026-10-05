@@ -34,7 +34,15 @@ All people and accounts below are fictional demo data.
 3. Tier names: rename the default ST/T1/T2/T3 or give one FLM's team its own names; accounts are renamed with them.
 4. Company & approval: change the logo and see it at the top left of every page.
 5. Cycles, products & rules: change the verified radius, require check-in, add a cycle or product.
-6. Users & roles: add a rep under an FLM. In a real company they then sign in with that email's Microsoft or Google account; Ava stores no passwords.
+6. Users & roles: add a rep under an FLM with a user ID and territory ID. They sign in with the company code, that email and the starting password `12345678`, then choose their own.
+7. Make an FLM an administrator too (*Also an administrator*), sign in as them and check they see both the team view and the admin pages.
+8. Filter users by role, status or "No manager", and search by user ID or territory ID.
+9. Delete a rep who owns accounts: pick who takes them over, then check the accounts moved and the rep's submitted calls still show their name.
+10. Delete an account and a product from their pages, then delete a few more with a CSV that has `action` = `delete`.
+
+**Everyone**
+1. *More → My profile*: add a photo with the camera or from the gallery; it shows on calls, team lists and the header.
+2. Turn the phone sideways: accounts, calls and dashboards show in two or more columns.
 
 ## Feedback to collect
 - Is the rep's daily flow fast enough to use between visits?
