@@ -227,3 +227,16 @@ test('a failed CSV copy does not fail the sync', async () => {
   assert.ok(r.result);
   assert.equal(r.cache.lastExport, undefined);
 });
+
+test('an upload the cache did not record is not added to the journal twice', async () => {
+  const { admin } = await company();
+  admin.run({ type: 'user.upsert', user: flm }, at(1));
+  await admin.sync(at(2));
+  const before = structuredClone(admin.cache);
+  admin.run({ type: 'user.upsert', user: rep }, at(3));
+  await admin.sync(at(4));
+  // The app closed after uploading but before saving: same entries, old upload count and version.
+  admin.cache = { ...before, own: admin.cache.own };
+  await admin.sync(at(5));
+  assert.deepEqual(admin.cache.own.entries.map((e) => e.seq), [1, 2]);
+});

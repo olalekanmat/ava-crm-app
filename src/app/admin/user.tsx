@@ -104,7 +104,13 @@ export default function UserEditScreen() {
       async () => {
         try {
           // Switch them off first: older app versions do not know about deleting and still honour this.
-          if (existing.active) run({ type: 'user.upsert', user: { ...existing, active: false } });
+          if (existing.active) {
+            try {
+              run({ type: 'user.upsert', user: { ...existing, active: false } });
+            } catch {
+              // Their record may no longer pass today's rules (e.g. a manager changed role); deleting still works.
+            }
+          }
           run({ type: 'user.delete', users: [{ id: existing.id, transferTo: to?.id }] });
           router.back();
         } catch (e) {

@@ -73,7 +73,19 @@ export default function ImportScreen() {
         const r = importUsers(csv, data, me.id);
         for (const users of chunks(r.valid, 5000)) changes.push({ type: 'import.users', users });
         // Switch people off before deleting them: older app versions do not know about deleting.
-        const off = r.deletes.map((d) => data.users.find((u) => u.id === d.id)).filter((u): u is User => !!u && u.active).map((u) => ({ ...u, active: false }));
+        // Only people whose record still passes today's rules; the delete itself works for everyone.
+        const off = r.deletes
+          .map((d) => data.users.find((u) => u.id === d.id))
+          .filter((u): u is User => !!u && u.active)
+          .map((u) => ({ ...u, active: false }))
+          .filter((u) => {
+            try {
+              applyMutation(data, { type: 'import.users', users: [u] }, me, new Date());
+              return true;
+            } catch {
+              return false;
+            }
+          });
         for (const users of chunks(off, 5000)) changes.push({ type: 'import.users', users });
         for (const users of chunks(r.deletes, 5000)) changes.push({ type: 'user.delete', users });
       } else {

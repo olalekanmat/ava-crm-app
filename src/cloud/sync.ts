@@ -105,7 +105,11 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
     const remote = parseJournal(await drive.read(ownRemote.id));
     if (remote && remote.entries.length >= c.uploaded) {
       let seq = remote.entries.at(-1)?.seq ?? 0;
-      const fresh = c.own.entries.slice(c.uploaded).map((e) => ({ ...e, seq: ++seq }));
+      // Entries the drive already has (uploaded just before the app closed) are not added twice.
+      const fresh = c.own.entries
+        .slice(c.uploaded)
+        .filter((e) => !remote.entries.some((r) => r.seq === e.seq && r.at === e.at))
+        .map((e) => ({ ...e, seq: ++seq }));
       c.own = { ...c.own, entries: [...remote.entries, ...fresh] };
       c.uploaded = remote.entries.length;
     }
