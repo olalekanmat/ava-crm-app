@@ -17,7 +17,7 @@ type Sort = 'Name' | 'Tier' | 'Last call';
 
 export default function AccountsScreen() {
   const me = useMe();
-  const { data, accounts, calls, cycle, lastCallFor, getUser, syncNow, sync } = useStore();
+  const { data, accounts, calls, cycle, lastCallFor, getUser, syncNow, sync, admin } = useStore();
   const { maxWide, pad, width } = useLayout();
   const cols = columnsFor(Math.min(width, maxWide) - 2 * pad, 340, 3);
   const [sort, setSort] = useState<Sort>('Name');
@@ -52,11 +52,14 @@ export default function AccountsScreen() {
     if (sort === 'Tier') return [...list].sort((x, y) => tierRankIn(data.settings, x.tier) - tierRankIn(data.settings, y.tier) || x.name.localeCompare(y.name));
     if (sort === 'Last call') {
       // Longest since the last submitted call first: who is due a visit.
-      const last = (id: string) => lastCallFor(id)?.datetime ?? '';
+      // One pass over the calls, not one per comparison.
+      const lastAt = new Map<string, string>();
+      for (const c of calls) if (c.status === 'Submitted' && (lastAt.get(c.accountId) ?? '') < c.datetime) lastAt.set(c.accountId, c.datetime);
+      const last = (id: string) => lastAt.get(id) ?? '';
       return [...list].sort((x, y) => last(x.id).localeCompare(last(y.id)) || x.name.localeCompare(y.name));
     }
     return list;
-  }, [accounts, query, filter, tier, owner, planOnly, progress, sort, data.settings, lastCallFor]);
+  }, [accounts, query, filter, tier, owner, planOnly, progress, sort, data.settings, calls]);
 
   const tierNames = useMemo(() => {
     const order = allTierNames(data.settings);
@@ -74,7 +77,7 @@ export default function AccountsScreen() {
             <Chip key={t} label={t} selected={tier === t} onPress={() => setTier(tier === t ? null : t)} />
           ))}
           <Chip label="In my plan" icon="calendar-outline" selected={planOnly} onPress={() => setPlanOnly(!planOnly)} />
-          {me.role !== 'Rep' &&
+          {(me.role !== 'Rep' || admin) &&
             owners.map((u) => <Chip key={u!.id} label={u!.name.split(' ')[0]} selected={owner === u!.id} onPress={() => setOwner(owner === u!.id ? null : u!.id)} />)}
         </View>
         <FlatList
@@ -129,7 +132,7 @@ export default function AccountsScreen() {
                       <Row style={{ marginTop: 2 }}>
                         <Text style={[text.small, { flex: 1 }]} numberOfLines={1}>
                           {a.city} · {last ? `Last call ${formatDate(last.datetime)}` : 'No submitted calls'}
-                          {me.role !== 'Rep' ? ` · ${getUser(a.ownerId)?.name ?? ''}` : ''}
+                          {(me.role !== 'Rep' || admin) ? ` · ${getUser(a.ownerId)?.name ?? ''}` : ''}
                         </Text>
                         {!hasLocation(a) && <Ionicons name="location-outline" size={14} color={colors.warn} accessibilityLabel="No location" />}
                         {p && (

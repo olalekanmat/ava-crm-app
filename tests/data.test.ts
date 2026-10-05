@@ -354,3 +354,44 @@ test('profile photos: your own, or anyone for an administrator', () => {
   assert.ok(up.type === 'user.upsert' && up.user.admin && up.user.employeeId === 'E1' && up.user.territoryId === 'T1' && !('photo' in up.user && up.user.photo) && !up.user.deletedAt);
   assert.throws(() => sanitizeMutation({ type: 'account.delete', ids: 'all' }, now), RuleError);
 });
+
+test('mixed app versions: missing fields are kept, deleted records do not sink a whole change', () => {
+  const s = seed();
+  const admin = user(s, 'usr_admin');
+  const s1 = applyMutation(s, { type: 'user.upsert', user: { ...user(s, 'usr_slm'), admin: true, employeeId: 'EMP-1', territoryId: 'WEST' } }, admin, now);
+  // A 2.1.0 app sends users without admin, employeeId or territoryId; replay must keep them.
+  const old = sanitizeMutation(JSON.parse(JSON.stringify({ type: 'user.upsert', user: { id: 'usr_slm', name: 'Michael Osei', email: 'slm@ava.demo', role: 'SLM', territory: 'New name', active: true } })), now);
+  const s2 = applyMutation(s1, old, admin, now);
+  assert.deepEqual([user(s2, 'usr_slm').admin, user(s2, 'usr_slm').employeeId, user(s2, 'usr_slm').territoryId, user(s2, 'usr_slm').territory], [true, 'EMP-1', 'WEST', 'New name']);
+  // Clearing them explicitly still works.
+  const s3 = applyMutation(s2, sanitizeMutation({ type: 'user.upsert', user: { ...user(s2, 'usr_slm'), admin: false, employeeId: '', territoryId: '' } }, now), admin, now);
+  assert.deepEqual([user(s3, 'usr_slm').admin, user(s3, 'usr_slm').employeeId, user(s3, 'usr_slm').territoryId], [undefined, undefined, undefined]);
+  // A users CSV without those columns keeps them too.
+  const csv = importUsers('name,email,role\nMichael Osei,slm@ava.demo,SLM\n', s2);
+  const s4 = applyMutation(s2, { type: 'import.users', users: csv.valid }, admin, now);
+  assert.equal(user(s4, 'usr_slm').admin, true);
+  assert.equal(user(s4, 'usr_slm').employeeId, 'EMP-1');
+
+  // A plan made on an older app that still lists a deleted account keeps its other accounts.
+  const rep = user(s, 'usr_rep1');
+  const mine = s.accounts.filter((a) => a.ownerId === rep.id).slice(0, 2);
+  const s5 = applyMutation(s, { type: 'account.delete', ids: [mine[0].id] }, admin, now);
+  const cycle = s5.cycles.find((c) => !s5.plans.some((p) => p.ownerId === rep.id && p.cycleId === c.id))!;
+  const s6 = applyMutation(s5, { type: 'plan.save', plan: { id: 'pln_old_app', ownerId: rep.id, cycleId: cycle.id, status: 'Draft', targets: mine.map((a) => ({ accountId: a.id, planned: 2 })), updatedAt: now.toISOString() } }, rep, now);
+  assert.deepEqual(s6.plans.find((x) => x.id === 'pln_old_app')!.targets.map((t) => t.accountId), [mine[1].id]);
+});
+
+test('CSV: blank id makes a new account; deletes are checked after adds; limits match replay', () => {
+  const s = seed();
+  const admin = user(s, 'usr_admin');
+  const r = importAccounts('id,type,name,specialty,tier,city,owner_email\n,HCP,Dr A,Cardiology,T1,Ikeja,tunde@ava.demo\n,HCP,Dr B,Cardiology,T1,Ikeja,tunde@ava.demo\n', s);
+  assert.equal(r.valid.length, 2);
+  assert.ok(r.valid.every((a) => a.id.startsWith('acc')) && r.valid[0].id !== r.valid[1].id);
+  const long = importAccounts(`type,name,specialty,tier,city,owner_email,phone\nHCP,Dr C,Cardiology,T1,Ikeja,tunde@ava.demo,${'1'.repeat(61)}\n`, s);
+  assert.match(long.rows[0].errors.join(), /phone must be 60/);
+  // A new rep added in the same file can take over from one being deleted.
+  const users = importUsers('action,name,email,role,manager_email,transfer_to_email\n,New Rep,newrep@x.com,Rep,flm.mainland@ava.demo,\ndelete,,tunde@ava.demo,,,newrep@x.com\n', s, admin.id);
+  assert.equal(users.valid.length, 1);
+  assert.equal(users.deletes.length, 1, users.rows.map((x) => x.errors.join()).join('|'));
+  assert.match(importUsers('action,email\ndelete,admin@ava.demo\n', s, admin.id).rows[0].errors.join(), /yourself/);
+});

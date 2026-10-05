@@ -65,11 +65,12 @@ export default function UserEditScreen() {
           name,
           email,
           role,
-          admin: role !== 'Admin' && alsoAdmin ? true : undefined,
-          employeeId: employeeId.trim() || undefined,
+          // Sent even when empty or off, so clearing them is saved (a missing field keeps the old value).
+          admin: role !== 'Admin' && alsoAdmin,
+          employeeId: employeeId.trim(),
           managerId: wantManager && managers.some((m) => m.id === managerId) ? managerId : undefined,
           territory: territory.trim() || undefined,
-          territoryId: territoryId.trim() || undefined,
+          territoryId: territoryId.trim(),
           active,
           createdAt: existing?.createdAt ?? new Date().toISOString(),
         },
@@ -102,11 +103,9 @@ export default function UserEditScreen() {
         .join(' '),
       async () => {
         try {
+          // Switch them off first: older app versions do not know about deleting and still honour this.
+          if (existing.active) run({ type: 'user.upsert', user: { ...existing, active: false } });
           run({ type: 'user.delete', users: [{ id: existing.id, transferTo: to?.id }] });
-          // Clear their password too, so if the email is added again later it starts fresh.
-          loadToken()
-            .then((t) => (t ? api.resetPassword(t, existing.email) : undefined))
-            .catch(() => {});
           router.back();
         } catch (e) {
           notify('Not deleted', e instanceof Error ? e.message : String(e));

@@ -7,8 +7,9 @@ import type { FolderRef } from '@/cloud/drive';
 import type { ReplayLogEntry } from '@/cloud/journal';
 import { licenseState, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
 import { saveToken } from '@/cloud/relay';
-import { pendingCount, rebuild, syncOnce, writeLicense, type CloudCache } from '@/cloud/sync';
+import { pendingCount, rebuild, ROSTER_FILE, syncOnce, writeLicense, type CloudCache } from '@/cloud/sync';
 import { isAdmin, scopeSnapshot, withoutDeleted } from './access';
+import { sanitizeMutation } from './sanitize';
 import { removeBig, loadBig, saveBig } from './bigStorage';
 import { currentCycle } from './metrics';
 import { applyMutation, RuleError, type Mutation } from './mutations';
@@ -48,6 +49,8 @@ interface Store {
   admin: boolean;
   /** What the signed-in user may see. Deleted people and accounts are left out. */
   data: Snapshot;
+  /** The same, with deleted people and accounts still in (CSV import and the calls export need them). */
+  withDeleted: Snapshot;
   company: Company;
   accounts: Account[];
   calls: Call[];
@@ -155,7 +158,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       let { cache: c } = await syncOnce(drive, c0, { writeExports: isAdmin(me), forceExports: manual });
       // Keep any changes made while the sync was running.
       const latest = cacheRef.current;
-      if (latest && latest.own.entries.length > c.own.entries.length) c = { ...c, own: latest.own };
+      const extra = latest ? latest.own.entries.slice(c0.own.entries.length) : [];
+      if (extra.length) {
+        let seq = c.own.entries.at(-1)?.seq ?? 0;
+        c = { ...c, own: { ...c.own, entries: [...c.own.entries, ...extra.map((e) => ({ ...e, seq: ++seq }))] } };
+      }
 
       // Renew the licence from the approval server every few hours (any device can).
       if (c.license && (Date.now() - Date.parse(c.license.updatedAt) > 6 * HOUR || licenseState(c.license, c.companyId).state !== 'active')) {
@@ -176,9 +183,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const users = (rebuild(c)?.snapshot.users ?? []).filter((u) => !u.deletedAt);
         const roster = users.map((u) => ({ id: u.id, name: u.name, email: u.email.toLowerCase(), role: isAdmin(u) ? 'Admin' : u.role, active: u.active })).sort((x, y) => x.id.localeCompare(y.id));
         const key = JSON.stringify(roster);
-        if (key !== c.rosterSent && roster.some((u) => u.id === s.userId && u.role === 'Admin' && u.active)) {
-          await drive.write('ava-roster.json', JSON.stringify({ format: 'ava-roster/1', updatedAt: new Date().toISOString(), users: roster }, null, 2));
-          c = { ...c, rosterSent: key };
+        // Also rewrite it when the file in the drive is not the one this device wrote: an older
+        // app version may have written its own list (bringing back deleted people, for example).
+        const changedElsewhere = !!c.remoteRosterVersion && c.remoteRosterVersion !== c.rosterVersion;
+        if ((key !== c.rosterSent || changedElsewhere) && roster.some((u) => u.id === s.userId && u.role === 'Admin' && u.active)) {
+          try {
+            const f = await drive.write(ROSTER_FILE, JSON.stringify({ format: 'ava-roster/1', updatedAt: new Date().toISOString(), users: roster }, null, 2));
+            c = { ...c, rosterSent: key, rosterVersion: f.version, remoteRosterVersion: f.version };
+          } catch (e) {
+            console.warn('Could not update the sign-in list', e);
+          }
         }
       }
       await setCache(c);
@@ -238,7 +252,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         );
       }
       const now = new Date();
-      const next = applyMutation(fullRef.current, m, actor, now);
+      // Check the change exactly as every device will when it replays the journal, so anything
+      // replay would drop fails here, visibly, instead of vanishing after the next sync.
+      const clean = sanitizeMutation(JSON.parse(JSON.stringify(m)), now);
+      const next = applyMutation(fullRef.current, clean, actor, now);
       setFull(next);
       if (s.mode === 'cloud' && cacheRef.current) {
         const c = cacheRef.current;
@@ -307,6 +324,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       me,
       admin: isAdmin(me),
       data,
+      withDeleted: scoped,
       company: full.company,
       accounts,
       calls,

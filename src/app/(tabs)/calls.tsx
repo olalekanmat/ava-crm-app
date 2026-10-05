@@ -14,11 +14,13 @@ type Filter = 'All' | CallStatus;
 
 export default function CallsScreen() {
   const me = useMe();
-  const { calls, data, getUser, syncNow, sync } = useStore();
+  const { calls, data, getUser, syncNow, sync, admin } = useStore();
   const { maxWide, pad, width } = useLayout();
   const cols = columnsFor(Math.min(width, maxWide) - 2 * pad, 360, 3);
   const refresh = <RefreshControl refreshing={sync.syncing} onRefresh={() => syncNow()} tintColor={colors.primary} />;
   const isRep = me.role === 'Rep';
+  // A rep who is also an administrator sees everyone's calls, so show whose they are.
+  const showOwners = !isRep || admin;
   const [filter, setFilter] = useState<Filter>(isRep ? 'All' : 'Submitted');
   const [rep, setRep] = useState<string | null>(null);
   const [geoOnly, setGeoOnly] = useState(false);
@@ -44,11 +46,11 @@ export default function CallsScreen() {
         {view === 'List' && <Segmented options={['All', 'Planned', 'Saved', 'Submitted'] as Filter[]} value={filter} onChange={setFilter} labels={{ Saved: 'Drafts' }} />}
         <View style={styles.filters}>
           {view === 'List' && <Chip label="Check-in issues" icon="location-outline" selected={geoOnly} onPress={() => setGeoOnly(!geoOnly)} />}
-          {!isRep && reps.map((u) => <Chip key={u!.id} label={u!.name.split(' ')[0]} selected={rep === u!.id} onPress={() => setRep(rep === u!.id ? null : u!.id)} />)}
+          {showOwners && reps.map((u) => <Chip key={u!.id} label={u!.name.split(' ')[0]} selected={rep === u!.id} onPress={() => setRep(rep === u!.id ? null : u!.id)} />)}
         </View>
         {view === 'Calendar' ? (
           <ScrollView contentContainerStyle={{ paddingBottom: space.xl }} refreshControl={refresh}>
-            <CallCalendar calls={rep ? calls.filter((c) => c.ownerId === rep) : calls} showRep={!isRep} />
+            <CallCalendar calls={rep ? calls.filter((c) => c.ownerId === rep) : calls} showRep={showOwners} />
           </ScrollView>
         ) : (
           <FlatList
@@ -61,7 +63,7 @@ export default function CallsScreen() {
             ListHeaderComponent={<Text style={[text.small, { marginBottom: space.sm }]}>{visible.length} calls</Text>}
             renderItem={({ item }) => (
               <View style={{ flex: 1, maxWidth: `${100 / cols}%` }}>
-                <CallRow call={item} showRep={!isRep} />
+                <CallRow call={item} showRep={showOwners} />
               </View>
             )}
             ListEmptyComponent={<Empty icon="chatbubbles-outline">No calls here.</Empty>}

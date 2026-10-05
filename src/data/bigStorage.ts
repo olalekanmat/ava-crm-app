@@ -26,7 +26,9 @@ export async function saveBig(key: string, value: unknown): Promise<void> {
       await saveJson(key, value);
     } catch (e) {
       // Browser storage is full: the data stays in the drive and in memory for this visit.
+      // Remove the older copy, so a reload can never bring back out-of-date data.
       console.warn('Could not cache company data in this browser', e);
+      await removeKeys(key).catch(() => {});
     }
     return;
   }

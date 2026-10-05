@@ -3,6 +3,9 @@ import { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { ACCOUNT_COLUMNS, importAccounts, importProducts, importUsers, PRODUCT_COLUMNS, TEMPLATES, USER_COLUMNS, type ImportResult } from '@/data/csv';
 import { isAdmin } from '@/data/access';
+import { applyMutation, type Mutation } from '@/data/mutations';
+import { sanitizeMutation } from '@/data/sanitize';
+import type { User } from '@/data/types';
 import { useMe, useStore } from '@/data/store';
 import { Banner, Button, Card, Empty, Field, Row, SectionTitle, Segmented, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
@@ -11,6 +14,8 @@ import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
 
 type Kind = 'accounts' | 'users' | 'products';
+
+const chunks = <T,>(xs: T[], n: number): T[][] => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
 
 const HELP: Record<Kind, string> = {
   accounts: `Columns: ${ACCOUNT_COLUMNS.join(', ')}. Required: type (HCP/HCO), name, specialty, tier (a name from the rep's team scheme, by default ST, T1, T2 or T3), city, and the rep as owner_email or as their territory_id. Rows with a matching id, or the same name and city, update the existing account.`,
@@ -28,7 +33,8 @@ const DELETE_HELP: Record<Kind, string> = {
 export default function ImportScreen() {
   const me = useMe();
   const { kind: initialKind } = useLocalSearchParams<{ kind?: Kind }>();
-  const { data, run, session } = useStore();
+  // Deleted records stay in, so a row naming one gets its own error instead of failing the whole import.
+  const { withDeleted: data, run, session } = useStore();
   const [kind, setKind] = useState<Kind>(initialKind && initialKind in HELP ? initialKind : 'accounts');
   const [csv, setCsv] = useState('');
   const [fileName, setFileName] = useState<string>();
@@ -36,8 +42,8 @@ export default function ImportScreen() {
 
   const preview = useMemo((): ImportResult<unknown> | null => {
     if (!csv.trim()) return null;
-    return kind === 'accounts' ? importAccounts(csv, data) : kind === 'users' ? importUsers(csv, data) : importProducts(csv, data);
-  }, [csv, kind, data]);
+    return kind === 'accounts' ? importAccounts(csv, data) : kind === 'users' ? importUsers(csv, data, me.id) : importProducts(csv, data);
+  }, [csv, kind, data, me.id]);
 
   if (!isAdmin(me)) return <Screen><Empty>Only administrators can import data.</Empty></Screen>;
 
@@ -58,19 +64,26 @@ export default function ImportScreen() {
     if (!preview || !total) return;
     try {
       // Adds and updates first (a new manager may take over from someone deleted), then deletes.
+      const changes: Mutation[] = [];
       if (kind === 'accounts') {
         const r = importAccounts(csv, data);
-        if (r.valid.length) run({ type: 'import.accounts', accounts: r.valid });
-        if (r.deletes.length) run({ type: 'account.delete', ids: r.deletes.map((d) => d.id) });
+        for (const accounts of chunks(r.valid, 20000)) changes.push({ type: 'import.accounts', accounts });
+        for (const d of chunks(r.deletes, 20000)) changes.push({ type: 'account.delete', ids: d.map((x) => x.id) });
       } else if (kind === 'users') {
-        const r = importUsers(csv, data);
-        if (r.valid.length) run({ type: 'import.users', users: r.valid });
-        if (r.deletes.length) run({ type: 'user.delete', users: r.deletes });
+        const r = importUsers(csv, data, me.id);
+        for (const users of chunks(r.valid, 5000)) changes.push({ type: 'import.users', users });
+        // Switch people off before deleting them: older app versions do not know about deleting.
+        const off = r.deletes.map((d) => data.users.find((u) => u.id === d.id)).filter((u): u is User => !!u && u.active).map((u) => ({ ...u, active: false }));
+        for (const users of chunks(off, 5000)) changes.push({ type: 'import.users', users });
+        for (const users of chunks(r.deletes, 5000)) changes.push({ type: 'user.delete', users });
       } else {
         const r = importProducts(csv, data);
-        if (r.valid.length) run({ type: 'import.products', products: r.valid });
-        if (r.deletes.length) run({ type: 'product.delete', ids: r.deletes.map((d) => d.id) });
+        for (const products of chunks(r.valid, 1000)) changes.push({ type: 'import.products', products });
+        for (const d of chunks(r.deletes, 20000)) changes.push({ type: 'product.delete', ids: d.map((x) => x.id) });
       }
+      // Try every change first, so nothing is saved unless all of it works.
+      changes.reduce((s, m) => applyMutation(s, sanitizeMutation(JSON.parse(JSON.stringify(m)), new Date()), me, new Date()), data);
+      for (const m of changes) run(m);
       const done = [preview.valid.length && `imported ${preview.valid.length}`, preview.deletes.length && `deleted ${preview.deletes.length}`].filter(Boolean).join(' and ');
       setResult(
         `${done[0].toUpperCase()}${done.slice(1)} ${kind}.${preview.rows.length > total ? ` ${preview.rows.length - total} rows with errors were skipped.` : ''}${kind === 'users' && preview.valid.length ? ` New users sign in with company code ${session?.companyCode ?? ''}, their email and the starting password 12345678.` : ''}`,

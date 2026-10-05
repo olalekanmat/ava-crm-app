@@ -75,8 +75,11 @@ function user(v: unknown, now: string): User {
   const u = obj(v, 'user');
   return {
     id: str(u.id, 'user id', 80), name: str(u.name, 'name', 200), email: str(u.email, 'email', 200), role: oneOf(u.role, ROLES, 'role'),
-    admin: u.admin === undefined || u.admin === null ? undefined : bool(u.admin, 'admin flag'),
-    employeeId: optStr(u.employeeId, 'user ID', 60), territoryId: optStr(u.territoryId, 'territory ID', 60),
+    // A field that is absent keeps the person's current value (older app versions do not send it);
+    // false or an empty value clears it.
+    admin: !('admin' in u) || u.admin === undefined ? undefined : u.admin === null ? false : bool(u.admin, 'admin flag'),
+    employeeId: !('employeeId' in u) || u.employeeId === undefined ? undefined : (optStr(u.employeeId, 'user ID', 60) ?? ''),
+    territoryId: !('territoryId' in u) || u.territoryId === undefined ? undefined : (optStr(u.territoryId, 'territory ID', 60) ?? ''),
     managerId: optStr(u.managerId, 'manager', 80), territory: optStr(u.territory, 'territory', 200), active: bool(u.active, 'active flag'),
     createdAt: u.createdAt ? iso(u.createdAt, 'date') : now,
   };

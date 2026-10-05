@@ -192,3 +192,37 @@ test('licence tokens: signature, company, expiry and revocation', async () => {
   await phone.sync(at(2));
   assert.equal(phone.cache.license?.token, token);
 });
+
+test('a device restored from an old copy keeps the changes already in the drive', async () => {
+  const { admin } = await company();
+  admin.run({ type: 'user.upsert', user: flm }, at(1));
+  await admin.sync(at(2));
+  const stale = structuredClone(admin.cache);
+  admin.run({ type: 'user.upsert', user: rep }, at(3));
+  await admin.sync(at(4));
+  // The browser comes back with the older copy and makes another change.
+  admin.cache = stale;
+  admin.run({ type: 'user.upsert', user: { ...flm, id: 'usr_flm2', email: 'f2@acme.com' } }, at(5));
+  const r = await admin.sync(at(6));
+  assert.ok(r.snapshot.users.some((u) => u.id === 'usr_rep'), 'the rep added after the old copy is still there');
+  assert.ok(r.snapshot.users.some((u) => u.id === 'usr_flm2'), 'the new change is kept too');
+  assert.deepEqual(admin.cache.own.entries.map((e) => e.seq), [1, 2, 3]);
+});
+
+test('the roster version in the drive is reported so admins can notice an outside rewrite', async () => {
+  const { drive, admin } = await company();
+  await admin.sync(at(1));
+  assert.equal(admin.cache.remoteRosterVersion, undefined);
+  await drive.as('boss@acme.com').write('ava-roster.json', '{}');
+  await admin.sync(at(2));
+  assert.equal(admin.cache.remoteRosterVersion, '1');
+});
+
+test('a failed CSV copy does not fail the sync', async () => {
+  const { drive, admin } = await company();
+  const d = drive.as('boss@acme.com');
+  const failing = { ...d, write: async (name: string, content: string, mime?: string, id?: string) => (name.endsWith('.csv') ? Promise.reject(new Error('403')) : d.write(name, content, mime, id)) };
+  const r = await syncOnce(failing, admin.cache, { now: at(1), writeExports: true });
+  assert.ok(r.result);
+  assert.equal(r.cache.lastExport, undefined);
+});

@@ -43,7 +43,7 @@ export default function UsersScreen() {
         {(['All', ...ROLES] as RoleFilter[]).map((r) => (
           <Chip key={r} label={`${r === 'All' ? 'Everyone' : r === 'Admin' ? 'Admins' : `${r}s`} ${inStatus.filter((u) => hasRole(u, r)).length}`} selected={role === r} onPress={() => setRole(r)} />
         ))}
-        {unmanaged > 0 && <Chip label={`No manager ${unmanaged}`} icon="git-network-outline" selected={noManager} onPress={() => setNoManager(!noManager)} />}
+        {(unmanaged > 0 || noManager) && <Chip label={`No manager ${unmanaged}`} icon="git-network-outline" selected={noManager} onPress={() => setNoManager(!noManager)} />}
       </View>
       <Segmented options={['Active', 'Inactive', 'All'] as Status[]} value={status} onChange={setStatus} labels={{ All: 'All statuses' }} />
       <Row style={{ marginBottom: space.sm }}>

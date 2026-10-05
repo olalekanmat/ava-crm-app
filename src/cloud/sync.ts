@@ -1,3 +1,4 @@
+import { isAdmin } from '../data/access';
 import { exportAccounts, exportCalls, exportCyclePlans, exportUsers } from '../data/csv';
 import { currentCycle } from '../data/metrics';
 import type { Snapshot } from '../data/types';
@@ -15,6 +16,8 @@ export interface CloudCache {
   /** This device's journal: the source of truth for changes made here. */
   own: JournalFile;
   ownFileId?: string;
+  /** Version of this device's journal file after its last upload. */
+  ownVersion?: string;
   /** How many of `own.entries` are in the drive. */
   uploaded: number;
   license?: LicenseFile;
@@ -24,6 +27,9 @@ export interface CloudCache {
   lastExport?: string;
   /** The sign-in list last written to ava-roster.json (administrators). */
   rosterSent?: string;
+  /** Version of ava-roster.json this device wrote, and the version now in the drive. */
+  rosterVersion?: string;
+  remoteRosterVersion?: string;
 }
 
 export function newCache(companyId: string, userId: string, email: string, deviceId: string): CloudCache {
@@ -40,6 +46,7 @@ export function rebuild(c: CloudCache, now = new Date()): ReplayResult | undefin
 }
 
 const EXPORT_EVERY_MS = 60 * 60 * 1000;
+export const ROSTER_FILE = 'ava-roster.json';
 
 export interface SyncOptions {
   now?: Date;
@@ -85,11 +92,24 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
 
   // Upload this device's journal when it has new entries (or is missing from the drive).
   const ownRemote = byName.get(ownName);
+  // The drive has a newer copy of this device's journal than this cache knows about (for example a
+  // browser that restored an old copy): keep everything in the drive and add only the new changes.
+  if (ownRemote && c.ownVersion && ownRemote.version !== c.ownVersion) {
+    const remote = parseJournal(await drive.read(ownRemote.id));
+    if (remote && remote.entries.length >= c.uploaded) {
+      let seq = remote.entries.at(-1)?.seq ?? 0;
+      const fresh = c.own.entries.slice(c.uploaded).map((e) => ({ ...e, seq: ++seq }));
+      c.own = { ...c.own, entries: [...remote.entries, ...fresh] };
+      c.uploaded = remote.entries.length;
+    }
+    c.ownVersion = ownRemote.version;
+  }
   if (c.uploaded < c.own.entries.length || !ownRemote) {
     if (c.own.entries.length || ownRemote) {
       const count = c.own.entries.length;
       const written = await drive.write(ownName, JSON.stringify(c.own), 'application/json', ownRemote?.id ?? c.ownFileId);
       c.ownFileId = written.id;
+      c.ownVersion = written.version;
       c.uploaded = count;
     }
   }
@@ -102,12 +122,22 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
     c.licenseVersion = lic.version;
   }
 
+  // Lets an administrator notice when someone else (e.g. an older app) rewrote the sign-in list.
+  c.remoteRosterVersion = byName.get(ROSTER_FILE)?.version;
+
   c.lastSync = now.toISOString();
   const result = rebuild(c, now);
 
-  if (opts.writeExports && result && (opts.forceExports || !c.lastExport || now.getTime() - Date.parse(c.lastExport) >= EXPORT_EVERY_MS)) {
-    await writeExports(drive, result.snapshot, byName);
-    c.lastExport = now.toISOString();
+  // Decide from the data just rebuilt: someone whose admin rights were removed must not try.
+  const meNow = result?.snapshot.users.find((u) => u.id === c.own.userId && !u.deletedAt && u.active);
+  if (opts.writeExports && result && isAdmin(meNow) && (opts.forceExports || !c.lastExport || now.getTime() - Date.parse(c.lastExport) >= EXPORT_EVERY_MS)) {
+    // The readable CSV copies are a convenience: a failure here must not lose the sync.
+    try {
+      await writeExports(drive, result.snapshot, byName);
+      c.lastExport = now.toISOString();
+    } catch (e) {
+      console.warn('Could not write the CSV copies', e);
+    }
   }
   return { cache: c, result };
 }

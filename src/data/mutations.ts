@@ -65,6 +65,16 @@ const PHOTO_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 export const MAX_PHOTO_CHARS = 150_000;
 
 /** Tidies a user from a form or CSV: trims text, and the admin flag only applies to a Rep, FLM or SLM. */
+/** Fields a change leaves out keep the person's current values (see sanitize.ts). */
+function keepMissing(u: User, existing?: User): User {
+  return {
+    ...u,
+    admin: u.admin === undefined ? existing?.admin : u.admin,
+    employeeId: u.employeeId === undefined ? existing?.employeeId : u.employeeId,
+    territoryId: u.territoryId === undefined ? existing?.territoryId : u.territoryId,
+  };
+}
+
 function normalUser(u: User): User {
   const trim = (v?: string) => v?.trim() || undefined;
   return {
@@ -160,13 +170,16 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (!s.cycles.some((c) => c.id === p.cycleId)) fail('Cycle not found.');
       const dupe = s.plans.find((x) => x.ownerId === p.ownerId && x.cycleId === p.cycleId && x.id !== p.id);
       if (dupe) fail('You already have a plan for this cycle.');
-      for (const t of p.targets) {
+      // Accounts deleted since the plan was made (e.g. on an older app) drop out, as account.delete does.
+      const targets = p.targets.filter((t) => !s.accounts.some((x) => x.id === t.accountId && x.deletedAt));
+      for (const t of targets) {
         const a = s.accounts.find((x) => x.id === t.accountId && !x.deletedAt);
         if (!a || !visible.has(a.ownerId)) fail('A plan can only include accounts in your territory.');
         if (!Number.isInteger(t.planned) || t.planned < 1 || t.planned > 50) fail('Planned calls must be between 1 and 50.');
       }
       const plan: CyclePlan = {
         ...p,
+        targets,
         // Review history stays with the plan; only targets change here.
         submittedAt: existing?.submittedAt,
         reviewedAt: existing?.reviewedAt,
@@ -215,7 +228,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       const existing = s.users.find((x) => x.id === m.user.id);
       if (existing?.deletedAt) fail('This person was deleted.');
       // The photo is changed with user.photo only, so editing someone keeps their picture.
-      const u = { ...normalUser(m.user), photo: existing?.photo, deletedAt: undefined };
+      const u = { ...normalUser(keepMissing(m.user, existing)), photo: existing?.photo, deletedAt: undefined };
       if (u.id === actor.id && (!u.active || !hasAdminRights(u))) fail('You cannot remove your own admin access.');
       checkUser(s, u);
       return { ...s, users: replaceOrAdd(s.users, { ...u, createdAt: existing?.createdAt ?? u.createdAt ?? nowIso }) };
@@ -344,9 +357,10 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       adminOnly();
       let accounts = s.accounts;
       for (const a of m.accounts) {
-        if (!s.users.some((u) => u.id === a.ownerId && !u.deletedAt)) fail(`Owner not found for ${a.name}.`);
+        const owner = s.users.find((u) => u.id === a.ownerId) ?? fail(`Owner not found for ${a.name}.`);
+        if (owner.deletedAt) continue; // their rep was deleted since the file was prepared
         const existing = accounts.find((x) => x.id === a.id);
-        if (existing?.deletedAt) fail(`${a.name} was deleted. Leave the id empty to add it again.`);
+        if (existing?.deletedAt) continue; // deleted since the file was prepared; the rest still import
         accounts = replaceOrAdd(accounts, { ...existing, ...a, createdAt: existing?.createdAt ?? nowIso });
       }
       return { ...s, accounts };
@@ -356,9 +370,10 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       adminOnly();
       let next = s;
       for (const raw of m.users) {
-        const u = normalUser(raw);
-        const existing = next.users.find((x) => x.id === u.id);
-        if (existing?.deletedAt) fail(`${u.email} was deleted.`);
+        const existing = next.users.find((x) => x.id === raw.id);
+        // Skip people deleted since the file was prepared (e.g. on an older app); the rest still import.
+        if (existing?.deletedAt) continue;
+        const u = normalUser(keepMissing(raw, existing));
         if (u.id === actor.id && (!u.active || !hasAdminRights(u))) fail('You cannot remove your own admin access.');
         const user = { ...u, photo: existing?.photo, deletedAt: undefined, createdAt: existing?.createdAt ?? nowIso };
         checkUser({ ...next, users: replaceOrAdd(next.users, user) }, user);

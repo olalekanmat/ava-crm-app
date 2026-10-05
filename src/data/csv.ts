@@ -101,6 +101,10 @@ function actionOf(v?: string): 'upsert' | 'delete' | undefined {
   return undefined;
 }
 const badAction = (v?: string) => `action must be blank, add, update or delete (not "${v ?? ''}")`;
+/** The same limits the data rules apply when every device replays the change, so a row that passes here is not dropped later. */
+function tooLong(r: Record<string, string | undefined>, limits: Record<string, number>, errors: string[]) {
+  for (const [col, max] of Object.entries(limits)) if ((r[col] ?? '').length > max) errors.push(`${col} must be ${max} characters or fewer`);
+}
 
 export const ACCOUNT_COLUMNS = ['action', 'id', 'type', 'name', 'specialty', 'affiliation', 'tier', 'address', 'city', 'phone', 'email', 'owner_email', 'territory_id', 'lat', 'lng'];
 export const USER_COLUMNS = ['action', 'name', 'email', 'role', 'admin', 'user_id', 'manager_email', 'territory', 'territory_id', 'active', 'transfer_to_email'];
@@ -124,6 +128,7 @@ export function importAccounts(text: string, s: Snapshot): ImportResult<Account>
     const sameName = (a: Account) => a.name.toLowerCase() === r.name?.toLowerCase() && a.city.toLowerCase() === r.city?.toLowerCase();
     const existing = r.id ? s.accounts.find((a) => a.id === r.id) : live.find(sameName);
     if (action === 'delete') {
+      if (!r.id && live.filter(sameName).length > 1) return { line, errors: [`several accounts are named "${r.name}" in ${r.city}; give the id instead`] };
       if (!existing || existing.deletedAt) return { line, errors: [r.id ? `no account with id ${r.id}` : `no account named "${r.name ?? ''}" in ${r.city ?? ''}`] };
       if (seen.has(existing.id)) return { line, errors: ['duplicate row for the same account'] };
       seen.add(existing.id);
@@ -131,6 +136,7 @@ export function importAccounts(text: string, s: Snapshot): ImportResult<Account>
     }
     const errors: string[] = [];
     if (existing?.deletedAt) errors.push(`account ${r.id} was deleted; leave id empty to add it again`);
+    tooLong(r, { id: 80, name: 200, specialty: 200, affiliation: 200, address: 300, city: 120, phone: 60, email: 200 }, errors);
     const type = r.type?.toUpperCase();
     if (type !== 'HCP' && type !== 'HCO') errors.push('type must be HCP or HCO');
     if (!r.name) errors.push('name is required');
@@ -140,6 +146,7 @@ export function importAccounts(text: string, s: Snapshot): ImportResult<Account>
     if (r.owner_email) {
       owner = byEmail.get(r.owner_email.toLowerCase());
       if (!owner) errors.push(`no user with email "${r.owner_email}"`);
+      else if (r.territory_id && owner.territoryId?.toLowerCase() !== r.territory_id.toLowerCase()) errors.push(`owner_email ${r.owner_email} is not the rep for territory_id "${r.territory_id}"; give one or the other`);
     } else if (r.territory_id) {
       const t = r.territory_id.toLowerCase();
       const found = people.filter((u) => u.role === 'Rep' && u.active && u.territoryId?.toLowerCase() === t);
@@ -155,7 +162,7 @@ export function importAccounts(text: string, s: Snapshot): ImportResult<Account>
     if ((lat === undefined) !== (lng === undefined)) errors.push('give both lat and lng, or neither');
     if (lat !== undefined && (Number.isNaN(lat) || Math.abs(lat) > 90)) errors.push('lat must be between -90 and 90');
     if (lng !== undefined && (Number.isNaN(lng) || Math.abs(lng) > 180)) errors.push('lng must be between -180 and 180');
-    const id = existing?.id ?? r.id ?? newId('acc');
+    const id = existing?.id ?? (r.id || newId('acc'));
     if (seen.has(id)) errors.push('duplicate row for the same account');
     seen.add(id);
     if (errors.length) return { line, errors };
@@ -184,48 +191,32 @@ export function importAccounts(text: string, s: Snapshot): ImportResult<Account>
   return finish(out, missing);
 }
 
-export function importUsers(text: string, s: Snapshot): ImportResult<User> {
+export function importUsers(text: string, s: Snapshot, actorId?: string): ImportResult<User> {
   const { header, rows } = records(text);
   const missing = rows.some((r) => actionOf(r.action) === 'upsert') ? ['name', 'email', 'role'].filter((c) => !header.includes(c)) : ['email'].filter((c) => !header.includes(c));
+  // Columns left out of the file keep what each person already has (older files have no admin, user_id or territory_id).
+  const has = (c: string) => header.includes(c);
   // Managers may be defined earlier in the same file. Deleted people do not count.
   const byEmail = new Map(s.users.filter((u) => !u.deletedAt).map((u) => [u.email.toLowerCase(), u]));
   const userIds = new Map(s.users.filter((u) => !u.deletedAt && u.employeeId).map((u) => [u.employeeId!.toLowerCase(), u.email.toLowerCase()]));
-  const deleting = new Set<string>();
-  const out = rows.map((r, i): ImportRow<User> => {
+  const out: (ImportRow<User> | undefined)[] = rows.map((r, i): ImportRow<User> | undefined => {
     const line = i + 2;
     const errors: string[] = [];
     const email = (r.email ?? '').toLowerCase();
     const action = actionOf(r.action);
     if (!action) return { line, errors: [badAction(r.action)] };
+    if (action === 'delete') return undefined; // second pass, once every add and update is known
     const existing = byEmail.get(email);
-    if (action === 'delete') {
-      if (!existing) return { line, errors: [`no user with email "${r.email ?? ''}"`] };
-      if (deleting.has(existing.id)) return { line, errors: ['duplicate row for the same user'] };
-      let transferTo: string | undefined;
-      if (r.transfer_to_email) {
-        const to = byEmail.get(r.transfer_to_email.toLowerCase());
-        if (!to) errors.push(`no user with email "${r.transfer_to_email}" to take over`);
-        else if (to.id === existing.id || deleting.has(to.id)) errors.push('transfer_to_email must be someone who stays');
-        else if (to.role !== existing.role) errors.push(`transfer_to_email must be another ${existing.role}`);
-        else transferTo = to.id;
-      }
-      const owned = s.accounts.filter((a) => a.ownerId === existing.id && !a.deletedAt).length;
-      if (owned && !r.transfer_to_email) errors.push(`${existing.email} has ${owned} account${owned > 1 ? 's' : ''}; add transfer_to_email (another ${existing.role}) to move them`);
-      if (errors.length) return { line, errors };
-      deleting.add(existing.id);
-      return { line, errors, remove: { id: existing.id, label: existing.name, transferTo } };
-    }
     const role = ROLES.find((x) => x.toLowerCase() === (r.role ?? '').toLowerCase()) as Role | undefined;
     if (!r.name) errors.push('name is required');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) errors.push('valid email is required');
     if (!role) errors.push('role must be Rep, FLM, SLM or Admin');
+    tooLong(r, { name: 200, email: 200, territory: 200, user_id: 60, territory_id: 60 }, errors);
     const userId = (r.user_id ?? '').trim();
     if (userId) {
       const owner = userIds.get(userId.toLowerCase());
       if (owner && owner !== email) errors.push(`user_id ${userId} is already used by ${owner}`);
-      if (userId.length > 60) errors.push('user_id must be 60 characters or fewer');
     }
-    if ((r.territory_id ?? '').length > 60) errors.push('territory_id must be 60 characters or fewer');
     let managerId: string | undefined;
     if (r.manager_email) {
       const m = byEmail.get(r.manager_email.toLowerCase());
@@ -234,25 +225,56 @@ export function importUsers(text: string, s: Snapshot): ImportResult<User> {
       else if (role === 'FLM' && m.role !== 'SLM') errors.push('an FLM must report to an SLM');
       else managerId = m.id;
     }
+    if (existing && existing.id === actorId && (no(r.active) || (role !== 'Admin' && (has('admin') ? !yes(r.admin) : !existing.admin)))) errors.push('you cannot remove your own admin access');
     if (errors.length) return { line, errors };
     const user: User = {
       id: existing?.id ?? newId('usr'),
       name: r.name,
       email,
       role: role!,
-      admin: role !== 'Admin' && yes(r.admin) ? true : undefined,
-      employeeId: userId || undefined,
+      // false / '' clear the value; undefined keeps what the person has.
+      admin: has('admin') ? role !== 'Admin' && yes(r.admin) : undefined,
+      employeeId: has('user_id') ? userId : undefined,
       managerId,
       territory: r.territory || undefined,
-      territoryId: r.territory_id || undefined,
+      territoryId: has('territory_id') ? (r.territory_id ?? '') : undefined,
       active: !no(r.active),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     };
-    byEmail.set(email, user);
+    byEmail.set(email, { ...existing, ...user, admin: user.admin ?? existing?.admin, employeeId: user.employeeId ?? existing?.employeeId, territoryId: user.territoryId ?? existing?.territoryId });
     if (userId) userIds.set(userId.toLowerCase(), email);
     return { line, errors, update: !!existing, item: user };
   });
-  return finish(out, missing);
+
+  // Deletes, checked against the people as they will be after the adds and updates above.
+  const deleting = new Set<string>();
+  const movedTo = new Map<string, number>();
+  rows.forEach((r, i) => {
+    if (out[i] || actionOf(r.action) !== 'delete') return;
+    const line = i + 2;
+    const errors: string[] = [];
+    const existing = byEmail.get((r.email ?? '').toLowerCase());
+    if (!existing) return void (out[i] = { line, errors: [`no user with email "${r.email ?? ''}"`] });
+    if (existing.id === actorId) return void (out[i] = { line, errors: ['you cannot delete yourself'] });
+    if (deleting.has(existing.id)) return void (out[i] = { line, errors: ['duplicate row for the same user'] });
+    if (out.some((o) => o?.item?.id === existing.id && !o.errors.length)) return void (out[i] = { line, errors: ['the same user is also added or updated in this file'] });
+    let transferTo: string | undefined;
+    if (r.transfer_to_email) {
+      const to = byEmail.get(r.transfer_to_email.toLowerCase());
+      if (!to) errors.push(`no user with email "${r.transfer_to_email}" to take over`);
+      else if (to.id === existing.id || deleting.has(to.id)) errors.push('transfer_to_email must be someone who stays');
+      else if (!to.active) errors.push('transfer_to_email must be an active user');
+      else if (to.role !== existing.role) errors.push(`transfer_to_email must be another ${existing.role}`);
+      else transferTo = to.id;
+    }
+    const owned = s.accounts.filter((a) => a.ownerId === existing.id && !a.deletedAt).length + (movedTo.get(existing.id) ?? 0);
+    if (owned && !r.transfer_to_email) errors.push(`${existing.email} has ${owned} account${owned > 1 ? 's' : ''}; add transfer_to_email (another ${existing.role}) to move them`);
+    if (errors.length) return void (out[i] = { line, errors });
+    deleting.add(existing.id);
+    if (transferTo) movedTo.set(transferTo, (movedTo.get(transferTo) ?? 0) + owned);
+    out[i] = { line, errors, remove: { id: existing.id, label: existing.name, transferTo } };
+  });
+  return finish(out as ImportRow<User>[], missing);
 }
 
 export function importProducts(text: string, s: Snapshot): ImportResult<Product> {
@@ -264,6 +286,14 @@ export function importProducts(text: string, s: Snapshot): ImportResult<Product>
     const action = actionOf(r.action);
     if (!action) return { line, errors: [badAction(r.action)] };
     if (!r.name) return { line, errors: ['name is required'] };
+    const keyMessages = (r.key_messages ?? '').split('|').map((x) => x.trim()).filter(Boolean);
+    if (action === 'upsert') {
+      const errors: string[] = [];
+      tooLong(r, { name: 120 }, errors);
+      if (keyMessages.length > 50) errors.push('at most 50 key messages');
+      if (keyMessages.some((k) => k.length > 300)) errors.push('each key message must be 300 characters or fewer');
+      if (errors.length) return { line, errors };
+    }
     const existing = s.products.find((p) => p.name.toLowerCase() === r.name.toLowerCase());
     if (action === 'delete') {
       if (!existing) return { line, errors: [`no product named "${r.name}"`] };
@@ -278,7 +308,7 @@ export function importProducts(text: string, s: Snapshot): ImportResult<Product>
       item: {
         id: existing?.id ?? newId('prd'),
         name: r.name,
-        keyMessages: (r.key_messages ?? '').split('|').map((x) => x.trim()).filter(Boolean),
+        keyMessages,
         active: !no(r.active),
       },
     };

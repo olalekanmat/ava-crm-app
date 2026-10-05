@@ -2,10 +2,12 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { MAX_PHOTO_CHARS } from '@/data/mutations';
 
-const SIZE = 256;
+const SIZE = 192;
+/** Photos travel in every device's change log, so keep each one small. */
+const MAX_CHARS = 40_000;
 
 /**
- * Takes or picks a profile picture and returns it as a 256×256 JPEG data URI (about 15–30 KB),
+ * Takes or picks a profile picture and returns it as a 192×192 JPEG data URI (about 10–20 KB),
  * small enough to travel in the company's data. Returns null when the person cancels.
  */
 export async function pickPhoto(source: 'camera' | 'library'): Promise<string | null> {
@@ -28,9 +30,9 @@ export async function pickPhoto(source: 'camera' | 'library'): Promise<string | 
   }
   ctx.resize({ width: SIZE, height: SIZE });
   const img = await ctx.renderAsync();
-  const out = await img.saveAsync({ format: SaveFormat.JPEG, compress: 0.8, base64: true });
+  const out = await img.saveAsync({ format: SaveFormat.JPEG, compress: 0.7, base64: true });
   if (!out.base64) throw new Error('Could not read that image.');
   const photo = `data:image/jpeg;base64,${out.base64}`;
-  if (photo.length > MAX_PHOTO_CHARS) throw new Error('That photo is too large. Try another one.');
+  if (photo.length > Math.min(MAX_CHARS, MAX_PHOTO_CHARS)) throw new Error('That photo is too large. Try another one.');
   return photo;
 }
