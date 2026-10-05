@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { MemoryDrive } from '../src/cloud/drive';
 import { COMPANY_FILE, journalName, type CompanyFile, type JournalFile } from '../src/cloud/journal';
 import { licenseState, verifyToken, type LicenseFile } from '../src/cloud/license';
-import { createCompany, EXPORT_FILES, newCache, pendingCount, rebuild, syncOnce, writeLicense, type CloudCache } from '../src/cloud/sync';
+import { createCompany, EXPORT_FILES, newCache, pendingCount, rebuild, rosterKey, syncOnce, writeLicense, type CloudCache } from '../src/cloud/sync';
 import { applyMutation, type Mutation } from '../src/data/mutations';
 import type { Account, Call, User } from '../src/data/types';
 
@@ -209,13 +209,14 @@ test('a device restored from an old copy keeps the changes already in the drive'
   assert.deepEqual(admin.cache.own.entries.map((e) => e.seq), [1, 2, 3]);
 });
 
-test('the roster version in the drive is reported so admins can notice an outside rewrite', async () => {
+test('admins read the sign-in list in the drive when it changes', async () => {
   const { drive, admin } = await company();
   await admin.sync(at(1));
   assert.equal(admin.cache.remoteRosterVersion, undefined);
-  await drive.as('boss@acme.com').write('ava-roster.json', '{}');
-  await admin.sync(at(2));
-  assert.equal(admin.cache.remoteRosterVersion, '1');
+  await drive.as('boss@acme.com').write('ava-roster.json', JSON.stringify({ users: [{ id: 'b', name: 'B', email: 'B@x.com', role: 'Rep', active: true }, { id: 'a', name: 'A', email: 'a@x.com', role: 'Admin' }] }));
+  const r = await syncOnce(drive.as('boss@acme.com'), admin.cache, { now: at(2), readRoster: true });
+  assert.equal(r.cache.remoteRosterVersion, '1');
+  assert.equal(r.cache.remoteRoster, rosterKey([{ id: 'a', name: 'A', email: 'a@x.com', role: 'Admin', active: true }, { id: 'b', name: 'B', email: 'b@x.com', role: 'Rep', active: true }]));
 });
 
 test('a failed CSV copy does not fail the sync', async () => {

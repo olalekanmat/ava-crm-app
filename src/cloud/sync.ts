@@ -27,9 +27,9 @@ export interface CloudCache {
   lastExport?: string;
   /** The sign-in list last written to ava-roster.json (administrators). */
   rosterSent?: string;
-  /** Version of ava-roster.json this device wrote, and the version now in the drive. */
-  rosterVersion?: string;
+  /** Version of ava-roster.json now in the drive, and its sign-in list in the same form as rosterSent. */
   remoteRosterVersion?: string;
+  remoteRoster?: string;
 }
 
 export function newCache(companyId: string, userId: string, email: string, deviceId: string): CloudCache {
@@ -48,12 +48,19 @@ export function rebuild(c: CloudCache, now = new Date()): ReplayResult | undefin
 const EXPORT_EVERY_MS = 60 * 60 * 1000;
 export const ROSTER_FILE = 'ava-roster.json';
 
+export interface RosterEntry { id: string; name: string; email: string; role: string; active: boolean }
+/** The sign-in list in one comparable form. */
+export const rosterKey = (users: RosterEntry[]): string =>
+  JSON.stringify(users.map((u) => ({ id: u.id, name: u.name, email: u.email.toLowerCase(), role: u.role, active: u.active !== false })).sort((x, y) => x.id.localeCompare(y.id)));
+
 export interface SyncOptions {
   now?: Date;
   /** Admins also write readable CSV copies of the data into the folder, at most hourly. */
   writeExports?: boolean;
   /** Refresh the CSV copies now (the admin pressed Sync). */
   forceExports?: boolean;
+  /** Read the sign-in list when it changed (administrators keep it in step). */
+  readRoster?: boolean;
 }
 
 /**
@@ -123,7 +130,16 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
   }
 
   // Lets an administrator notice when someone else (e.g. an older app) rewrote the sign-in list.
-  c.remoteRosterVersion = byName.get(ROSTER_FILE)?.version;
+  const rosterFile = byName.get(ROSTER_FILE);
+  if (opts.readRoster && rosterFile && rosterFile.version !== c.remoteRosterVersion) {
+    try {
+      c.remoteRoster = rosterKey(JSON.parse(await drive.read(rosterFile.id)).users);
+    } catch {
+      c.remoteRoster = undefined;
+    }
+  }
+  if (!rosterFile) c.remoteRoster = undefined;
+  c.remoteRosterVersion = rosterFile?.version;
 
   c.lastSync = now.toISOString();
   const result = rebuild(c, now);

@@ -7,7 +7,7 @@ import type { FolderRef } from '@/cloud/drive';
 import type { ReplayLogEntry } from '@/cloud/journal';
 import { licenseState, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
 import { saveToken } from '@/cloud/relay';
-import { pendingCount, rebuild, ROSTER_FILE, syncOnce, writeLicense, type CloudCache } from '@/cloud/sync';
+import { pendingCount, rebuild, ROSTER_FILE, rosterKey, syncOnce, writeLicense, type CloudCache } from '@/cloud/sync';
 import { isAdmin, scopeSnapshot, withoutDeleted } from './access';
 import { sanitizeMutation } from './sanitize';
 import { removeBig, loadBig, saveBig } from './bigStorage';
@@ -155,7 +155,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (net && net.isInternetReachable === false) throw new Error('No internet connection. Your changes are saved on this device and will upload when you are back online.');
       const drive = adapterFor(s.folder);
       const me = fullRef.current.users.find((u) => u.id === s.userId);
-      let { cache: c } = await syncOnce(drive, c0, { writeExports: isAdmin(me), forceExports: manual });
+      let { cache: c } = await syncOnce(drive, c0, { writeExports: isAdmin(me), forceExports: manual, readRoster: isAdmin(me) });
       // Keep any changes made while the sync was running.
       const latest = cacheRef.current;
       const extra = latest ? latest.own.entries.slice(c0.own.entries.length) : [];
@@ -182,14 +182,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (isAdmin(me)) {
         const users = (rebuild(c)?.snapshot.users ?? []).filter((u) => !u.deletedAt);
         const roster = users.map((u) => ({ id: u.id, name: u.name, email: u.email.toLowerCase(), role: isAdmin(u) ? 'Admin' : u.role, active: u.active })).sort((x, y) => x.id.localeCompare(y.id));
-        const key = JSON.stringify(roster);
-        // Also rewrite it when the file in the drive is not the one this device wrote: an older
-        // app version may have written its own list (bringing back deleted people, for example).
-        const changedElsewhere = !!c.remoteRosterVersion && c.remoteRosterVersion !== c.rosterVersion;
-        if ((key !== c.rosterSent || changedElsewhere) && roster.some((u) => u.id === s.userId && u.role === 'Admin' && u.active)) {
+        const key = rosterKey(roster);
+        // Compare with the list actually in the drive, not just what this device wrote last: an
+        // older app version may have written its own list (bringing back deleted people, say).
+        // Two up-to-date administrators compute the same list, so they do not keep rewriting it.
+        const inDrive = c.remoteRosterVersion ? c.remoteRoster : undefined;
+        if (key !== inDrive && roster.some((u) => u.id === s.userId && u.role === 'Admin' && u.active)) {
           try {
             const f = await drive.write(ROSTER_FILE, JSON.stringify({ format: 'ava-roster/1', updatedAt: new Date().toISOString(), users: roster }, null, 2));
-            c = { ...c, rosterSent: key, rosterVersion: f.version, remoteRosterVersion: f.version };
+            c = { ...c, rosterSent: key, remoteRoster: key, remoteRosterVersion: f.version };
           } catch (e) {
             console.warn('Could not update the sign-in list', e);
           }
