@@ -14,6 +14,7 @@ import { removeBig, loadBig, saveBig } from './bigStorage';
 import { currentCycle } from './metrics';
 import { applyMutation, RuleError, type Mutation } from './mutations';
 import { KEYS, loadJson, removeKeys, saveJson } from './storage';
+import { previewState, UI_PREVIEW } from '@/dev/preview';
 import { emptySnapshot, type Account, type Call, type Company, type Cycle, type Product, type Snapshot, type User } from './types';
 
 /** A signed-in person in a company whose data lives in its administrator's OneDrive folder. */
@@ -130,6 +131,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Restore the last session.
   useEffect(() => {
     (async () => {
+      // Design preview builds only (off unless EXPO_PUBLIC_AVA_UI_PREVIEW=1 at export): demo data, no sign-in.
+      if (UI_PREVIEW) {
+        const p = previewState();
+        setFull(p.snapshot);
+        setSession(p.session);
+        return;
+      }
       const s = await loadJson<Session>(KEYS.session);
       if (s?.mode === 'cloud') {
         const c = await loadBig<CloudCache>(KEYS.cache);
@@ -236,7 +244,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [session, syncNow]);
 
   const me = useMemo(() => full.users.find((u) => u.id === session?.userId), [full.users, session]);
-  const license = useMemo<Store['license']>(() => licenseState(cache?.license, session?.companyId ?? ''), [session, cache?.license]);
+  const license = useMemo<Store['license']>(() => UI_PREVIEW ? previewState().license : licenseState(cache?.license, session?.companyId ?? ''), [session, cache?.license]);
   const licensed = license.state === 'active';
   const autosave = useRef<ReturnType<typeof setTimeout> | null>(null);
 

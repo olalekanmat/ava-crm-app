@@ -6,18 +6,24 @@ import { hasLocation, mapsUrl } from '@/data/geo';
 import { callsByAccount, cycleCalls, cycleElapsed } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
 import { CallRow } from '@/ui/CallRow';
-import { Avatar, Banner, Button, Card, Empty, ProgressBar, Row, SectionTitle, TierBadge, text } from '@/ui/components';
+import { AccountTimeline } from '@/ui/AccountTimeline';
+import { Avatar, Banner, Button, Card, Empty, ProgressBar, Row, SectionTitle, Segmented, TierBadge, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
 import { Grid } from '@/ui/layout';
 import { currentFix } from '@/ui/location';
 import { Screen } from '@/ui/Screen';
-import { colors, space } from '@/ui/theme';
+import { StatSplit } from '@/ui/Tiles';
+import { formatDate } from '@/data/dates';
+import { colors, space, tone } from '@/ui/theme';
+
+type Tab = 'Detail' | 'Timeline' | 'Calls' | 'Location';
 
 export default function AccountScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const me = useMe();
   const { data, getAccount, getUser, callsForAccount, accounts, cycle, run, admin } = useStore();
   const [locating, setLocating] = useState(false);
+  const [tab, setTab] = useState<Tab>('Detail');
   const account = getAccount(id);
 
   if (!account) {
@@ -36,6 +42,8 @@ export default function AccountScreen() {
   const owner = getUser(account.ownerId);
   const deleted = !!account.deletedAt;
   const openCalls = calls.filter((c) => c.status !== 'Submitted').length;
+  const lastDone = calls.find((c) => c.status === 'Submitted');
+  const nextVisit = [...calls].reverse().find((c) => c.status === 'Planned' && c.datetime >= new Date().toISOString());
 
   const remove = () =>
     confirm(
@@ -124,6 +132,22 @@ export default function AccountScreen() {
       </Card>
 
       {!deleted && (
+        <Row style={{ marginBottom: space.md }}>
+          <Button title="Log a call" icon="add-circle-outline" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id } })} />
+          <Button title="Plan a visit" icon="calendar-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id, plan: '1' } })} />
+        </Row>
+      )}
+
+      <Segmented
+        options={(deleted ? ['Detail', 'Timeline', 'Calls'] : ['Detail', 'Timeline', 'Calls', 'Location']) as Tab[]}
+        value={tab}
+        onChange={setTab}
+        labels={{ Calls: `Calls (${calls.length})` }}
+      />
+
+      {tab === 'Timeline' && <AccountTimeline calls={calls} showRep={me.role !== 'Rep'} />}
+
+      {tab === 'Location' && !deleted && (
         <Card>
           <Row>
             <Ionicons name={hasLocation(account) ? 'location' : 'location-outline'} size={20} color={hasLocation(account) ? colors.success : colors.warn} />
@@ -141,7 +165,20 @@ export default function AccountScreen() {
         </Card>
       )}
 
-      {cycle && target && (
+      {tab === 'Detail' && (
+        <Card>
+          <StatSplit
+            items={[
+              { value: calls.filter((c) => c.status === 'Submitted').length, label: 'Calls', color: tone.normal },
+              { value: lastDone ? formatDate(lastDone.datetime) : '–', label: 'Last call', color: colors.text },
+              { value: nextVisit ? formatDate(nextVisit.datetime) : '–', label: 'Next visit', color: nextVisit ? tone.normal : colors.faint },
+            ]}
+            small
+          />
+        </Card>
+      )}
+
+      {tab === 'Detail' && cycle && target && (
         <Card>
           <Row style={{ justifyContent: 'space-between', marginBottom: space.sm }}>
             <Text style={text.title}>{cycle.name} plan</Text>
@@ -153,14 +190,13 @@ export default function AccountScreen() {
         </Card>
       )}
 
-      {!deleted && (
-        <Row style={{ marginTop: space.sm }}>
-          <Button title="Log a call" icon="add-circle-outline" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id } })} />
-          <Button title="Plan a visit" icon="calendar-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id, plan: '1' } })} />
-        </Row>
+      {tab === 'Detail' && !people.length && !(cycle && target) && (
+        <Empty icon="document-text-outline" title="Nothing planned yet">
+          This account is not in a cycle plan. See the Timeline for its history, or plan a visit.
+        </Empty>
       )}
 
-      {people.length > 0 && (
+      {tab === 'Detail' && people.length > 0 && (
         <>
           <SectionTitle>People at this organization</SectionTitle>
           <Grid>
@@ -180,18 +216,17 @@ export default function AccountScreen() {
         </>
       )}
 
-      <SectionTitle>Call history ({calls.length})</SectionTitle>
-      {calls.length ? (
+      {tab === 'Calls' && (calls.length ? (
         <Grid>
           {calls.map((c) => (
             <CallRow key={c.id} call={c} showAccount={false} showRep={me.role !== 'Rep'} />
           ))}
         </Grid>
       ) : (
-        <Empty>No calls yet.</Empty>
-      )}
+        <Empty icon="chatbubbles-outline" title="No calls yet">Log the first call or plan a visit above.</Empty>
+      ))}
 
-      {admin && !deleted && (
+      {tab === 'Detail' && admin && !deleted && (
         <View style={{ marginTop: space.xl }}>
           <Button title="Delete account" variant="danger" icon="trash-outline" onPress={remove} />
         </View>

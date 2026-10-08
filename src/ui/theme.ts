@@ -1,14 +1,17 @@
 /** Ava palette, taken from the logo: deep blue to sky, with orange, crimson and lime accents. */
 export const colors = {
-  bg: '#F4F6FB',
+  bg: '#F3F5FA',
   card: '#FFFFFF',
-  text: '#0E1A2B',
-  muted: '#5B6779',
+  /** Subtle fill for inset areas (segmented controls, inputs on cards, table stripes). */
+  sunken: '#EEF1F7',
+  text: '#0B1526',
+  muted: '#566276',
   faint: '#8A94A6',
-  border: '#E2E7F0',
+  border: '#E5E9F1',
+  hairline: '#EEF1F6',
   primary: '#1846C8',
   primaryDark: '#0F2E8A',
-  primarySoft: '#E8EEFC',
+  primarySoft: '#EAF0FD',
   sky: '#12A5EC',
   orange: '#F26B1D',
   crimson: '#C8114B',
@@ -21,10 +24,24 @@ export const colors = {
   warnSoft: '#FFF3DF',
 };
 
-export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
-export const radius = { sm: 8, md: 12, lg: 16, pill: 999 };
+/** Signal colours for big numbers on home tiles: red urgent, amber important, blue normal, green good. */
+export const tone = {
+  urgent: '#D92D20',
+  important: '#D97706',
+  normal: colors.primary,
+  good: '#12963F',
+} as const;
 
-export const shadow = { boxShadow: '0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.04)' } as const;
+/** Spacing scale (4-point). Use these, not ad-hoc numbers. */
+export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
+export const radius = { sm: 8, md: 12, lg: 18, pill: 999 };
+/** Smallest comfortable touch target. */
+export const touch = 44;
+
+/** Soft, layered card shadow. */
+export const shadow = { boxShadow: '0 1px 2px rgba(15, 30, 70, 0.05), 0 4px 14px rgba(15, 30, 70, 0.06)' } as const;
+/** Raised surfaces: popovers, sheets, floating buttons. */
+export const shadowRaised = { boxShadow: '0 10px 30px rgba(15, 30, 70, 0.16), 0 2px 6px rgba(15, 30, 70, 0.08)' } as const;
 
 /** Stable colour per person, for avatars. */
 const AVATAR = ['#1846C8', '#12A5EC', '#F26B1D', '#C8114B', '#7DB52F', '#6D4AD8', '#0E8C8C'];
@@ -36,9 +53,9 @@ export function avatarColor(seed: string): string {
 
 /** Green when on pace, amber when a little behind, red when far behind. */
 export function paceColor(value: number, expected: number): string {
-  if (value >= expected * 0.95) return colors.success;
-  if (value >= expected * 0.7) return colors.warn;
-  return colors.danger;
+  if (value >= expected * 0.95) return tone.good;
+  if (value >= expected * 0.7) return tone.important;
+  return tone.urgent;
 }
 
 /** Call calendar edges: green submitted, blue planned (not due yet), red planned and overdue. */

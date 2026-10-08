@@ -6,7 +6,7 @@ import type { GeoStatus } from '@/data/geo';
 import { useStore } from '@/data/store';
 import { tierRankIn } from '@/data/tiers';
 import type { CallStatus, PlanStatus, Tier, User } from '@/data/types';
-import { avatarColor, colors, radius, shadow, space } from './theme';
+import { avatarColor, colors, radius, shadow, space, touch } from './theme';
 
 export type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -302,12 +302,32 @@ export function ToggleRow({ label, value, onChange, hint }: { label: string; val
   );
 }
 
-export function Empty({ children, icon = 'file-tray-outline' }: { children: ReactNode; icon?: IconName }) {
+/** Friendly empty state: an icon in a soft circle, an optional title, a line of help and an optional action. */
+export function Empty({ children, icon = 'file-tray-outline', title, action }: { children: ReactNode; icon?: IconName; title?: string; action?: ReactNode }) {
   return (
     <View style={styles.empty}>
-      <Ionicons name={icon} size={28} color={colors.faint} />
+      <View style={styles.emptyIcon}>
+        <Ionicons name={icon} size={24} color={colors.primary} />
+      </View>
+      {!!title && <Text style={[text.title, { textAlign: 'center' }]}>{title}</Text>}
       <Text style={styles.emptyText}>{children}</Text>
+      {action}
     </View>
+  );
+}
+
+/** Round icon-only button for quick actions (44 pt touch target). */
+export function IconButton({ icon, label, onPress, color = colors.primary, bg = colors.primarySoft, size = 40 }: { icon: IconName; label: string; onPress: () => void; color?: string; bg?: string; size?: number }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      hitSlop={Math.max(0, (touch - size) / 2)}
+      style={({ pressed }) => [{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }, pressed && { opacity: 0.7, transform: [{ scale: 0.96 }] }]}
+    >
+      <Ionicons name={icon} size={Math.round(size * 0.48)} color={color} />
+    </Pressable>
   );
 }
 
@@ -330,23 +350,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     padding: space.lg,
-    marginBottom: space.sm,
+    marginBottom: space.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.hairline,
     ...shadow,
   },
-  pressed: { opacity: 0.75 },
-  sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space.xl, marginBottom: space.sm },
-  section: { fontSize: 12, fontWeight: '700', color: colors.muted, textTransform: 'uppercase', letterSpacing: 0.8 },
-  button: { paddingVertical: 12, paddingHorizontal: space.lg, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', flexGrow: 1, flexDirection: 'row', gap: 8 },
-  buttonSmall: { paddingVertical: 7, paddingHorizontal: space.md, flexGrow: 0 },
+  pressed: { opacity: 0.8 },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space.xl, marginBottom: space.md },
+  section: { fontSize: 17, fontWeight: '700', color: colors.text, letterSpacing: -0.2 },
+  button: { minHeight: touch, paddingVertical: 11, paddingHorizontal: space.lg, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', flexGrow: 1, flexDirection: 'row', gap: 8 },
+  buttonSmall: { minHeight: 34, paddingVertical: 7, paddingHorizontal: space.md, flexGrow: 0 },
   buttonText: { fontSize: 15, fontWeight: '600' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
+    minHeight: 34,
     paddingVertical: 7,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
@@ -357,8 +378,8 @@ const styles = StyleSheet.create({
   chipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { fontSize: 13, color: colors.text },
   chipTextSelected: { color: '#fff', fontWeight: '600' },
-  segmented: { flexDirection: 'row', backgroundColor: '#E9EDF5', borderRadius: radius.md, padding: 3, marginBottom: space.md },
-  segment: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
+  segmented: { flexDirection: 'row', backgroundColor: colors.sunken, borderRadius: radius.md, padding: 3, marginBottom: space.md },
+  segment: { flex: 1, minHeight: 36, justifyContent: 'center', paddingVertical: 7, paddingHorizontal: 6, borderRadius: 10, alignItems: 'center' },
   segmentOn: { backgroundColor: colors.card, ...shadow },
   segmentText: { fontSize: 13, color: colors.muted, fontWeight: '600' },
   segmentTextOn: { color: colors.primary },
@@ -380,11 +401,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    marginBottom: space.sm,
+    borderRadius: radius.pill,
+    paddingHorizontal: space.lg,
+    marginBottom: space.md,
+    minHeight: 46,
+    ...shadow,
   },
-  searchInput: { flex: 1, paddingVertical: 11, fontSize: 15, color: colors.text },
+  searchInput: { flex: 1, paddingVertical: 12, fontSize: 15, color: colors.text, outlineStyle: 'none' } as never,
   error: { color: colors.danger, fontSize: 12, marginTop: 4 },
   hint: { color: colors.faint, fontSize: 12, marginTop: 4 },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, alignSelf: 'flex-start' },
@@ -397,19 +420,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.hairline,
     padding: space.md,
     ...shadow,
   },
   kpiLabel: { fontSize: 12, color: colors.muted, fontWeight: '600', flexShrink: 1 },
   kpiValue: { fontSize: 26, fontWeight: '800', color: colors.text, marginTop: 4, letterSpacing: -0.5 },
   kpiSub: { fontSize: 12, color: colors.faint, marginTop: 2 },
-  listRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, paddingHorizontal: space.lg },
+  listRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 56, paddingVertical: space.md, paddingHorizontal: space.lg },
   listIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   banner: { flexDirection: 'row', gap: space.sm, alignItems: 'flex-start', padding: space.md, borderRadius: radius.md, marginBottom: space.sm },
   stepper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, backgroundColor: colors.card },
   stepBtn: { paddingHorizontal: 10, paddingVertical: 6 },
   stepValue: { minWidth: 22, textAlign: 'center', fontWeight: '700', color: colors.text },
-  empty: { alignItems: 'center', paddingVertical: space.xl, gap: 6 },
-  emptyText: { color: colors.muted, textAlign: 'center' },
+  empty: { alignItems: 'center', paddingVertical: space.xl, paddingHorizontal: space.lg, gap: space.sm },
+  emptyIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  emptyText: { color: colors.muted, textAlign: 'center', fontSize: 14, lineHeight: 20, maxWidth: 420 },
 });

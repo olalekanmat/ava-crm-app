@@ -2,33 +2,48 @@ import { router } from 'expo-router';
 import { Text } from 'react-native';
 import { cycleCalls } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
-import { Hero, HeroStat, heroText } from '@/ui/Brand';
-import { Card, ListRow, Row, SectionTitle } from '@/ui/components';
+import { Card, ListRow, SectionTitle } from '@/ui/components';
+import { Grid } from '@/ui/layout';
+import { StatSplit, Tile } from '@/ui/Tiles';
 import { Screen } from '@/ui/Screen';
-import { LicenseBanner, SyncBar } from '@/ui/SyncCard';
-import { colors, space } from '@/ui/theme';
+import { LicenseBanner } from '@/ui/SyncCard';
+import { colors, tone } from '@/ui/theme';
+import { CompanyTile, HeroButton, HomeHeader, SyncTile } from './HomeTiles';
 
 export function AdminHome() {
   const me = useMe();
-  const { data, cycle, session, syncNow, sync, company } = useStore();
+  const { data, cycle, syncNow, sync, company } = useStore();
   const reps = data.users.filter((u) => u.role === 'Rep' && u.active).length;
   const inCycle = cycle ? cycleCalls(data.calls, cycle).length : 0;
   return (
-    <Screen onRefresh={syncNow} refreshing={sync.syncing}>
-      <Hero>
-        <Text style={heroText.eyebrow}>Administration</Text>
-        <Text style={heroText.title}>{company.name}</Text>
-        <Text style={heroText.body}>Signed in as {me.name}</Text>
-        <Row style={{ marginTop: space.md, flexWrap: 'wrap' }}>
-          <HeroStat label="Users" value={data.users.filter((u) => u.active).length} />
-          <HeroStat label="Reps" value={reps} />
-          <HeroStat label="Accounts" value={data.accounts.length} />
-          <HeroStat label={`Calls ${cycle?.name ?? ''}`} value={inCycle} />
-        </Row>
-      </Hero>
-
-      <SyncBar />
+    <Screen wide onRefresh={syncNow} refreshing={sync.syncing}>
       <LicenseBanner />
+      <HomeHeader
+        eyebrow="Administration"
+        title={company.name}
+        summary={`Signed in as ${me.name}`}
+        actions={
+          <>
+            <HeroButton title="Users" icon="people-outline" onPress={() => router.push('/admin/users')} />
+            <HeroButton title="Export" icon="download-outline" onPress={() => router.push('/export')} />
+          </>
+        }
+      />
+
+      <Grid min={290} max={3}>
+        <CompanyTile key="company" cycle={cycle} />
+        <Tile key="org" title="Organisation" icon="people-outline" onPress={() => router.push('/admin/users')}>
+          <StatSplit
+            items={[
+              { value: data.users.filter((u) => u.active).length, label: 'Users', color: tone.normal },
+              { value: reps, label: 'Reps', color: tone.normal },
+              { value: data.accounts.length, label: 'Accounts', color: tone.normal },
+            ]}
+          />
+          <Text style={{ marginTop: 12, textAlign: 'center', color: colors.faint, fontSize: 12 }}>{inCycle} calls submitted in {cycle?.name ?? 'this cycle'}</Text>
+        </Tile>
+        <SyncTile key="sync" />
+      </Grid>
 
       <SectionTitle>Manage</SectionTitle>
       <Card style={{ padding: 0 }}>
