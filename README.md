@@ -1,6 +1,6 @@
 # Ava CRM
 
-A field CRM for pharma and life-sciences sales teams, built as **one codebase for Android, iOS and web** (Expo). Each company keeps its own data in its administrator's OneDrive; Ava Healthcare approves companies and relays files, but stores no company data.
+A field CRM for pharma and life-sciences sales teams, built as **one codebase for Android, iOS and web** (Expo). Each company keeps its own data in its administrator's OneDrive or Google Drive; Ava Healthcare approves companies and relays files, but stores no company data.
 
 ## What's in it
 
@@ -15,7 +15,10 @@ An FLM or SLM (or a rep) can also be an administrator: switch on **Also an admin
 
 - **Company setup** (web): the admin enters the company details and their own password, then links their OneDrive once. Ava CRM creates the company folder and requests approval.
 - **Sign-in**: everyone else uses the company code, work email and password (first password `12345678`, changed at first sign-in).
-- **Cycles**: calendar quarters, created automatically (Cycle 1 = Jan–Mar … Cycle 4 = Oct–Dec).
+- **Cycles**: the admin chooses quarterly (Cycle 1 = Jan–Mar … Cycle 4 = Oct–Dec) or monthly cycles in *Admin → Products & rules*.
+- **Ask Ava (AI, 2.3)**: dictate call notes and turn them into a tidy note with products and follow-ups; plan visits by voice ("see Dr Bello on Tuesday"); have Ava draft a cycle plan from the account list by tier and history; a pre-call brief on each account; and questions such as "who should I see this week?". AI runs through the Ava server (Claude), so no key is stored in the app; admins can switch it off in *Products & rules*. Voice uses the device's own speech-to-text.
+- **Reports (2.3)**: admins build, save and export reports (calls, accounts, plans, activity) with filters and grouping; FLMs and SLMs see them for their own teams.
+- **Home and schedule (2.3)**: home tiles for alerts, tasks, cycle progress, sync and today's visits; the Schedule tab has Agenda, Week, Month and List views.
 - **Company logo** at the top left of every page.
 - **Auto-save**: changes save a moment after they are made. Offline, the phone keeps them and uploads when the connection returns (or from the **Sync** button on Home).
 - **Licences**: signed by the approval server, checked in the app; read-only when expired or revoked.
