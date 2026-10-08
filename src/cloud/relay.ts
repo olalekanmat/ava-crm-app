@@ -2,15 +2,16 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Company, Role } from '../data/types';
-import { DriveError, type DriveAdapter, type DriveFile, type FolderRef } from './drive';
+import { DriveError, type DriveAdapter, type DriveFile, type FolderRef, type SetupProvider } from './drive';
 import { DEFAULT_LICENSE_SERVER } from './license';
 
 /**
  * Ava CRM server at avahealthcareltd.com/AvaCRM/api.
  *
  * People sign in with a company code, their work email and a password. The company's data lives
- * in its administrator's OneDrive folder; the server holds the administrator's OneDrive link and
- * passes each person's files in and out of that folder. It stores no company data itself.
+ * in its administrator's OneDrive (or SharePoint) or Google Drive folder; the server holds the
+ * administrator's drive link and passes each person's files in and out of that folder. It stores
+ * no company data itself.
  */
 export const API = `${DEFAULT_LICENSE_SERVER}/api`;
 export const DEFAULT_PASSWORD = '12345678';
@@ -57,13 +58,17 @@ export interface LoginResult {
   companyId: string;
   companyCode: string;
   companyName: string;
+  /** Where the company keeps its data (newer servers). Missing means OneDrive. */
+  provider?: string;
 }
 
 export const api = {
   login: (code: string, email: string, password: string) => call<LoginResult>('POST', 'auth/login', { body: { code: code.trim().toUpperCase(), email: email.trim().toLowerCase(), password } }),
   changePassword: (token: string, currentPassword: string, newPassword: string) => call<{ token: string }>('POST', 'auth/password', { token, body: { currentPassword, newPassword } }),
   resetPassword: (token: string, email: string) => call<{ ok: true; password: string }>('POST', 'admin/reset-password', { token, body: { email } }),
-  startSetup: (company: Company, admin: { name: string; email: string; password: string }) => call<{ authorizeUrl: string }>('POST', 'setup/start', { body: { company, admin } }),
+  /** `provider` picks where the company's data lives; servers without Google Drive support ignore it. */
+  startSetup: (company: Company, admin: { name: string; email: string; password: string }, provider: SetupProvider = 'onedrive') =>
+    call<{ authorizeUrl: string; provider?: string }>('POST', 'setup/start', { body: { company, admin, provider } }),
 };
 
 /** The company folder, reached through the server with this person's sign-in. */
@@ -95,10 +100,10 @@ export function relayDrive(getToken: () => Promise<string | null>, folder: Folde
   };
 }
 
-/** The folder link for the administrator (opens the company folder in OneDrive). */
-export async function folderInfo(getToken: () => Promise<string | null>): Promise<{ webUrl?: string } | undefined> {
+/** The folder link for the administrator (opens the company folder in its drive), and the drive when the server says. */
+export async function folderInfo(getToken: () => Promise<string | null>): Promise<{ webUrl?: string; provider?: string } | undefined> {
   const token = await getToken();
   if (!token) return undefined;
-  const r = await call<{ folder?: { webUrl?: string } }>('GET', 'drive/list', { token }).catch(() => undefined);
-  return r?.folder;
+  const r = await call<{ folder?: { webUrl?: string; provider?: string }; provider?: string }>('GET', 'drive/list', { token }).catch(() => undefined);
+  return r?.folder ? { ...r.folder, provider: r.folder.provider ?? r.provider } : r?.provider ? { provider: r.provider } : undefined;
 }

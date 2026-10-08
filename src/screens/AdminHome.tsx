@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { Text } from 'react-native';
+import { providerLabel } from '@/cloud/drive';
 import { cycleCalls } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
 import { Hero, HeroStat, heroText } from '@/ui/Brand';
@@ -32,7 +33,7 @@ export function AdminHome() {
 
       <SectionTitle>Manage</SectionTitle>
       <Card style={{ padding: 0 }}>
-        <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle="Company code, logo, details, OneDrive folder, licence" onPress={() => router.push('/admin/company')} />
+        <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle={`Company code, logo, details, ${providerLabel(session?.folder.provider)} folder, licence`} onPress={() => router.push('/admin/company')} />
         <ListRow icon="people-outline" title="Users & roles" subtitle="Reps, FLMs, SLMs and admins; reporting lines" onPress={() => router.push('/admin/users')} />
         <ListRow icon="cloud-upload-outline" tone={colors.orange} title="Import CSV" subtitle="Accounts, users or products from a spreadsheet" onPress={() => router.push('/admin/import')} />
         <ListRow icon="download-outline" tone={colors.success} title="Export data" subtitle="Calls, accounts, plans and team KPIs as CSV" onPress={() => router.push('/export')} />

@@ -17,7 +17,7 @@ import { applyMutation, RuleError, type Mutation } from './mutations';
 import { KEYS, loadJson, removeKeys, saveJson } from './storage';
 import { emptySnapshot, type Account, type Call, type Company, type Cycle, type Product, type Snapshot, type User } from './types';
 
-/** A signed-in person in a company whose data lives in its administrator's OneDrive folder. */
+/** A signed-in person in a company whose data lives in its administrator's OneDrive or Google Drive folder (`folder.provider`). */
 export type Session = { mode: 'cloud'; userId: string; email: string; companyId: string; companyCode?: string; folder: FolderRef; deviceId: string };
 
 export type CloudSession = Session;

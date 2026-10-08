@@ -1,17 +1,39 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { normalizeProvider, type SetupProvider } from '@/cloud/drive';
 import { api, DEFAULT_PASSWORD } from '@/cloud/relay';
 import type { Company } from '@/data/types';
 import { BrandTitle } from '@/ui/Brand';
-import { Banner, Button, Field, text } from '@/ui/components';
+import { Banner, Button, Field, text, type IconName } from '@/ui/components';
 import { cleanCompany, CompanyForm } from '@/ui/CompanyForm';
 import { colors, radius, shadow, space } from '@/ui/theme';
 
+/** The drives a company can keep its data in. OneDrive stays the default. */
+const PROVIDERS: { key: SetupProvider; title: string; icon: IconName; account: string; drive: string; desc: string }[] = [
+  {
+    key: 'onedrive',
+    title: 'Microsoft OneDrive / SharePoint',
+    icon: 'logo-windows',
+    account: 'Microsoft',
+    drive: 'OneDrive',
+    desc: 'For companies on Microsoft 365. Sign in with your work Microsoft account; the data folder is created in your OneDrive.',
+  },
+  {
+    key: 'google',
+    title: 'Google Drive',
+    icon: 'logo-google',
+    account: 'Google',
+    drive: 'Google Drive',
+    desc: 'For companies on Google Workspace or Gmail. Sign in with your Google account; the data folder is created in your Google Drive.',
+  },
+];
+
 /**
  * First run for a company administrator: company details, the admin's own sign-in, then
- * Microsoft sign-in to link the OneDrive where all of the company's data will be kept.
+ * Microsoft or Google sign-in to link the drive where all of the company's data will be kept.
  */
 export default function SetupScreen() {
   const params = useLocalSearchParams<{ error?: string }>();
@@ -23,6 +45,8 @@ export default function SetupScreen() {
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string | undefined>(params.error);
+  const [provider, setProvider] = useState<SetupProvider>('onedrive');
+  const choice = PROVIDERS.find((p) => p.key === provider)!;
 
   const submit = async () => {
     setTried(true);
@@ -33,8 +57,11 @@ export default function SetupScreen() {
     if (password.length < 8 || password === DEFAULT_PASSWORD) return setError('Choose a password of at least 8 characters (not 12345678).');
     if (password !== confirmPw) return setError('The two passwords do not match.');
     try {
-      setBusy('Preparing the OneDrive link…');
-      const { authorizeUrl } = await api.startSetup(cleanCompany(company), { name: name.trim(), email: email.trim().toLowerCase(), password });
+      setBusy(`Preparing the ${choice.drive} link…`);
+      const r = await api.startSetup(cleanCompany(company), { name: name.trim(), email: email.trim().toLowerCase(), password }, provider);
+      // A server that does not know Google Drive yet would link OneDrive instead: say so rather than surprise.
+      if (r.provider && normalizeProvider(r.provider) !== provider) throw new Error(`${choice.drive} cannot be linked right now. Choose ${provider === 'google' ? 'Microsoft OneDrive' : 'Google Drive'} or try again later.`);
+      const { authorizeUrl } = r;
       if (Platform.OS === 'web') window.location.assign(authorizeUrl);
       else await WebBrowser.openBrowserAsync(authorizeUrl);
     } catch (e) {
@@ -67,11 +94,37 @@ export default function SetupScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.step}>3 · Link your OneDrive</Text>
+          <Text style={styles.step}>3 · Where to keep your data</Text>
+          <Text style={[text.muted, { marginBottom: space.md }]}>Choose the drive your company already uses. Your team does not need an account there: they just sign in to Ava CRM.</Text>
+          <View style={{ gap: space.sm }} accessibilityRole="radiogroup">
+            {PROVIDERS.map((p) => {
+              const on = p.key === provider;
+              return (
+                <Pressable
+                  key={p.key}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: on }}
+                  onPress={() => setProvider(p.key)}
+                  style={[styles.option, on && styles.optionOn]}
+                >
+                  <Ionicons name={p.icon} size={24} color={on ? colors.primary : colors.muted} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={text.title}>{p.title}</Text>
+                    <Text style={text.muted}>{p.desc}</Text>
+                  </View>
+                  <Ionicons name={on ? 'radio-button-on' : 'radio-button-off'} size={22} color={on ? colors.primary : colors.faint} />
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.step}>4 · Link your {choice.drive}</Text>
           <Text style={text.muted}>
-            Next, Microsoft asks you to sign in and allow Ava CRM to use your OneDrive. Ava CRM creates a folder named “Ava CRM - {company.name.trim() || 'your company'}” and keeps all of your company’s data there: accounts, calls, plans and users. Ava Healthcare does not store it.
+            Next, {choice.account} asks you to sign in and allow Ava CRM to use your {choice.drive}. Ava CRM creates a folder named “Ava CRM - {company.name.trim() || 'your company'}” and keeps all of your company’s data there: accounts, calls, plans and users. Ava Healthcare does not store it.
           </Text>
-          <Text style={[text.muted, { marginTop: space.sm }]}>Your company name and your name and email are also sent to Ava Healthcare to approve your subscription. Only you link OneDrive; your team just signs in.</Text>
+          <Text style={[text.muted, { marginTop: space.sm }]}>Your company name and your name and email are also sent to Ava Healthcare to approve your subscription. Only you link {choice.drive}; your team just signs in.</Text>
         </View>
 
         {!!error && <Banner tone="danger">{error}</Banner>}
@@ -82,7 +135,7 @@ export default function SetupScreen() {
           </View>
         ) : (
           <View style={{ gap: space.sm }}>
-            <Button title="Continue to Microsoft sign-in" icon="logo-windows" onPress={submit} />
+            <Button title={`Continue to ${choice.account} sign-in`} icon={choice.icon} onPress={submit} />
             <Button title="Back to sign in" variant="ghost" onPress={() => (router.canGoBack() ? router.back() : router.replace('/sign-in'))} />
           </View>
         )}
@@ -96,4 +149,6 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: radius.lg + 4, padding: space.lg, marginBottom: space.md, ...shadow },
   step: { fontSize: 13, fontWeight: '800', color: colors.primary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: space.sm },
   busy: { flexDirection: 'row', alignItems: 'center', gap: space.sm, justifyContent: 'center', padding: space.md },
+  option: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
+  optionOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
 });

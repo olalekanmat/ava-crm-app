@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { Platform, StyleSheet, Text, View } from 'react-native';
+import { providerLabel } from '@/cloud/drive';
 import { isAdmin } from '@/data/access';
 import { formatDate, formatDateTime } from '@/data/dates';
 import { useStore } from '@/data/store';
@@ -27,7 +28,7 @@ export function SyncBar() {
   const tone = problem ? colors.warn : waiting ? colors.orange : colors.success;
   const icon = sync.syncing ? 'sync-outline' : problem ? 'cloud-offline-outline' : waiting ? 'cloud-upload-outline' : 'cloud-done-outline';
   const title = sync.syncing
-    ? 'Saving to your company’s OneDrive…'
+    ? `Saving to your company’s ${providerLabel(session.folder.provider)}…`
     : problem
       ? waiting
         ? `Offline · ${sync.pending} change${sync.pending > 1 ? 's' : ''} saved on this device`

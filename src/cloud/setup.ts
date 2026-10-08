@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import type { CloudSession } from '../data/store';
 import type { Company } from '../data/types';
 import { adapterFor, randomId } from './connect';
-import type { FolderRef } from './drive';
+import { normalizeProvider, type FolderRef } from './drive';
 import { licenseApi, type LicenseFile } from './license';
 import type { LoginResult } from './relay';
 import { newCache, rebuild, syncOnce, type CloudCache } from './sync';
@@ -26,7 +26,7 @@ export function requestApproval(license: LicenseFile, company: Company, admin: {
     statusKey: license.statusKey,
     company: { name: company.name, address: [company.address, company.city].filter(Boolean).join(', ') || undefined, country: company.country, phone: company.phone, email: company.email, website: company.website },
     admin: { name: admin.name, email: admin.email },
-    drive: { provider: 'onedrive', folderUrl: folder.webUrl ?? folder.id },
+    drive: { provider: folder.provider, folderUrl: folder.webUrl ?? folder.id },
     server: license.server,
     appVersion: Constants.expoConfig?.version,
   });
@@ -37,7 +37,7 @@ export function requestApproval(license: LicenseFile, company: Company, admin: {
  * and carries on with this device's earlier journal if it has one.
  */
 export async function openCompany(login: LoginResult): Promise<{ session: CloudSession; cache: CloudCache }> {
-  const folder: FolderRef = { provider: 'onedrive', id: login.companyId, name: login.companyName };
+  const folder: FolderRef = { provider: normalizeProvider(login.provider), id: login.companyId, name: login.companyName };
   const drive = adapterFor(folder);
   const dev = await deviceId();
   const probe = await syncOnce(drive, newCache(login.companyId, login.user.id, login.user.email, `probe${dev}`));
