@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Text } from 'react-native';
 import { newId } from '@/data/ids';
 import type { Mutation } from '@/data/mutations';
 import { isAdmin } from '@/data/access';

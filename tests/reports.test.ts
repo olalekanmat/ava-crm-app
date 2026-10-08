@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { scopeSnapshot } from '../src/data/access';
 import { applyMutation, describeMutation, RuleError } from '../src/data/mutations';
 import {
-  allReports, canBuildReports, canViewReports, formatCell, MAX_REPORTS, REPORT_COLUMNS, REPORT_TEMPLATES, reportCsv, reportFileName, resolveRange, runReport, weekOf,
+  reportProblem, allReports, canBuildReports, canViewReports, formatCell, MAX_REPORTS, REPORT_COLUMNS, REPORT_TEMPLATES, reportCsv, reportFileName, resolveRange, runReport, weekOf,
 } from '../src/data/reports';
 import { sanitizeMutation } from '../src/data/sanitize';
 import { buildSeed } from '../src/data/seed';
@@ -222,4 +222,13 @@ test('reports: a manager running an admin-built report stays in scope', () => {
   const scoped = scopeSnapshot(s, flm);
   assert.equal(r.total, scoped.accounts.length);
   assert.ok(REPORT_COLUMNS.accounts.some((c) => c.key === 'daysSince'));
+});
+
+test('reports: definitions are checked before saving', () => {
+  assert.match(reportProblem(def({ name: ' ' }))!, /name/);
+  assert.match(reportProblem(def({ filters: { date: 'custom', from: '2026-09-01' } }))!, /custom dates/);
+  assert.match(reportProblem(def({ filters: { date: 'custom', from: '2026-9-1', to: '2026-09-30' } }))!, /custom dates/);
+  assert.match(reportProblem(def({ filters: { date: 'custom', from: '2026-10-01', to: '2026-09-30' } }))!, /before/);
+  assert.equal(reportProblem(def({ filters: { date: 'custom', from: '2026-09-01', to: '2026-09-30' } })), undefined);
+  for (const t of REPORT_TEMPLATES) assert.equal(reportProblem(t), undefined, t.name);
 });

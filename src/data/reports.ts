@@ -583,7 +583,8 @@ export function allReports(saved: ReportDef[] | undefined): ReportDef[] {
 export function reportProblem(def: ReportDef): string | undefined {
   if (!def.name.trim()) return 'Give the report a name.';
   if (def.name.trim().length > 80) return 'Use a name of 80 characters or fewer.';
-  if (def.filters.date === 'custom' && (!def.filters.from || !def.filters.to)) return 'Enter both custom dates (YYYY-MM-DD).';
+  const isDay = (d?: string) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d));
+  if (def.filters.date === 'custom' && (!isDay(def.filters.from) || !isDay(def.filters.to))) return 'Enter both custom dates as YYYY-MM-DD.';
   if (def.filters.from && def.filters.to && def.filters.from > def.filters.to) return 'The start date must be before the end date.';
   if (JSON.stringify(def).length > MAX_REPORT_CHARS) return 'This report definition is too large.';
   return undefined;

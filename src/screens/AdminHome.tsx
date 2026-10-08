@@ -45,6 +45,7 @@ export function AdminHome() {
       <SectionTitle>Insights</SectionTitle>
       <Card style={{ padding: 0 }}>
         <ListRow icon="globe-outline" title="Organisation overview" subtitle="All teams, rep ranking and tier coverage" onPress={() => router.push('/overview')} />
+        <ListRow icon="bar-chart-outline" tone={colors.primary} title="Reports" subtitle="Build, save and export reports on calls, accounts, plans and activity" onPress={() => router.push('/reports')} />
       </Card>
     </Screen>
   );

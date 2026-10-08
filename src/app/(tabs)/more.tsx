@@ -5,6 +5,7 @@ import { Text, View } from 'react-native';
 import { providerLabel } from '@/cloud/drive';
 import { formatDateTime } from '@/data/dates';
 import { roleLabel } from '@/data/access';
+import { canViewReports } from '@/data/reports';
 import { useMe, useStore } from '@/data/store';
 import { BrandTitle } from '@/ui/Brand';
 import { Button, Card, ListRow, Row, SectionTitle, UserAvatar, text } from '@/ui/components';
@@ -55,6 +56,7 @@ export default function MoreScreen() {
       <SectionTitle>Data</SectionTitle>
       <Card style={{ padding: 0 }}>
         <ListRow icon="download-outline" tone={colors.success} title="Export data" subtitle="CSV files you can open in Excel or Sheets" onPress={() => router.push('/export')} />
+        {canViewReports(me) && <ListRow icon="bar-chart-outline" tone={colors.primary} title="Reports" subtitle={admin ? 'Build, save and export reports' : 'Your team’s reports, as tables and CSV'} onPress={() => router.push('/reports')} />}
         {admin && <ListRow icon="cloud-upload-outline" tone={colors.orange} title="Import CSV" subtitle="Accounts, users, products" onPress={() => router.push('/admin/import')} />}
         {admin && <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle={`${company.name} · company code, logo, ${drive} folder, licence`} onPress={() => router.push('/admin/company')} />}
         {admin && <ListRow icon="people-outline" title="Users & roles" onPress={() => router.push('/admin/users')} />}
