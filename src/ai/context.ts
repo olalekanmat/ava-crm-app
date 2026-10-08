@@ -4,6 +4,7 @@
  * under MAX_CONTEXT characters by shortening the lists until it fits.
  */
 import { repsUnder, roleLabel } from '../data/access';
+import { activeCycleLength } from '../data/cycles';
 import { toDateKey } from '../data/dates';
 import { callsByAccount, currentCycle, cycleCalls, cycleElapsed, daysLeft, repMetrics, rollup, type RepMetrics } from '../data/metrics';
 import { tierRank, tiersFor } from '../data/tiers';
@@ -20,7 +21,7 @@ function repLine(m: RepMetrics) {
 
 function build(data: Snapshot, me: User, now: Date, limit: number): Record<string, unknown> {
   const today = toDateKey(now);
-  const cycle = currentCycle(data.cycles, now);
+  const cycle = currentCycle(data.cycles, now, activeCycleLength(data.settings));
   const accountName = new Map(data.accounts.map((a) => [a.id, a.name]));
   const userName = new Map(data.users.map((u) => [u.id, u.name]));
   const calls = data.calls;

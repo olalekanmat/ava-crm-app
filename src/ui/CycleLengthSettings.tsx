@@ -30,7 +30,7 @@ export function CycleLengthSettings({ attempt }: { attempt: (m: Mutation) => voi
       next === 'month' ? 'Plan by month?' : 'Plan by quarter?',
       `From now on, reps plan ${next === 'month' ? 'each calendar month' : 'each calendar quarter'} and dashboards follow the ${next === 'month' ? 'month' : 'quarter'}. ` +
         `Existing plans stay with their original ${length === 'month' ? 'months' : 'quarters'} and remain visible in the plan history and exports; nothing is deleted or converted.` +
-        (next === 'month' ? ` Suggested monthly plans use a third of each tier's calls per quarter (${sample}).` : ''),
+        (next === 'month' ? ` Suggested monthly plans use a third of each tier's calls per quarter (${sample}). Make sure everyone has updated to Ava CRM 2.3 first: older versions cannot see or approve monthly plans.` : ''),
       () => attempt({ type: 'settings.update', settings: { cycleLength: next } }),
       next === 'month' ? 'Use monthly cycles' : 'Use quarterly cycles',
     );

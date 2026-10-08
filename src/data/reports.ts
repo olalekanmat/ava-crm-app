@@ -1,5 +1,5 @@
 import { isAdmin, scopeSnapshot } from './access';
-import { activeCycleLength, previousCycle } from './cycles';
+import { activeCycleLength, lengthOfCycle, previousCycle } from './cycles';
 import { toCsv } from './csv';
 import { addDays, toDateKey } from './dates';
 import { geoStatus } from './geo';
@@ -239,15 +239,19 @@ function callRows(L: Lookup, f: ReportFilters, r: DateRange): BaseRow[] {
   return out;
 }
 
-/** Plans that fall in the range: exactly the cycle for this/last cycle, else any overlapping cycle. */
+/**
+ * Plans that fall in the range: exactly the cycle for this/last cycle, else any overlapping cycle of
+ * the company's current length (quarter and month plans overlap, so mixing them would count twice).
+ */
 function plansIn(s: Snapshot, r: DateRange) {
   const cycles = new Map(s.cycles.map((c) => [c.id, c]));
+  const length = activeCycleLength(s.settings);
   return s.plans
     .map((p) => ({ p, cycle: cycles.get(p.cycleId) }))
     .filter((x): x is { p: (typeof s.plans)[number]; cycle: Cycle } => {
       if (!x.cycle) return false;
       if (r.cycle) return x.cycle.id === r.cycle.id;
-      return (!r.to || x.cycle.start <= r.to) && (!r.from || x.cycle.end >= r.from);
+      return lengthOfCycle(x.cycle) === length && (!r.to || x.cycle.start <= r.to) && (!r.from || x.cycle.end >= r.from);
     });
 }
 

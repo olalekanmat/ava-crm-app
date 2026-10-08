@@ -4,6 +4,7 @@
  * AI output is never trusted: ids must be ones the user can see, dates must be valid, and
  * every change still goes through the normal mutation rules when the rep confirms it.
  */
+import { lengthOfCycle, previousCycle, scaleFrequency } from '../data/cycles';
 import { addDays, parseLocal, toDateKey } from '../data/dates';
 import { cycleCalls } from '../data/metrics';
 import { tiersFor } from '../data/tiers';
@@ -218,11 +219,6 @@ export function workingDays(start: string, end: string): number {
   return n;
 }
 
-/** The cycle that ended most recently before `cycle` starts. */
-export function previousCycle(cycles: Cycle[], cycle: Cycle): Cycle | undefined {
-  return [...cycles].filter((c) => c.end < cycle.start).sort((a, b) => b.end.localeCompare(a.end))[0];
-}
-
 /** About six calls a working day, or the rep's own pace last cycle when there is one. */
 export const CALLS_PER_DAY = 6;
 
@@ -243,7 +239,7 @@ export function buildPlanInput(data: Snapshot, ownerId: string, cycle: Cycle): P
   const pace = prev && lastCycle.length ? lastCycle.length / Math.max(1, workingDays(prev.start, prev.end)) : CALLS_PER_DAY;
   return {
     cycle: { name: cycle.name, start: cycle.start, end: cycle.end },
-    tiers: scheme.map((t) => ({ name: t.name, callsPerCycle: t.frequency })),
+    tiers: scheme.map((t) => ({ name: t.name, callsPerCycle: scaleFrequency(t.frequency, lengthOfCycle(cycle)) })),
     capacity: Math.max(1, Math.round(days * Math.min(Math.max(pace * 1.1, 2), 12))),
     accounts: territory.map((a) => ({
       id: a.id,
