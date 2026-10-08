@@ -178,6 +178,8 @@ export interface Settings {
   tiers: TierDef[];
   /** Per-team schemes, keyed by the FLM's user id. Teams without one use `tiers`. */
   teamTiers: Record<string, TierDef[]>;
+  /** AI features (dictation clean-up, plan suggestions, briefs, Ask Ava). Absent means on. */
+  aiEnabled?: boolean;
 }
 
 export interface Snapshot {

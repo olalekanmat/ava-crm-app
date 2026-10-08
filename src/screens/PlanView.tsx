@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
+import { PlanAssist } from '@/ai/PlanAssist';
 import { manages } from '@/data/access';
 import { formatDate } from '@/data/dates';
 import { newId } from '@/data/ids';
@@ -60,6 +61,7 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
     const suggested = territory.filter((a) => freqOf(a.tier) > 0).map((a) => ({ accountId: a.id, planned: freqOf(a.tier) }));
     const total = suggested.reduce((n, t) => n + t.planned, 0);
     return (
+      <View>
       <Card>
         <Text style={text.h2}>Plan {cycle.name}</Text>
         <Text style={[text.muted, { marginTop: 4 }]}>
@@ -73,6 +75,8 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
           <Button title="Start empty" variant="secondary" onPress={() => saveTargets([])} />
         </Row>
       </Card>
+      <PlanAssist ownerId={ownerId} cycle={cycle} hasPlan={false} onAccept={saveTargets} />
+      </View>
     );
   }
 
@@ -147,6 +151,8 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
           </Row>
         </Card>
       )}
+
+      {editable && <PlanAssist ownerId={ownerId} cycle={cycle} hasPlan onAccept={saveTargets} />}
 
       <SectionTitle right={editable ? <Text style={text.small}>Tap − / + to change calls</Text> : undefined}>Accounts in plan</SectionTitle>
       {targets.length === 0 && <Empty>No accounts yet. Add some below.</Empty>}

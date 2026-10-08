@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { AccountBrief } from '@/ai/AccountBrief';
 import { useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
 import { hasLocation, mapsUrl } from '@/data/geo';
@@ -159,6 +160,8 @@ export default function AccountScreen() {
           <Button title="Plan a visit" icon="calendar-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id, plan: '1' } })} />
         </Row>
       )}
+
+      <AccountBrief accountId={account.id} />
 
       {people.length > 0 && (
         <>

@@ -12,7 +12,9 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Ava CRM records your location when you check in to a call, so your visit can be verified.",
         "NSCameraUsageDescription": "Ava CRM uses the camera to take your profile picture.",
-        "NSPhotoLibraryUsageDescription": "Ava CRM uses your photos to set your profile picture."
+        "NSPhotoLibraryUsageDescription": "Ava CRM uses your photos to set your profile picture.",
+        "NSMicrophoneUsageDescription": "Ava CRM uses the microphone when you dictate call notes, plan visits or ask Ava by voice.",
+        "NSSpeechRecognitionUsageDescription": "Ava CRM turns your speech into text when you dictate call notes, plan visits or ask Ava by voice."
       }
     },
     "android": {
@@ -28,7 +30,8 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "CAMERA"
+        "CAMERA",
+        "RECORD_AUDIO"
       ],
       "blockedPermissions": [
         "android.permission.ACCESS_BACKGROUND_LOCATION"
@@ -53,7 +56,7 @@
         {
           "photosPermission": "Ava CRM uses your photos to set your profile picture.",
           "cameraPermission": "Ava CRM uses the camera to take your profile picture.",
-          "microphonePermission": false
+          "microphonePermission": "Ava CRM uses the microphone when you dictate call notes, plan visits or ask Ava by voice."
         }
       ],
       [
@@ -73,7 +76,14 @@
       ],
       "expo-web-browser",
       "expo-secure-store",
-      "expo-background-task"
+      "expo-background-task",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Ava CRM uses the microphone when you dictate call notes, plan visits or ask Ava by voice.",
+          "speechRecognitionPermission": "Ava CRM turns your speech into text when you dictate call notes, plan visits or ask Ava by voice."
+        }
+      ]
     ],
     "scheme": [
       "ava",

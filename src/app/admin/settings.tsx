@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { AiSettingsCard } from '@/ai/AiSettingsCard';
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { addDays, formatDate, toDateKey } from '@/data/dates';
@@ -50,6 +51,8 @@ export default function SettingsScreen() {
           hint="When on, reps cannot submit an in-person call without checking in."
         />
       </Card>
+
+      <AiSettingsCard />
 
       <SectionTitle>Tiers</SectionTitle>
       <Card style={{ padding: 0 }}>

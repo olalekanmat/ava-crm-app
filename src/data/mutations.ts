@@ -25,7 +25,7 @@ export type Mutation =
   | { type: 'product.upsert'; product: Product }
   | { type: 'product.delete'; ids: string[] }
   | { type: 'cycle.upsert'; cycle: Cycle }
-  | { type: 'settings.update'; settings: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn'>> }
+  | { type: 'settings.update'; settings: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled'>> }
   | { type: 'company.update'; company: Partial<Company> }
   /** Sets the tier names for one team (FLM id), or the company default when teamId is absent. `tiers: null` makes a team use the default again. `renames` maps old to new names on that team's accounts. */
   | { type: 'tiers.update'; teamId?: string; tiers: TierDef[] | null; renames?: Record<string, string> }
@@ -311,8 +311,9 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
 
     case 'settings.update': {
       adminOnly();
-      const next = { ...s.settings, geofenceM: m.settings.geofenceM ?? s.settings.geofenceM, requireCheckIn: m.settings.requireCheckIn ?? s.settings.requireCheckIn };
+      const next: Settings = { ...s.settings, geofenceM: m.settings.geofenceM ?? s.settings.geofenceM, requireCheckIn: m.settings.requireCheckIn ?? s.settings.requireCheckIn };
       if (!(next.geofenceM >= 25 && next.geofenceM <= 5000)) fail('Geofence must be between 25 and 5000 metres.');
+      if (m.settings.aiEnabled !== undefined) next.aiEnabled = m.settings.aiEnabled;
       return { ...s, settings: next };
     }
 

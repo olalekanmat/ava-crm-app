@@ -95,11 +95,12 @@ function cycle(v: unknown): Cycle {
   return { id: str(c.id, 'cycle id', 80), name: str(c.name, 'cycle name', 120), start: day(c.start, 'start date'), end: day(c.end, 'end date') };
 }
 
-function settings(v: unknown): Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn'>> {
+function settings(v: unknown): Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled'>> {
   const s = obj(v, 'settings');
-  const out: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn'>> = {};
+  const out: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled'>> = {};
   if ('geofenceM' in s) out.geofenceM = numb(s.geofenceM, 'geofence');
   if ('requireCheckIn' in s) out.requireCheckIn = bool(s.requireCheckIn, 'check-in setting');
+  if ('aiEnabled' in s && s.aiEnabled !== undefined) out.aiEnabled = bool(s.aiEnabled, 'AI setting');
   return out;
 }
 

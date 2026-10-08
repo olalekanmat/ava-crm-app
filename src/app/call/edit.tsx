@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { CallNoteAssist } from '@/ai/CallNoteAssist';
 import { addDays, parseLocal, timeKey, toDateKey } from '@/data/dates';
 import { distanceM, formatDistance, hasLocation } from '@/data/geo';
 import { newId } from '@/data/ids';
@@ -228,6 +229,12 @@ export default function EditCallScreen() {
       )}
 
       {!isFuture && <Field label="Attendees" value={attendees} onChangeText={setAttendees} placeholder="Others present, if any" />}
+      <CallNoteAssist
+        accountName={account?.name}
+        tidy={!isFuture}
+        fields={{ notes, chosen, messages, nextStep, followUp, attendees }}
+        onChange={(f) => { setNotes(f.notes); setChosen(f.chosen); setMessages(f.messages); setNextStep(f.nextStep); setFollowUp(f.followUp); setAttendees(f.attendees); }}
+      />
       <Field label={isFuture ? 'Objective' : 'Call notes'} value={notes} onChangeText={setNotes} multiline placeholder={isFuture ? 'What you want to achieve in this visit' : 'What was discussed, objections, requests'} />
       {!isFuture && (
         <>

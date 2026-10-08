@@ -68,6 +68,8 @@ function RootNav() {
         <Stack.Screen name="admin/audit" options={{ title: 'Audit log' }} />
         <Stack.Screen name="admin/company" options={{ title: 'Company & approval' }} />
         <Stack.Screen name="admin/tiers" options={{ title: 'Tier names' }} />
+        <Stack.Screen name="ai/ask" options={{ title: 'Ask Ava' }} />
+        <Stack.Screen name="ai/schedule" options={{ title: 'Plan visits by voice' }} />
       </Stack.Protected>
     </Stack>
   );
