@@ -26,15 +26,15 @@ export function useLayout() {
 export const columnsFor = (width: number, min = 330, max = 4) => Math.max(1, Math.min(max, Math.floor((width + space.sm) / (min + space.sm))));
 
 /** Lays cards out in as many columns as fit (one on a phone held upright). */
-export function Grid({ children, min = 330 }: { children: ReactNode; min?: number }) {
+export function Grid({ children, min = 330, max = 4 }: { children: ReactNode; min?: number; max?: number }) {
   const { width: windowWidth } = useWindowDimensions();
   const [width, setWidth] = useState<number>();
   const items = Children.toArray(children);
-  const cols = columnsFor(width ?? Math.min(windowWidth, 760) - 2 * space.lg, min);
+  const cols = columnsFor(width ?? Math.min(windowWidth, 760) - 2 * space.lg, min, max);
   return (
-    <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: cols > 1 ? -space.xs : 0 }}>
+    <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: cols > 1 ? -space.sm / 2 - 2 : 0 }}>
       {items.map((child, i) => (
-        <View key={(child as { key?: string }).key ?? i} style={{ width: `${100 / cols}%`, paddingHorizontal: cols > 1 ? space.xs : 0 }}>
+        <View key={(child as { key?: string }).key ?? i} style={{ width: `${100 / cols}%`, paddingHorizontal: cols > 1 ? space.sm / 2 + 2 : 0, flexDirection: 'column' }}>
           {child}
         </View>
       ))}

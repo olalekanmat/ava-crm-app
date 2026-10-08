@@ -8,7 +8,7 @@ import { callsByAccount, cycleCalls } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
 import { allTierNames, tierRankIn } from '@/data/tiers';
 import type { AccountType, Tier } from '@/data/types';
-import { Avatar, Button, Card, Chip, Empty, Row, SearchBox, Segmented, TierBadge, text } from '@/ui/components';
+import { Avatar, Button, Card, Chip, Empty, IconButton, Row, SearchBox, Segmented, TierBadge, text } from '@/ui/components';
 import { columnsFor, useLayout } from '@/ui/layout';
 import { colors, space } from '@/ui/theme';
 
@@ -88,17 +88,19 @@ export default function AccountsScreen() {
           columnWrapperStyle={cols > 1 ? { gap: space.sm } : undefined}
           refreshControl={<RefreshControl refreshing={sync.syncing} onRefresh={() => syncNow()} tintColor={colors.primary} />}
           ListHeaderComponent={
-            <Row style={{ marginBottom: space.sm }}>
-              <Text style={[text.small, { flex: 1 }]}>{visible.length} accounts</Text>
+            <Row style={{ marginBottom: space.md }}>
+              <Text style={[text.title, { flex: 1, fontSize: 14 }]}>
+                {visible.length} account{visible.length === 1 ? '' : 's'}
+              </Text>
               <Text style={text.small}>Sort</Text>
               {(['Name', 'Tier', 'Last call'] as Sort[]).map((x) => (
-                <Text key={x} onPress={() => setSort(x)} accessibilityRole="button" accessibilityState={{ selected: sort === x }} style={[text.small, { color: sort === x ? colors.primary : colors.muted, fontWeight: sort === x ? '700' : '500' }]}>
+                <Text key={x} onPress={() => setSort(x)} accessibilityRole="button" accessibilityState={{ selected: sort === x }} style={[styles.sort, sort === x && styles.sortOn]}>
                   {x === 'Name' ? 'A–Z' : x}
                 </Text>
               ))}
             </Row>
           }
-          ListEmptyComponent={<Empty icon="search-outline">No accounts match.</Empty>}
+          ListEmptyComponent={<Empty icon="search-outline" title="No accounts match">Try another name, or clear the filters above.</Empty>}
           ListFooterComponent={
             <View style={{ marginTop: space.md, marginBottom: space.xl }}>
               <Button title="Add account" icon="add" variant="secondary" onPress={() => router.push('/account/new')} />
@@ -107,9 +109,11 @@ export default function AccountsScreen() {
           renderItem={({ item: a }) => {
             const last = lastCallFor(a.id);
             const p = progress.get(a.id);
+            // Quick actions on the rep's own accounts.
+            const canAct = a.ownerId === me.id;
             return (
               <View style={{ flex: 1, maxWidth: `${100 / cols}%` }}>
-                <Card onPress={() => router.push({ pathname: '/account/[id]', params: { id: a.id } })}>
+                <Card onPress={() => router.push({ pathname: '/account/[id]', params: { id: a.id } })} style={styles.row}>
                   <Row gap={space.md}>
                     {a.type === 'HCP' ? (
                       <Avatar name={a.name} size={38} />
@@ -142,6 +146,12 @@ export default function AccountsScreen() {
                         )}
                       </Row>
                     </View>
+                    {canAct && (
+                      <View style={styles.actions}>
+                        <IconButton icon="create-outline" label={`Log a call with ${a.name}`} size={36} onPress={() => router.push({ pathname: '/call/edit', params: { accountId: a.id } })} />
+                        <IconButton icon="calendar-outline" label={`Plan a visit to ${a.name}`} size={36} onPress={() => router.push({ pathname: '/call/edit', params: { accountId: a.id, plan: '1' } })} />
+                      </View>
+                    )}
                   </Row>
                 </Card>
               </View>
@@ -157,5 +167,9 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   inner: { flex: 1, paddingBottom: 0, width: '100%', alignSelf: 'center' },
   filters: { flexDirection: 'row', flexWrap: 'wrap' },
+  row: { paddingVertical: space.md },
+  actions: { flexDirection: 'row', gap: space.sm, marginLeft: space.xs },
+  sort: { fontSize: 12, color: colors.muted, fontWeight: '600', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, overflow: 'hidden' },
+  sortOn: { color: colors.primary, backgroundColor: colors.primarySoft },
   org: { width: 38, height: 38, borderRadius: 10, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
 });

@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useStore } from '@/data/store';
-import { colors, radius, shadow, space } from '@/ui/theme';
+import { colors, radius, space } from '@/ui/theme';
 import { useAiAvailable } from './client';
 import { MicButton } from './MicButton';
 import { appendText } from './useDictation';
@@ -11,7 +11,7 @@ import { appendText } from './useDictation';
 const REP_IDEAS = ['Who should I see this week?', 'Which accounts am I behind on?', 'What follow-ups are due?'];
 const MANAGER_IDEAS = ['Which reps are behind plan?', 'Whose plans need my approval?', 'Which top-tier accounts were not seen lately?'];
 
-/** "How can I help?" box for the top of the home screens. Opens Ask Ava with the question. */
+/** "How can I help?" box inside the blue home header. Opens Ask Ava with the question. */
 export function AskAvaBar() {
   const { me } = useStore();
   const ai = useAiAvailable();
@@ -61,24 +61,12 @@ export function AskAvaBar() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginBottom: space.md },
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    backgroundColor: colors.card,
-    borderRadius: radius.pill,
-    borderWidth: 1.5,
-    borderColor: colors.primarySoft,
-    paddingLeft: space.lg,
-    paddingRight: 6,
-    paddingVertical: 6,
-    ...shadow,
-  },
-  input: { flex: 1, fontSize: 16, color: colors.text, paddingVertical: 8, minWidth: 0 },
+  wrap: {},
+  bar: { flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: '#fff', borderRadius: radius.pill, paddingLeft: space.lg, paddingRight: 6, paddingVertical: 6, minHeight: 50 },
+  input: { flex: 1, fontSize: 16, color: colors.text, paddingVertical: 8, minWidth: 0, outlineStyle: 'none' } as never,
   send: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   ideas: { gap: space.sm, paddingTop: space.sm },
-  idea: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space.md, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
-  ideaStrong: { backgroundColor: colors.primarySoft, borderColor: colors.primarySoft },
-  ideaText: { fontSize: 13, color: colors.muted, fontWeight: '500' },
+  idea: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space.md, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)' },
+  ideaStrong: { backgroundColor: '#fff', borderColor: '#fff' },
+  ideaText: { fontSize: 13, color: '#fff', fontWeight: '500' },
 });

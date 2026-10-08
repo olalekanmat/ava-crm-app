@@ -50,18 +50,20 @@ export function HeaderTitle({ title }: { title?: string }) {
   );
 }
 
-/** Gradient header card used at the top of each home dashboard. */
-export function Hero({ children }: { children: ReactNode }) {
+/** Gradient header card at the top of each home dashboard, in Ava blue with soft light shapes. */
+export function Hero({ children, slim }: { children: ReactNode; slim?: boolean }) {
   return (
-    <LinearGradient colors={[colors.primaryDark, colors.primary, colors.sky]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+    <LinearGradient colors={[colors.primaryDark, colors.primary, '#2F6BEA']} locations={[0, 0.55, 1]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, slim && { padding: space.md, marginBottom: space.md }]}>
+      <View pointerEvents="none" style={[styles.orb, { width: 260, height: 260, right: -70, top: -120, backgroundColor: 'rgba(18,165,236,0.35)' }]} />
+      <View pointerEvents="none" style={[styles.orb, { width: 180, height: 180, right: 120, bottom: -130, backgroundColor: 'rgba(255,255,255,0.07)' }]} />
       {children}
     </LinearGradient>
   );
 }
 
 export const heroText = StyleSheet.create({
-  eyebrow: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '600' },
-  title: { color: '#fff', fontSize: 24, fontWeight: '800', letterSpacing: -0.3, marginTop: 2 },
+  eyebrow: { color: 'rgba(255,255,255,0.78)', fontSize: 13, fontWeight: '600', letterSpacing: 0.2 },
+  title: { color: '#fff', fontSize: 26, fontWeight: '800', letterSpacing: -0.5, marginTop: 2 },
   body: { color: 'rgba(255,255,255,0.9)', fontSize: 14, marginTop: 4 },
 });
 
@@ -78,7 +80,8 @@ export function HeroStat({ label, value }: { label: string; value: string | numb
 }
 
 const styles = StyleSheet.create({
-  hero: { borderRadius: radius.lg + 4, padding: space.lg + 2, marginBottom: space.md },
+  hero: { borderRadius: radius.lg + 4, padding: space.lg + 4, marginBottom: space.lg, overflow: 'hidden' },
+  orb: { position: 'absolute', borderRadius: 999 },
   stat: { flexGrow: 1, flexBasis: 64, backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: radius.md, paddingVertical: space.sm, paddingHorizontal: space.sm + 2 },
   statValue: { color: '#fff', fontSize: 20, fontWeight: '800' },
   statLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '600' },

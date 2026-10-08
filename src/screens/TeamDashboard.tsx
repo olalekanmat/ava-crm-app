@@ -1,16 +1,27 @@
 import { router } from 'expo-router';
 import { Text, View } from 'react-native';
+import { paceOf, type Pace } from '@/data/alerts';
+import { toDateKey } from '@/data/dates';
 import { cycleElapsed, daysLeft, pct, teamRollup, type RepMetrics, type Rollup } from '@/data/metrics';
 import { useStore } from '@/data/store';
 import { allTierNames, tierRankIn } from '@/data/tiers';
 import type { User } from '@/data/types';
-import { Hero, HeroStat, heroText } from '@/ui/Brand';
+import { HeroStat } from '@/ui/Brand';
 import { CallRow } from '@/ui/CallRow';
 import { Banner, Card, Empty, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, UserAvatar, text, tierColor } from '@/ui/components';
 import { Grid } from '@/ui/layout';
 import { Screen } from '@/ui/Screen';
-import { LicenseBanner, SyncBar } from '@/ui/SyncCard';
-import { colors, paceColor, space } from '@/ui/theme';
+import { LicenseBanner } from '@/ui/SyncCard';
+import { StatSplit, Tile } from '@/ui/Tiles';
+import { colors, paceColor, space, tone } from '@/ui/theme';
+import { AlertsTile, CyclePlanTile, HeroButton, HomeHeader, ScheduleTile, SyncTile } from './HomeTiles';
+
+/** How many reps are on track, at risk and behind their plan. */
+export function repHealth(reps: RepMetrics[], elapsed: number): Record<Pace, number> {
+  const out = { onTrack: 0, atRisk: 0, behind: 0 };
+  for (const m of reps) if (m.planned) out[paceOf(m.onPlan, m.planned, elapsed)]++;
+  return out;
+}
 
 /** One rep's line on a team dashboard. */
 export function RepCard({ m, elapsed }: { m: RepMetrics; elapsed: number }) {
@@ -93,37 +104,51 @@ export function TeamDashboard({ manager }: { manager: User }) {
   const recent = calls.filter((c) => teamIds.has(c.ownerId) && c.status === 'Submitted').slice(0, 5);
   const sorted = [...r.reps].sort((a, b) => b.attainment - a.attainment);
   const geoIssues = r.reps.reduce((n, x) => n + x.offSite + x.missingCheckIn, 0);
+  const notSubmitted = r.reps.filter((x) => !x.plan || x.plan.status === 'Draft');
+  const today = toDateKey(new Date());
+  const todays = calls.filter((c) => teamIds.has(c.ownerId) && toDateKey(new Date(c.datetime)) === today).reverse();
 
   return (
     <Screen wide onRefresh={syncNow} refreshing={sync.syncing}>
-      <SyncBar />
       <LicenseBanner />
-      <Hero>
-        <Text style={heroText.eyebrow}>
-          Team view · {cycle.name} · {daysLeft(cycle)} days left
-        </Text>
-        <Text style={heroText.title}>{manager.territory ?? `${manager.name}'s team`}</Text>
-        <Text style={heroText.body}>
-          {r.reps.length} reps · {r.onPlan} of {r.planned} planned calls done · {pct(elapsed)} of the cycle gone
-        </Text>
-        <TeamHeroStats r={r} />
-      </Hero>
+      <HomeHeader
+        eyebrow={`Team view · ${cycle.name} · ${daysLeft(cycle)} days left`}
+        title={manager.territory ?? `${manager.name}'s team`}
+        summary={`${r.reps.length} reps · ${r.onPlan} of ${r.planned} planned calls done · ${pct(elapsed)} of the cycle gone`}
+        actions={
+          <>
+            <HeroButton title="Review plans" icon="checkmark-done-outline" onPress={() => router.navigate('/plan')} />
+            <HeroButton title="Team calls" icon="calendar-outline" onPress={() => router.navigate('/calls')} />
+          </>
+        }
+      />
 
-      {r.plansPending > 0 && (
-        <Card onPress={() => router.navigate('/plan')} style={{ backgroundColor: colors.warnSoft, borderColor: colors.warnSoft }}>
-          <Text style={[text.title, { color: colors.warn }]}>
-            {r.plansPending} cycle plan{r.plansPending > 1 ? 's' : ''} waiting for your approval
-          </Text>
-          <Text style={text.muted}>Tap to review</Text>
-        </Card>
-      )}
-      {r.plansMissing + r.reps.filter((x) => x.plan?.status === 'Draft').length > 0 && (
+      <Grid min={290} max={3}>
+        <AlertsTile key="alerts" />
+        <CyclePlanTile key="plan" cycle={cycle} attainment={r.attainment} planned={r.planned} health={repHealth(r.reps, elapsed)} unit={`${r.reps.length} reps · ${r.calls} calls`} onPress={() => router.navigate('/plan')} empty="No rep has a plan for this cycle yet." />
+        <Tile key="plans" title="Cycle plans" icon="document-text-outline" alert={r.plansPending > 0} onPress={() => router.navigate('/plan')}>
+          <StatSplit
+            items={[
+              { value: r.plansPending, label: 'To approve', color: r.plansPending ? tone.important : colors.faint },
+              { value: notSubmitted.length, label: 'Not submitted', color: notSubmitted.length ? tone.urgent : colors.faint },
+              { value: r.reps.filter((x) => x.plan?.status === 'Approved').length, label: 'Approved', color: tone.good },
+            ]}
+          />
+        </Tile>
+        <Tile key="geo" title="Check-ins" icon="location-outline" alert={geoIssues > 0}>
+          <StatSplit
+            items={[
+              { value: r.inPerson ? pct(r.geoVerified) : '–', label: 'Geo-verified', color: r.geoVerified >= 0.9 ? tone.good : tone.important },
+              { value: geoIssues, label: 'Off-site or missing', color: geoIssues ? tone.urgent : colors.faint },
+            ]}
+          />
+        </Tile>
+        <ScheduleTile key="today" calls={todays} showRep />
+        <SyncTile key="sync" />
+      </Grid>
+      {notSubmitted.length > 0 && (
         <Banner tone="warn">
-          {r.reps
-            .filter((x) => !x.plan || x.plan.status === 'Draft')
-            .map((x) => x.rep.name)
-            .join(', ')}{' '}
-          {r.reps.filter((x) => !x.plan || x.plan.status === 'Draft').length > 1 ? 'have' : 'has'} not submitted a plan for {cycle.name}.
+          {notSubmitted.map((x) => x.rep.name).join(', ')} {notSubmitted.length > 1 ? 'have' : 'has'} not submitted a plan for {cycle.name}.
         </Banner>
       )}
       {geoIssues > 0 && (
@@ -140,7 +165,7 @@ export function TeamDashboard({ manager }: { manager: User }) {
           ))}
         </Grid>
       ) : (
-        <Empty>No reps report to {manager.name} yet.</Empty>
+        <Empty icon="people-outline" title="No reps yet">No reps report to {manager.name} yet. An administrator can add them in Users & roles.</Empty>
       )}
 
       <SectionTitle>Coverage by tier</SectionTitle>

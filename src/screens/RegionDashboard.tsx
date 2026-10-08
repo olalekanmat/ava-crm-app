@@ -4,12 +4,14 @@ import { cycleElapsed, daysLeft, pct, repMetrics, rollup, teamRollup } from '@/d
 import { repsUnder } from '@/data/access';
 import { useStore } from '@/data/store';
 import type { User } from '@/data/types';
-import { Hero, heroText } from '@/ui/Brand';
 import { Card, Empty, ProgressBar, Row, SectionTitle, UserAvatar, text } from '@/ui/components';
+import { Grid } from '@/ui/layout';
+import { StatSplit, Tile } from '@/ui/Tiles';
 import { Screen } from '@/ui/Screen';
-import { LicenseBanner, SyncBar } from '@/ui/SyncCard';
-import { colors, paceColor, space } from '@/ui/theme';
-import { TeamHeroStats, TierCoverage } from './TeamDashboard';
+import { LicenseBanner } from '@/ui/SyncCard';
+import { colors, paceColor, space, tone } from '@/ui/theme';
+import { AlertsTile, CompanyTile, CyclePlanTile, HeroButton, HomeHeader, SyncTile } from './HomeTiles';
+import { repHealth, TierCoverage } from './TeamDashboard';
 
 /**
  * Second-line manager view: one card per first-line team, plus a rep ranking across the region.
@@ -26,21 +28,45 @@ export function RegionDashboard({ leader }: { leader: User }) {
 
   return (
     <Screen wide onRefresh={syncNow} refreshing={sync.syncing}>
-      <SyncBar />
       <LicenseBanner />
-      <Hero>
-        <Text style={heroText.eyebrow}>
-          {leader.role === 'Admin' ? 'Organisation overview' : 'Region overview'} · {cycle.name} · {daysLeft(cycle)} days left
-        </Text>
-        <Text style={heroText.title}>{leader.role === 'Admin' ? company.name : leader.territory ?? 'My region'}</Text>
-        <Text style={heroText.body}>
-          {teams.length} teams · {all.reps.length} reps · {all.onPlan} of {all.planned} planned calls done
-        </Text>
-        <TeamHeroStats r={all} />
-      </Hero>
+      <HomeHeader
+        eyebrow={`${leader.role === 'Admin' ? 'Organisation overview' : 'Region overview'} · ${cycle.name} · ${daysLeft(cycle)} days left`}
+        title={leader.role === 'Admin' ? company.name : leader.territory ?? 'My region'}
+        summary={`${teams.length} teams · ${all.reps.length} reps · ${all.onPlan} of ${all.planned} planned calls done`}
+        actions={
+          <>
+            <HeroButton title="Plans" icon="flag-outline" onPress={() => router.navigate('/plan')} />
+            <HeroButton title="Team calls" icon="calendar-outline" onPress={() => router.navigate('/calls')} />
+          </>
+        }
+      />
+
+      <Grid min={290} max={3}>
+        <CompanyTile key="company" cycle={cycle} />
+        <AlertsTile key="alerts" />
+        <CyclePlanTile key="plan" cycle={cycle} attainment={all.attainment} planned={all.planned} health={repHealth(all.reps, elapsed)} unit={`${all.reps.length} reps · ${all.calls} calls`} onPress={() => router.navigate('/plan')} empty="No rep has a plan for this cycle yet." />
+        <Tile key="kpi" title="This cycle" icon="stats-chart-outline">
+          <StatSplit
+            items={[
+              { value: all.calls, label: 'Calls', color: tone.normal },
+              { value: all.targets ? pct(all.reach) : '–', label: 'Reach', color: all.reach >= elapsed ? tone.good : tone.important },
+              { value: all.inPerson ? pct(all.geoVerified) : '–', label: 'Geo-verified', color: all.geoVerified >= 0.9 ? tone.good : tone.important },
+            ]}
+          />
+        </Tile>
+        <Tile key="plans" title="Cycle plans" icon="document-text-outline" alert={all.plansPending > 0} onPress={() => router.navigate('/plan')}>
+          <StatSplit
+            items={[
+              { value: all.plansPending, label: 'Awaiting approval', color: all.plansPending ? tone.important : colors.faint },
+              { value: all.plansMissing, label: 'No plan', color: all.plansMissing ? tone.urgent : colors.faint },
+            ]}
+          />
+        </Tile>
+        <SyncTile key="sync" />
+      </Grid>
 
       <SectionTitle>Teams</SectionTitle>
-      {teams.length === 0 && <Empty>No first-line managers report here yet.</Empty>}
+      {teams.length === 0 && <Empty icon="people-outline" title="No teams yet">No first-line managers report here yet.</Empty>}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
         {teams.map(({ flm, r }) => (
           <View key={flm.id} style={{ flexGrow: 1, flexBasis: 300 }}>
