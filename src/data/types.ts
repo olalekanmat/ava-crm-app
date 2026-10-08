@@ -180,6 +180,60 @@ export interface Settings {
   teamTiers: Record<string, TierDef[]>;
   /** AI features (dictation clean-up, plan suggestions, briefs, Ask Ava). Absent means on. */
   aiEnabled?: boolean;
+  /** How long a planning cycle is, chosen by an administrator. Absent means quarterly. */
+  cycleLength?: CycleLength;
+  /** Report definitions saved by administrators and shared with the company (up to 50). */
+  reports?: ReportDef[];
+}
+
+// ----- planning cycle length -----
+
+/** Calendar quarters (q2026-4) or calendar months (m2026-10). */
+export type CycleLength = 'quarter' | 'month';
+
+// ----- reports -----
+
+export type ReportDataset = 'calls' | 'accounts' | 'plans' | 'activity';
+export const REPORT_DATASETS: ReportDataset[] = ['calls', 'accounts', 'plans', 'activity'];
+export type ReportDatePreset = 'thisCycle' | 'lastCycle' | 'thisMonth' | 'lastMonth' | 'custom' | 'all';
+export const REPORT_DATE_PRESETS: ReportDatePreset[] = ['thisCycle', 'lastCycle', 'thisMonth', 'lastMonth', 'custom', 'all'];
+export type ReportGroupBy = 'none' | 'rep' | 'team' | 'account' | 'tier' | 'product' | 'week' | 'month';
+export const REPORT_GROUPS: ReportGroupBy[] = ['none', 'rep', 'team', 'account', 'tier', 'product', 'week', 'month'];
+export type ReportMetric = 'count' | 'plannedDone' | 'attainment' | 'reach' | 'geoVerified';
+export const REPORT_METRICS: ReportMetric[] = ['count', 'plannedDone', 'attainment', 'reach', 'geoVerified'];
+export type ReportGeo = 'Verified' | 'Off-site' | 'Unverified' | 'Missing' | 'Remote';
+
+export interface ReportFilters {
+  date?: ReportDatePreset;
+  /** YYYY-MM-DD, inclusive, for `custom`. */
+  from?: string;
+  to?: string;
+  /** The FLM whose team to include. */
+  teamId?: string;
+  repId?: string;
+  product?: string;
+  /** Call status (calls) or plan status (plans). */
+  status?: string;
+  tier?: string;
+  channel?: CallChannel;
+  geo?: ReportGeo;
+  /** Accounts: only those without a submitted call in this many days. */
+  notVisitedDays?: number;
+}
+
+/** A saved report: what to show, filtered, grouped and sorted. */
+export interface ReportDef {
+  id: string;
+  name: string;
+  dataset: ReportDataset;
+  /** Column keys of the dataset, for ungrouped reports. */
+  columns: string[];
+  filters: ReportFilters;
+  groupBy: ReportGroupBy;
+  metrics: ReportMetric[];
+  sort?: { key: string; dir: 'asc' | 'desc' };
+  createdBy?: string;
+  updatedAt?: string;
 }
 
 export interface Snapshot {
@@ -198,6 +252,8 @@ export const DEFAULT_SETTINGS: Settings = {
   requireCheckIn: false,
   tiers: DEFAULT_TIERS,
   teamTiers: {},
+  cycleLength: 'quarter',
+  reports: [],
 };
 
 export const emptySnapshot = (company: Company = { name: '' }): Snapshot => ({

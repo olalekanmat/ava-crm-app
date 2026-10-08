@@ -11,12 +11,13 @@ import { pendingCount, rebuild, ROSTER_FILE, rosterKey, syncOnce, writeLicense, 
 import { isAdmin, scopeSnapshot, withoutDeleted } from './access';
 import { sanitizeMutation } from './sanitize';
 import { removeBig, loadBig, saveBig } from './bigStorage';
+import { activeCycleLength } from './cycles';
 import { currentCycle } from './metrics';
 import { applyMutation, RuleError, type Mutation } from './mutations';
 import { KEYS, loadJson, removeKeys, saveJson } from './storage';
 import { emptySnapshot, type Account, type Call, type Company, type Cycle, type Product, type Snapshot, type User } from './types';
 
-/** A signed-in person in a company whose data lives in its administrator's OneDrive folder. */
+/** A signed-in person in a company whose data lives in its administrator's OneDrive or Google Drive folder (`folder.provider`). */
 export type Session = { mode: 'cloud'; userId: string; email: string; companyId: string; companyCode?: string; folder: FolderRef; deviceId: string };
 
 export type CloudSession = Session;
@@ -39,6 +40,8 @@ export interface SyncState {
 const SETUP_TYPES = new Set<Mutation['type']>([
   'company.update', 'user.upsert', 'user.delete', 'user.photo', 'import.users', 'import.accounts', 'import.products', 'product.upsert', 'product.delete',
   'cycle.upsert', 'settings.update', 'tiers.update', 'account.upsert', 'account.pin', 'account.delete',
+  // Reports (2.3): administrators can prepare report definitions while waiting for approval.
+  'report.save', 'report.delete',
 ]);
 
 interface Store {
@@ -330,7 +333,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       accounts,
       calls,
       products: data.products.filter((p) => p.active),
-      cycle: currentCycle(data.cycles),
+      cycle: currentCycle(data.cycles, new Date(), activeCycleLength(data.settings)),
       sync,
       license,
       licenseFile: cache?.license,

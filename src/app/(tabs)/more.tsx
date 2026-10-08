@@ -2,8 +2,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { Text, View } from 'react-native';
+import { providerLabel } from '@/cloud/drive';
 import { formatDateTime } from '@/data/dates';
 import { roleLabel } from '@/data/access';
+import { canViewReports } from '@/data/reports';
 import { useMe, useStore } from '@/data/store';
 import { BrandTitle } from '@/ui/Brand';
 import { Button, Card, ListRow, Row, SectionTitle, UserAvatar, text } from '@/ui/components';
@@ -16,6 +18,7 @@ export default function MoreScreen() {
   const me = useMe();
   const { session, sync, signOut, getUser, company, admin } = useStore();
   const manager = getUser(me.managerId);
+  const drive = providerLabel(session?.folder.provider);
 
   return (
     <Screen>
@@ -53,23 +56,24 @@ export default function MoreScreen() {
       <SectionTitle>Data</SectionTitle>
       <Card style={{ padding: 0 }}>
         <ListRow icon="download-outline" tone={colors.success} title="Export data" subtitle="CSV files you can open in Excel or Sheets" onPress={() => router.push('/export')} />
+        {canViewReports(me) && <ListRow icon="bar-chart-outline" tone={colors.primary} title="Reports" subtitle={admin ? 'Build, save and export reports' : 'Your team’s reports, as tables and CSV'} onPress={() => router.push('/reports')} />}
         {admin && <ListRow icon="cloud-upload-outline" tone={colors.orange} title="Import CSV" subtitle="Accounts, users, products" onPress={() => router.push('/admin/import')} />}
-        {admin && <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle={`${company.name} · company code, logo, OneDrive folder, licence`} onPress={() => router.push('/admin/company')} />}
+        {admin && <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle={`${company.name} · company code, logo, ${drive} folder, licence`} onPress={() => router.push('/admin/company')} />}
         {admin && <ListRow icon="people-outline" title="Users & roles" onPress={() => router.push('/admin/users')} />}
         {admin && <ListRow icon="layers-outline" tone={colors.orange} title="Tier names" subtitle="Tiering for each team (default ST, T1, T2, T3)" onPress={() => router.push('/admin/tiers')} />}
-        {admin && <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, quarterly cycles" onPress={() => router.push('/admin/settings')} />}
+        {admin && <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, planning cycles" onPress={() => router.push('/admin/settings')} />}
         {admin && <ListRow icon="document-lock-outline" tone={colors.muted} title="Audit log" subtitle="Every change, who made it and when" onPress={() => router.push('/admin/audit')} />}
         {(me.role === 'SLM' || admin) && <ListRow icon="globe-outline" title="Organisation overview" onPress={() => router.push('/overview')} />}
       </Card>
 
       <View style={{ marginTop: space.xl, gap: space.sm }}>
-        <Button title="Sign out" variant="danger" icon="log-out-outline" onPress={() => confirm('Sign out?', sync.pending ? `${sync.pending} change(s) have not been uploaded yet and will be lost. Connect to the internet and tap Sync first.` : 'Your data stays in your company’s OneDrive. Sign in again with your email and password.', signOut, 'Sign out')} />
+        <Button title="Sign out" variant="danger" icon="log-out-outline" onPress={() => confirm('Sign out?', sync.pending ? `${sync.pending} change(s) have not been uploaded yet and will be lost. Connect to the internet and tap Sync first.` : `Your data stays in your company’s ${drive}. Sign in again with your email and password.`, signOut, 'Sign out')} />
       </View>
 
       <View style={{ alignItems: 'center', marginTop: space.xxl, gap: 4 }}>
         <BrandTitle size={22} />
         <Text style={text.small}>
-          Version {Constants.expoConfig?.version ?? '1.0.0'} · {company.name} · data in your company’s OneDrive
+          Version {Constants.expoConfig?.version ?? '1.0.0'} · {company.name} · data in your company’s {drive}
         </Text>
       </View>
     </Screen>

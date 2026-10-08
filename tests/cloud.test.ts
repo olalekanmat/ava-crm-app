@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { test } from 'node:test';
-import { MemoryDrive } from '../src/cloud/drive';
+import { MemoryDrive, normalizeProvider, providerAccount, providerLabel } from '../src/cloud/drive';
 import { COMPANY_FILE, journalName, type CompanyFile, type JournalFile } from '../src/cloud/journal';
 import { licenseState, verifyToken, type LicenseFile } from '../src/cloud/license';
 import { createCompany, EXPORT_FILES, newCache, pendingCount, rebuild, rosterKey, syncOnce, writeLicense, type CloudCache } from '../src/cloud/sync';
@@ -239,4 +239,15 @@ test('an upload the cache did not record is not added to the journal twice', asy
   admin.cache = { ...before, own: admin.cache.own };
   await admin.sync(at(5));
   assert.deepEqual(admin.cache.own.entries.map((e) => e.seq), [1, 2]);
+});
+
+test('drive providers: OneDrive unless the server says Google Drive', () => {
+  assert.equal(normalizeProvider(undefined), 'onedrive');
+  assert.equal(normalizeProvider('google'), 'google');
+  assert.equal(normalizeProvider('sharepoint'), 'sharepoint');
+  assert.equal(normalizeProvider('dropbox'), 'onedrive');
+  assert.equal(providerLabel('google'), 'Google Drive');
+  assert.equal(providerLabel(undefined), 'OneDrive');
+  assert.equal(providerAccount('google'), 'Google');
+  assert.equal(providerAccount('onedrive'), 'Microsoft');
 });

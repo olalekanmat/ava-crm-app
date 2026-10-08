@@ -1,3 +1,4 @@
+import { lengthOfCycle } from './cycles';
 import { geoStatus } from './geo';
 import { newId } from './ids';
 import { repMetrics, callsByAccount, cycleCalls } from './metrics';
@@ -370,6 +371,10 @@ export function exportUsers(s: Snapshot): string {
   );
 }
 
+/** Cycle columns added at the end of the plan exports (2.3), so monthly and quarterly cycles are told apart. */
+const CYCLE_COLUMNS = ['cycle_id', 'cycle_length', 'cycle_start', 'cycle_end'];
+const cycleCells = (cycle: Cycle) => [cycle.id, lengthOfCycle(cycle) === 'month' ? 'monthly' : 'quarterly', cycle.start, cycle.end];
+
 /** One row per rep and planned account: planned vs done in the cycle. */
 export function exportCyclePlans(s: Snapshot, cycle: Cycle): string {
   const rows: unknown[][] = [];
@@ -378,20 +383,20 @@ export function exportCyclePlans(s: Snapshot, cycle: Cycle): string {
     for (const t of plan.targets) {
       const a = s.accounts.find((x) => x.id === t.accountId);
       const n = done.get(t.accountId)?.length ?? 0;
-      rows.push([cycle.name, userName(s, plan.ownerId), plan.status, a?.name, a?.tier, t.planned, n, Math.min(100, Math.round((n / t.planned) * 100))]);
+      rows.push([cycle.name, userName(s, plan.ownerId), plan.status, a?.name, a?.tier, t.planned, n, Math.min(100, Math.round((n / t.planned) * 100)), ...cycleCells(cycle)]);
     }
   }
-  return toCsv(['cycle', 'rep', 'plan_status', 'account', 'tier', 'planned_calls', 'calls_done', 'attainment_pct'], rows);
+  return toCsv(['cycle', 'rep', 'plan_status', 'account', 'tier', 'planned_calls', 'calls_done', 'attainment_pct', ...CYCLE_COLUMNS], rows);
 }
 
 /** One row per rep: the KPIs managers look at. */
 export function exportTeamSummary(s: Snapshot, cycle: Cycle): string {
   const reps = s.users.filter((u) => u.role === 'Rep' && !u.deletedAt);
   return toCsv(
-    ['cycle', 'rep', 'user_id', 'manager', 'territory', 'territory_id', 'plan_status', 'calls_submitted', 'planned_calls', 'on_plan_calls', 'attainment_pct', 'reach_pct', 'geo_verified_pct', 'off_site_calls', 'missing_checkins', 'open_drafts'],
+    ['cycle', 'rep', 'user_id', 'manager', 'territory', 'territory_id', 'plan_status', 'calls_submitted', 'planned_calls', 'on_plan_calls', 'attainment_pct', 'reach_pct', 'geo_verified_pct', 'off_site_calls', 'missing_checkins', 'open_drafts', ...CYCLE_COLUMNS],
     reps.map((r) => {
       const m = repMetrics(s, r, cycle);
-      return [cycle.name, r.name, r.employeeId, userName(s, r.managerId), r.territory, r.territoryId, m.plan?.status ?? 'None', m.calls, m.planned, m.onPlan, Math.round(m.attainment * 100), Math.round(m.reach * 100), Math.round(m.geoVerified * 100), m.offSite, m.missingCheckIn, m.drafts];
+      return [cycle.name, r.name, r.employeeId, userName(s, r.managerId), r.territory, r.territoryId, m.plan?.status ?? 'None', m.calls, m.planned, m.onPlan, Math.round(m.attainment * 100), Math.round(m.reach * 100), Math.round(m.geoVerified * 100), m.offSite, m.missingCheckIn, m.drafts, ...cycleCells(cycle)];
     }),
   );
 }

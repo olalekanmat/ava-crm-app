@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { Text } from 'react-native';
+import { providerLabel } from '@/cloud/drive';
 import { cycleCalls } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
 import { Hero, HeroStat, heroText } from '@/ui/Brand';
@@ -32,18 +33,19 @@ export function AdminHome() {
 
       <SectionTitle>Manage</SectionTitle>
       <Card style={{ padding: 0 }}>
-        <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle="Company code, logo, details, OneDrive folder, licence" onPress={() => router.push('/admin/company')} />
+        <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle={`Company code, logo, details, ${providerLabel(session?.folder.provider)} folder, licence`} onPress={() => router.push('/admin/company')} />
         <ListRow icon="people-outline" title="Users & roles" subtitle="Reps, FLMs, SLMs and admins; reporting lines" onPress={() => router.push('/admin/users')} />
         <ListRow icon="cloud-upload-outline" tone={colors.orange} title="Import CSV" subtitle="Accounts, users or products from a spreadsheet" onPress={() => router.push('/admin/import')} />
         <ListRow icon="download-outline" tone={colors.success} title="Export data" subtitle="Calls, accounts, plans and team KPIs as CSV" onPress={() => router.push('/export')} />
         <ListRow icon="layers-outline" tone={colors.orange} title="Tier names" subtitle="Tiering for each team (default ST, T1, T2, T3)" onPress={() => router.push('/admin/tiers')} />
-        <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, quarterly cycles" onPress={() => router.push('/admin/settings')} />
+        <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, planning cycles" onPress={() => router.push('/admin/settings')} />
         {<ListRow icon="document-lock-outline" tone={colors.muted} title="Audit log" subtitle="Every change, who made it and when" onPress={() => router.push('/admin/audit')} />}
       </Card>
 
       <SectionTitle>Insights</SectionTitle>
       <Card style={{ padding: 0 }}>
         <ListRow icon="globe-outline" title="Organisation overview" subtitle="All teams, rep ranking and tier coverage" onPress={() => router.push('/overview')} />
+        <ListRow icon="bar-chart-outline" tone={colors.primary} title="Reports" subtitle="Build, save and export reports on calls, accounts, plans and activity" onPress={() => router.push('/reports')} />
       </Card>
     </Screen>
   );

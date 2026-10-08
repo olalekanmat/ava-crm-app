@@ -6,6 +6,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { api, DEFAULT_PASSWORD, saveToken, type LoginResult } from '@/cloud/relay';
+import { normalizeProvider, providerLabel } from '@/cloud/drive';
 import { openCompany } from '@/cloud/setup';
 import { loadJson, saveJson } from '@/data/storage';
 import { useStore } from '@/data/store';
@@ -19,7 +20,7 @@ const SETUP_URL = 'https://avahealthcareltd.com/AvaCRM/app/setup';
 /** Sign in with the company code, work email and password. First sign-in asks for a new password. */
 export default function SignInScreen() {
   const { enterCloud } = useStore();
-  const params = useLocalSearchParams<{ company?: string; email?: string; setup?: string }>();
+  const params = useLocalSearchParams<{ company?: string; email?: string; setup?: string; provider?: string }>();
   const [code, setCode] = useState(params.company ?? '');
   const [email, setEmail] = useState(params.email ?? '');
   const [password, setPassword] = useState('');
@@ -101,7 +102,7 @@ export default function SignInScreen() {
           </View>
 
           <View style={styles.card}>
-            {params.setup === 'done' && !pending && <Banner tone="success">Your company is set up and OneDrive is linked. Sign in with the password you chose. Your company code is {params.company}.</Banner>}
+            {params.setup === 'done' && !pending && <Banner tone="success">Your company is set up and {providerLabel(normalizeProvider(params.provider))} is linked. Sign in with the password you chose. Your company code is {params.company}.</Banner>}
             {!!error && <Banner tone="danger">{error}</Banner>}
 
             {!pending ? (
@@ -138,7 +139,7 @@ export default function SignInScreen() {
 
           <View style={styles.card}>
             <Text style={text.title}>New to Ava CRM?</Text>
-            <Text style={[text.muted, { marginBottom: space.sm }]}>Company administrators set up the company once and link the company’s OneDrive, where all of its data is kept. Everyone else just signs in.</Text>
+            <Text style={[text.muted, { marginBottom: space.sm }]}>Company administrators set up the company once and link the company’s OneDrive or Google Drive, where all of its data is kept. Everyone else just signs in.</Text>
             <Button title="Set up a new company" variant="secondary" icon="business-outline" onPress={setUp} disabled={!!busy} />
           </View>
           <Text style={styles.footer}>Ava CRM by Ava Healthcare Limited · avahealthcareltd.com</Text>

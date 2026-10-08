@@ -55,7 +55,7 @@ function RootNav() {
         <Stack.Screen name="account/new" options={{ title: 'New account', presentation: 'modal' }} />
         <Stack.Screen name="call/[id]" options={{ title: 'Call' }} />
         <Stack.Screen name="call/edit" options={{ title: 'Log call', presentation: 'modal' }} />
-        <Stack.Screen name="plan/[id]" options={{ title: 'Quarterly plan' }} />
+        <Stack.Screen name="plan/[id]" options={{ title: 'Cycle plan' }} />
         <Stack.Screen name="password" options={{ title: 'Change password' }} />
         <Stack.Screen name="profile" options={{ title: 'My profile' }} />
         <Stack.Screen name="team/[id]" options={{ title: 'Team' }} />
@@ -70,6 +70,9 @@ function RootNav() {
         <Stack.Screen name="admin/tiers" options={{ title: 'Tier names' }} />
         <Stack.Screen name="ai/ask" options={{ title: 'Ask Ava' }} />
         <Stack.Screen name="ai/schedule" options={{ title: 'Plan visits by voice' }} />
+        <Stack.Screen name="reports/index" options={{ title: 'Reports' }} />
+        <Stack.Screen name="reports/builder" options={{ title: 'Report builder' }} />
+        <Stack.Screen name="reports/[id]" options={{ title: 'Report' }} />
       </Stack.Protected>
     </Stack>
   );

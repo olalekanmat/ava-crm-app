@@ -1,7 +1,8 @@
 import { repsUnder } from './access';
 import { toDateKey } from './dates';
 import { geoStatus } from './geo';
-import type { Call, Cycle, CyclePlan, Snapshot, Tier, User } from './types';
+import { cyclesOfLength } from './cycles';
+import type { Call, Cycle, CycleLength, CyclePlan, Snapshot, Tier, User } from './types';
 
 export interface RepMetrics {
   rep: User;
@@ -47,10 +48,14 @@ export function daysLeft(cycle: Cycle, now = new Date()): number {
   return Math.max(0, Math.ceil((end - now.getTime()) / 86400000));
 }
 
-/** The cycle running today, else the next one, else the latest. */
-export function currentCycle(cycles: Cycle[], now = new Date()): Cycle | undefined {
+/**
+ * The cycle running today, else the next one, else the latest. With `length`, only cycles of that
+ * length count (the company's active cycle length), falling back to any cycle when there are none.
+ */
+export function currentCycle(cycles: Cycle[], now = new Date(), length?: CycleLength): Cycle | undefined {
   const today = toDateKey(now);
-  const sorted = [...cycles].sort((a, b) => a.start.localeCompare(b.start));
+  const ofLength = length ? cyclesOfLength(cycles, length) : [];
+  const sorted = ofLength.length ? ofLength : [...cycles].sort((a, b) => a.start.localeCompare(b.start));
   return sorted.find((c) => c.start <= today && today <= c.end) ?? sorted.find((c) => c.start > today) ?? sorted[sorted.length - 1];
 }
 

@@ -1,5 +1,6 @@
 import { isAdmin } from '../data/access';
 import { exportAccounts, exportCalls, exportCyclePlans, exportUsers } from '../data/csv';
+import { activeCycleLength } from '../data/cycles';
 import { currentCycle } from '../data/metrics';
 import type { Snapshot } from '../data/types';
 import type { DriveAdapter, DriveFile } from './drive';
@@ -171,7 +172,7 @@ export const EXPORT_FILES = {
 
 /** Readable copies for the company: open them in Excel or Sheets straight from the drive. */
 async function writeExports(drive: DriveAdapter, s: Snapshot, byName: Map<string, DriveFile>) {
-  const cycle = currentCycle(s.cycles);
+  const cycle = currentCycle(s.cycles, new Date(), activeCycleLength(s.settings));
   const files: [string, string][] = [
     [EXPORT_FILES.calls, exportCalls(s)],
     [EXPORT_FILES.accounts, exportAccounts(s)],

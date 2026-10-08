@@ -1,6 +1,6 @@
 import { applyMutation, describeMutation, RuleError, type Mutation } from '../data/mutations';
 import { sanitizeMutation } from '../data/sanitize';
-import { companyCycles } from '../data/cycles';
+import { companyCycles, companyMonthCycles } from '../data/cycles';
 import { emptySnapshot, type Company, type Snapshot, type User } from '../data/types';
 
 /**
@@ -97,8 +97,9 @@ export function parseCompanyFile(text: string): CompanyFile | undefined {
 /** The starting point before any journal: the company and its first administrator. */
 export function genesisSnapshot(g: CompanyFile, now = new Date()): Snapshot {
   const admin: User = { id: g.admin.id, name: g.admin.name, email: g.admin.email.toLowerCase(), role: 'Admin', active: true, createdAt: g.createdAt };
-  // Planning cycles are the calendar quarters (Cycle 1 = Jan–Mar …), created automatically.
-  return { ...emptySnapshot({ name: g.company?.name || 'My company' }), users: [admin], cycles: companyCycles(g.createdAt, now) };
+  // Planning cycles are the calendar quarters (Cycle 1 = Jan–Mar …) and the calendar months,
+  // created automatically. Administrators choose which length the company plans with.
+  return { ...emptySnapshot({ name: g.company?.name || 'My company' }), users: [admin], cycles: [...companyCycles(g.createdAt, now), ...companyMonthCycles(g.createdAt, now)] };
 }
 
 /**

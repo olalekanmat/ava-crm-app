@@ -1,5 +1,6 @@
 import { RuleError, type Mutation } from './mutations';
-import { CHANNELS, ROLES, type Account, type Call, type Company, type Cycle, type CyclePlan, type GeoTag, type Product, type Settings, type TierDef, type User } from './types';
+import { REPORT_COLUMNS } from './reports';
+import { CHANNELS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, type Account, type ReportDef, type ReportFilters, type Call, type Company, type Cycle, type CyclePlan, type GeoTag, type Product, type Settings, type TierDef, type User } from './types';
 
 /**
  * Rebuilds a mutation from untrusted JSON (a journal file in the company drive), keeping only
@@ -95,12 +96,14 @@ function cycle(v: unknown): Cycle {
   return { id: str(c.id, 'cycle id', 80), name: str(c.name, 'cycle name', 120), start: day(c.start, 'start date'), end: day(c.end, 'end date') };
 }
 
-function settings(v: unknown): Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled'>> {
+function settings(v: unknown): Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled' | 'cycleLength'>> {
   const s = obj(v, 'settings');
-  const out: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled'>> = {};
+  const out: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled' | 'cycleLength'>> = {};
   if ('geofenceM' in s) out.geofenceM = numb(s.geofenceM, 'geofence');
   if ('requireCheckIn' in s) out.requireCheckIn = bool(s.requireCheckIn, 'check-in setting');
   if ('aiEnabled' in s && s.aiEnabled !== undefined) out.aiEnabled = bool(s.aiEnabled, 'AI setting');
+  // 2.3: cycle length. Older versions drop this field and keep planning by quarter.
+  if ('cycleLength' in s) out.cycleLength = oneOf(s.cycleLength, ['quarter', 'month'] as const, 'cycle length');
   return out;
 }
 
@@ -127,6 +130,55 @@ function renames(v: unknown): Record<string, string> | undefined {
   const o = obj(v, 'tier renames');
   const out: Record<string, string> = {};
   for (const [k, x] of Object.entries(o).slice(0, 20)) out[str(k, 'tier name', 12)] = str(x, 'tier name', 12);
+  return out;
+}
+
+// ----- reports (2.3) -----
+
+const REPORT_GEO = ['Verified', 'Off-site', 'Unverified', 'Missing', 'Remote'] as const;
+const REPORT_STATUSES = ['Planned', 'Saved', 'Submitted', 'Draft', 'Approved', 'Rejected'] as const;
+
+function reportFilters(v: unknown): ReportFilters {
+  const f = v === undefined || v === null ? {} : obj(v, 'report filters');
+  const out: ReportFilters = {};
+  if (f.date !== undefined && f.date !== null) out.date = oneOf(f.date, REPORT_DATE_PRESETS, 'report dates');
+  if (f.from) out.from = day(f.from, 'report start date');
+  if (f.to) out.to = day(f.to, 'report end date');
+  out.teamId = optStr(f.teamId, 'report team', 80);
+  out.repId = optStr(f.repId, 'report rep', 80);
+  out.product = optStr(f.product, 'report product', 120);
+  if (f.status) out.status = oneOf(f.status, REPORT_STATUSES, 'report status');
+  out.tier = optStr(f.tier, 'report tier', 12);
+  if (f.channel) out.channel = oneOf(f.channel, CHANNELS, 'report channel');
+  if (f.geo) out.geo = oneOf(f.geo, REPORT_GEO, 'report check-in status');
+  if (f.notVisitedDays !== undefined && f.notVisitedDays !== null) {
+    const n = numb(f.notVisitedDays, 'report days');
+    out.notVisitedDays = Number.isInteger(n) && n >= 1 && n <= 3650 ? n : bad('report days');
+  }
+  // Leave out empty keys so every device stores the same object.
+  for (const k of Object.keys(out) as (keyof ReportFilters)[]) if (out[k] === undefined) delete out[k];
+  return out;
+}
+
+/** A report definition from a journal. Unknown columns and metrics (from a newer version) are dropped. */
+function report(v: unknown): ReportDef {
+  const r = obj(v, 'report');
+  const id = str(r.id, 'report id', 80);
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) bad('report id');
+  const dataset = oneOf(r.dataset, REPORT_DATASETS, 'report dataset');
+  const known = REPORT_COLUMNS[dataset].map((c) => c.key);
+  const columns = arr(r.columns ?? [], 'report columns', 40).map((c) => str(c, 'report column', 40)).filter((c, i, all) => known.includes(c) && all.indexOf(c) === i);
+  const metrics = arr(r.metrics ?? [], 'report metrics', 10).filter((m, i, all): m is ReportDef['metrics'][number] => REPORT_METRICS.includes(m as never) && all.indexOf(m) === i);
+  let sort: ReportDef['sort'];
+  if (r.sort !== undefined && r.sort !== null) {
+    const o = obj(r.sort, 'report sort');
+    sort = { key: str(o.key, 'report sort', 40), dir: oneOf(o.dir, ['asc', 'desc'] as const, 'report sort') };
+  }
+  const out: ReportDef = {
+    id, name: str(r.name, 'report name', 80), dataset, columns, filters: reportFilters(r.filters),
+    groupBy: oneOf(r.groupBy ?? 'none', REPORT_GROUPS, 'report grouping'), metrics,
+  };
+  if (sort) out.sort = sort;
   return out;
 }
 
@@ -179,6 +231,11 @@ export function sanitizeMutation(raw: unknown, at: Date): Mutation {
       return { type: m.type, users: arr(m.users, 'users', 5000).map((u) => user(u, now)) };
     case 'import.products':
       return { type: m.type, products: arr(m.products, 'products', 1000).map(product) };
+    // ----- reports (2.3) -----
+    case 'report.save':
+      return { type: m.type, report: report(m.report) };
+    case 'report.delete':
+      return { type: m.type, id: str(m.id, 'report id', 80) };
     default:
       return bad('change type');
   }

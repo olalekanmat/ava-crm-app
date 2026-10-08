@@ -1,6 +1,7 @@
 import * as Linking from 'expo-linking';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Share, Text, View } from 'react-native';
+import { normalizeProvider, providerLabel } from '@/cloud/drive';
 import { refreshLicense } from '@/cloud/license';
 import { DEFAULT_PASSWORD, folderInfo, loadToken } from '@/cloud/relay';
 import { requestApproval } from '@/cloud/setup';
@@ -23,11 +24,18 @@ export default function CompanyScreen() {
   const [draft, setDraft] = useState<Company>(company);
   const [busy, setBusy] = useState<string>();
   const [folderUrl, setFolderUrl] = useState<string>();
+  const [serverProvider, setServerProvider] = useState<string>();
   useEffect(() => {
-    folderInfo(loadToken).then((f) => setFolderUrl(f?.webUrl));
+    folderInfo(loadToken).then((f) => {
+      setFolderUrl(f?.webUrl);
+      setServerProvider(f?.provider);
+    });
   }, []);
   if (!isAdmin(me)) return <Screen><Empty>Only administrators can change the company.</Empty></Screen>;
   const cloud = session?.mode === 'cloud' ? session : undefined;
+  // The server's answer wins over what this device remembered at sign-in.
+  const provider = serverProvider ? normalizeProvider(serverProvider) : cloud?.folder.provider;
+  const drive = providerLabel(provider);
 
   const task = async (label: string, fn: () => Promise<void>) => {
     setBusy(label);
@@ -60,7 +68,7 @@ export default function CompanyScreen() {
   const resend = () =>
     task('Sending the approval request…', async () => {
       if (!licenseFile || !cloud) throw new Error('This company has no licence file.');
-      const r = await requestApproval(licenseFile, company, me, { ...cloud.folder, webUrl: folderUrl });
+      const r = await requestApproval(licenseFile, company, me, { ...cloud.folder, provider: provider ?? cloud.folder.provider, webUrl: folderUrl });
       await saveLicense({ ...licenseFile, status: r.status, updatedAt: new Date().toISOString() });
       notify('Request sent', 'Ava Healthcare will review it. This page shows the result after the next check.');
     });
@@ -119,7 +127,7 @@ export default function CompanyScreen() {
 
           <SectionTitle>Company data</SectionTitle>
           <Card style={{ padding: 0 }}>
-            <ListRow icon="folder-outline" title="Open the company folder" subtitle="In your OneDrive · everything your team records is kept here" onPress={folderUrl ? () => Linking.openURL(folderUrl) : undefined} />
+            <ListRow icon="folder-outline" title="Open the company folder" subtitle={`In your ${drive} · everything your team records is kept here`} onPress={folderUrl ? () => Linking.openURL(folderUrl) : undefined} />
             <ListRow icon="sync-outline" title="Sync now" subtitle="Upload changes and refresh the CSV copies in the folder" onPress={() => syncNow(true)} />
           </Card>
           <Text style={[text.small, { marginBottom: space.md }]}>

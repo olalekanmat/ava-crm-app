@@ -8,6 +8,7 @@ import { formatDate } from '@/data/dates';
 import { newId } from '@/data/ids';
 import { callsByAccount, cycleCalls, cycleElapsed, daysLeft, pct } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
+import { lengthOfCycle, scaleFrequency } from '@/data/cycles';
 import { tierFrequency, tierRank, tiersFor } from '@/data/tiers';
 import type { Cycle, PlanTarget } from '@/data/types';
 import { Banner, Button, Card, Chip, Empty, Field, PlanBadge, ProgressBar, Row, SectionTitle, Stepper, TierBadge, UserAvatar, text } from '@/ui/components';
@@ -54,7 +55,9 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
     );
 
   const scheme = tiersFor(data.settings, data.users, ownerId);
-  const freqOf = (tier: string) => tierFrequency(scheme, tier);
+  // Tier frequencies are calls per quarter; a monthly cycle suggests a third of them.
+  const cycleLength = lengthOfCycle(cycle);
+  const freqOf = (tier: string) => scaleFrequency(tierFrequency(scheme, tier), cycleLength);
 
   if (!plan) {
     if (!isOwner) return <Empty icon="calendar-outline">{owner?.name ?? 'This rep'} has no plan for {cycle.name} yet.</Empty>;
@@ -68,8 +71,9 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
           {formatDate(cycle.start)} – {formatDate(cycle.end)}
         </Text>
         <Text style={[text.body, { marginVertical: space.md }]}>
-          Start from a suggested plan: all {territory.length} of your accounts at their tier frequency ({scheme.map((t) => `${t.name} ${t.frequency}`).join(', ')} calls per cycle), {total} calls in total. You can adjust each account before submitting.
+          Start from a suggested plan: all {territory.length} of your accounts at their tier frequency ({scheme.map((t) => `${t.name} ${freqOf(t.name)}`).join(', ')} calls {cycleLength === 'month' ? 'this month' : 'per cycle'}), {total} calls in total. You can adjust each account before submitting.
         </Text>
+        {cycleLength === 'month' && <Text style={[text.small, { marginBottom: space.md }]}>Your company plans by month. Tier frequencies are calls per quarter, so the monthly suggestion is about a third of them (at least one call per account).</Text>}
         <Row>
           <Button title="Use suggested plan" icon="sparkles-outline" onPress={() => saveTargets(suggested)} disabled={!territory.length} />
           <Button title="Start empty" variant="secondary" onPress={() => saveTargets([])} />

@@ -1,5 +1,24 @@
 import type { Provider } from './journal';
 
+/** Where a company keeps its data, chosen by its administrator at setup. OneDrive is the default. */
+export const SETUP_PROVIDERS = ['onedrive', 'google'] as const;
+export type SetupProvider = (typeof SETUP_PROVIDERS)[number];
+
+/** The provider named in a server response; anything unknown or missing means OneDrive. */
+export function normalizeProvider(v: unknown): Provider {
+  return v === 'google' || v === 'sharepoint' ? v : 'onedrive';
+}
+
+/** "Google Drive", "OneDrive" or "SharePoint", for sentences such as "your company’s OneDrive". */
+export function providerLabel(p?: Provider): string {
+  return p === 'google' ? 'Google Drive' : p === 'sharepoint' ? 'SharePoint' : 'OneDrive';
+}
+
+/** The company that signs the administrator in to the drive. */
+export function providerAccount(p?: Provider): string {
+  return p === 'google' ? 'Google' : 'Microsoft';
+}
+
 /** A file in the company folder. */
 export interface DriveFile {
   id: string;

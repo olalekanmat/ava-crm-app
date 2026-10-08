@@ -1,6 +1,7 @@
 import { isAdmin as hasAdminRights, manages, visibleOwnerIds } from './access';
+import { MAX_REPORTS, reportProblem } from './reports';
 import { teamOf, tierSchemeProblem } from './tiers';
-import type { Account, Call, Company, Cycle, CyclePlan, Product, Role, Settings, Snapshot, TierDef, User } from './types';
+import type { Account, Call, Company, Cycle, CyclePlan, Product, ReportDef, Role, Settings, Snapshot, TierDef, User } from './types';
 
 /**
  * Every change to the data is one of these. The app applies it locally right away and appends it
@@ -25,13 +26,17 @@ export type Mutation =
   | { type: 'product.upsert'; product: Product }
   | { type: 'product.delete'; ids: string[] }
   | { type: 'cycle.upsert'; cycle: Cycle }
-  | { type: 'settings.update'; settings: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled'>> }
+  /** `cycleLength` (2.3) switches planning between calendar quarters and months; existing plans keep their cycle. */
+  | { type: 'settings.update'; settings: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled' | 'cycleLength'>> }
   | { type: 'company.update'; company: Partial<Company> }
   /** Sets the tier names for one team (FLM id), or the company default when teamId is absent. `tiers: null` makes a team use the default again. `renames` maps old to new names on that team's accounts. */
   | { type: 'tiers.update'; teamId?: string; tiers: TierDef[] | null; renames?: Record<string, string> }
   | { type: 'import.accounts'; accounts: Account[] }
   | { type: 'import.users'; users: User[] }
-  | { type: 'import.products'; products: Product[] };
+  | { type: 'import.products'; products: Product[] }
+  // ----- reports (2.3): definitions shared with the company in settings.reports -----
+  | { type: 'report.save'; report: ReportDef }
+  | { type: 'report.delete'; id: string };
 
 export class RuleError extends Error {}
 
@@ -311,7 +316,14 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
 
     case 'settings.update': {
       adminOnly();
-      const next: Settings = { ...s.settings, geofenceM: m.settings.geofenceM ?? s.settings.geofenceM, requireCheckIn: m.settings.requireCheckIn ?? s.settings.requireCheckIn };
+      const next: Settings = {
+        ...s.settings,
+        geofenceM: m.settings.geofenceM ?? s.settings.geofenceM,
+        requireCheckIn: m.settings.requireCheckIn ?? s.settings.requireCheckIn,
+        aiEnabled: m.settings.aiEnabled ?? s.settings.aiEnabled,
+        cycleLength: m.settings.cycleLength ?? s.settings.cycleLength ?? 'quarter',
+      };
+      if (next.cycleLength !== 'quarter' && next.cycleLength !== 'month') fail('Choose quarterly or monthly cycles.');
       if (!(next.geofenceM >= 25 && next.geofenceM <= 5000)) fail('Geofence must be between 25 and 5000 metres.');
       if (m.settings.aiEnabled !== undefined) next.aiEnabled = m.settings.aiEnabled;
       return { ...s, settings: next };
@@ -389,6 +401,25 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       for (const p of m.products) products = replaceOrAdd(products, p);
       return { ...s, products };
     }
+
+    // ----- reports (2.3) -----
+    case 'report.save': {
+      adminOnly();
+      const reports = s.settings.reports ?? [];
+      const existing = reports.find((r) => r.id === m.report.id);
+      const r: ReportDef = { ...m.report, name: m.report.name.trim(), createdBy: existing?.createdBy ?? actor.id, updatedAt: nowIso };
+      const problem = reportProblem(r);
+      if (problem) fail(problem);
+      if (!existing && reports.length >= MAX_REPORTS) fail(`You can keep up to ${MAX_REPORTS} saved reports. Delete one first.`);
+      return { ...s, settings: { ...s.settings, reports: replaceOrAdd(reports, r) } };
+    }
+
+    case 'report.delete': {
+      adminOnly();
+      const reports = s.settings.reports ?? [];
+      if (!reports.some((r) => r.id === m.id)) return s;
+      return { ...s, settings: { ...s.settings, reports: reports.filter((r) => r.id !== m.id) } };
+    }
   }
 }
 
@@ -415,6 +446,12 @@ export function describeMutation(m: Mutation): string {
       return `Deleted ${m.ids.length} product${m.ids.length > 1 ? 's' : ''}`;
     case 'tiers.update':
       return m.teamId ? 'Changed a team’s tier names' : 'Changed the default tier names';
+    case 'settings.update':
+      return m.settings.cycleLength ? `Set planning cycles to ${m.settings.cycleLength === 'month' ? 'monthly' : 'quarterly'}` : m.type;
+    case 'report.save':
+      return `Saved report “${m.report.name}”`;
+    case 'report.delete':
+      return 'Deleted a report';
     default:
       return m.type;
   }

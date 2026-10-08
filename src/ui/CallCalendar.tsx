@@ -3,7 +3,8 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { byDay, calendarState, monthGrid, type CalendarState } from '@/data/calendar';
-import { timeKey, toDateKey } from '@/data/dates';
+import { activeCycleLength, cyclesInMonth } from '@/data/cycles';
+import { formatDate, timeKey, toDateKey } from '@/data/dates';
 import { useStore } from '@/data/store';
 import type { Call } from '@/data/types';
 import { Card, Empty, text } from './components';
@@ -27,7 +28,7 @@ export function CalendarLegend() {
 
 /** Month view of call plans and submitted calls, with the selected day's calls below. */
 export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: boolean }) {
-  const { getAccount, getUser } = useStore();
+  const { getAccount, getUser, data } = useStore();
   // Wide screens (landscape phones, tablets, computers) show who is being visited inside each day.
   const { width } = useWindowDimensions();
   const roomy = width >= 640;
@@ -44,6 +45,10 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
   const title = new Date(cursor.y, cursor.m, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   const shift = (d: number) => setCursor(({ y, m }) => ({ y: m + d < 0 ? y - 1 : m + d > 11 ? y + 1 : y, m: (m + d + 12) % 12 }));
   const day = days.get(selected);
+  // The planning cycle(s) this month belongs to (quarterly or monthly, as the company plans).
+  const cycleNote = cyclesInMonth(data.cycles, activeCycleLength(data.settings), cursor.y, cursor.m)
+    .map((c) => `${c.name} · ${formatDate(c.start)} – ${formatDate(c.end)}`)
+    .join('   ');
 
   return (
     <View>
@@ -65,6 +70,7 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
             <Ionicons name="chevron-forward" size={22} color={colors.primary} />
           </Pressable>
         </View>
+        {!!cycleNote && <Text style={[text.small, { textAlign: 'center', marginBottom: space.xs }]}>{cycleNote}</Text>}
         <View style={styles.week}>
           {WEEKDAYS.map((w) => (
             <Text key={w} style={[text.small, styles.weekday]}>
