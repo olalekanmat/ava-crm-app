@@ -57,7 +57,7 @@ export default function MoreScreen() {
         {admin && <ListRow icon="business-outline" tone={colors.primaryDark} title="Company & approval" subtitle={`${company.name} · company code, logo, OneDrive folder, licence`} onPress={() => router.push('/admin/company')} />}
         {admin && <ListRow icon="people-outline" title="Users & roles" onPress={() => router.push('/admin/users')} />}
         {admin && <ListRow icon="layers-outline" tone={colors.orange} title="Tier names" subtitle="Tiering for each team (default ST, T1, T2, T3)" onPress={() => router.push('/admin/tiers')} />}
-        {admin && <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, quarterly cycles" onPress={() => router.push('/admin/settings')} />}
+        {admin && <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, planning cycles" onPress={() => router.push('/admin/settings')} />}
         {admin && <ListRow icon="document-lock-outline" tone={colors.muted} title="Audit log" subtitle="Every change, who made it and when" onPress={() => router.push('/admin/audit')} />}
         {(me.role === 'SLM' || admin) && <ListRow icon="globe-outline" title="Organisation overview" onPress={() => router.push('/overview')} />}
       </Card>

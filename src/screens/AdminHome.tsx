@@ -37,7 +37,7 @@ export function AdminHome() {
         <ListRow icon="cloud-upload-outline" tone={colors.orange} title="Import CSV" subtitle="Accounts, users or products from a spreadsheet" onPress={() => router.push('/admin/import')} />
         <ListRow icon="download-outline" tone={colors.success} title="Export data" subtitle="Calls, accounts, plans and team KPIs as CSV" onPress={() => router.push('/export')} />
         <ListRow icon="layers-outline" tone={colors.orange} title="Tier names" subtitle="Tiering for each team (default ST, T1, T2, T3)" onPress={() => router.push('/admin/tiers')} />
-        <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, quarterly cycles" onPress={() => router.push('/admin/settings')} />
+        <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, planning cycles" onPress={() => router.push('/admin/settings')} />
         {<ListRow icon="document-lock-outline" tone={colors.muted} title="Audit log" subtitle="Every change, who made it and when" onPress={() => router.push('/admin/audit')} />}
       </Card>
 

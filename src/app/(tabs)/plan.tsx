@@ -2,7 +2,8 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { repsUnder } from '@/data/access';
-import { addDays, toDateKey } from '@/data/dates';
+import { activeCycleLength, planningCycles } from '@/data/cycles';
+import { toDateKey } from '@/data/dates';
 import { cycleElapsed, pct, repMetrics } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
 import type { PlanStatus } from '@/data/types';
@@ -17,17 +18,16 @@ const ORDER: Record<PlanStatus | 'None', number> = { Submitted: 0, Rejected: 1, 
 export default function PlanTab() {
   const me = useMe();
   const { data, cycle: current, syncNow, sync } = useStore();
-  const today = toDateKey(new Date());
-  // Cycles are calendar quarters: plan the current quarter and the next one.
-  const horizon = toDateKey(addDays(new Date(), 100));
-  const cycles = [...data.cycles].filter((c) => c.end >= today && c.start <= horizon).sort((a, b) => a.start.localeCompare(b.start));
+  // Cycles are calendar quarters or months (the administrator chooses): plan the current one and the next.
+  const length = activeCycleLength(data.settings);
+  const cycles = planningCycles(data.cycles, length, toDateKey(new Date()));
   const [cycleId, setCycleId] = useState(current?.id);
   const cycle = cycles.find((c) => c.id === cycleId) ?? current;
 
   if (!cycle) {
     return (
       <Screen>
-        <Empty icon="calendar-outline">Quarterly cycles appear here once your company data has loaded. Pull down to refresh.</Empty>
+        <Empty icon="calendar-outline">{length === 'month' ? 'Monthly' : 'Quarterly'} cycles appear here once your company data has loaded. Pull down to refresh.</Empty>
       </Screen>
     );
   }
@@ -41,10 +41,30 @@ export default function PlanTab() {
   );
 
   if (me.role === 'Rep') {
+    // Earlier plans, including those made with the other cycle length, stay one tap away.
+    const byId = new Map(data.cycles.map((c) => [c.id, c]));
+    const history = data.plans
+      .filter((p) => p.ownerId === me.id && !cycles.some((c) => c.id === p.cycleId) && byId.has(p.cycleId))
+      .sort((a, b) => byId.get(b.cycleId)!.start.localeCompare(byId.get(a.cycleId)!.start))
+      .slice(0, 12);
     return (
       <Screen onRefresh={syncNow} refreshing={sync.syncing}>
         {picker}
         <PlanView ownerId={me.id} cycle={cycle} />
+        {history.length > 0 && (
+          <>
+            <SectionTitle>Earlier plans</SectionTitle>
+            {history.map((p) => (
+              <Card key={p.id} onPress={() => router.push({ pathname: '/plan/[id]', params: { id: p.id } })}>
+                <Row>
+                  <Text style={[text.title, { flex: 1 }]}>{byId.get(p.cycleId)!.name}</Text>
+                  <Text style={text.muted}>{p.targets.length} accounts</Text>
+                  <PlanBadge status={p.status} />
+                </Row>
+              </Card>
+            ))}
+          </>
+        )}
       </Screen>
     );
   }

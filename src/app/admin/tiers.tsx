@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { isAdmin } from '@/data/access';
+import { activeCycleLength, scaleFrequency } from '@/data/cycles';
 import { useMe, useStore } from '@/data/store';
 import { teamOf, tierSchemeProblem } from '@/data/tiers';
 import type { TierDef } from '@/data/types';
@@ -19,6 +20,7 @@ interface Draft extends TierDef {
 export default function TiersScreen() {
   const me = useMe();
   const { data, run } = useStore();
+  const monthly = activeCycleLength(data.settings) === 'month';
   const teams = data.users.filter((u) => u.role === 'FLM');
   const [scope, setScope] = useState<string>(''); // '' = company default, else FLM id
   const custom = !!scope && !!data.settings.teamTiers[scope];
@@ -83,7 +85,10 @@ export default function TiersScreen() {
 
   return (
     <Screen>
-      <Banner>Tier names label accounts and suggest how often to call them each cycle. Each team can use its own names; teams without their own use the company default.</Banner>
+      <Banner>
+        Tier names label accounts and suggest how often to call them each cycle. Each team can use its own names; teams without their own use the company default.
+        {monthly ? ' Your company plans by month: frequencies are calls per quarter, and monthly plans suggest about a third of them.' : ''}
+      </Banner>
       <SectionTitle>Which tiers</SectionTitle>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
         <Chip label="Company default" selected={!scope} onPress={() => setScope('')} />
@@ -125,7 +130,7 @@ export default function TiersScreen() {
           </Row>
           <Row style={{ justifyContent: 'space-between', marginTop: space.xs }}>
             <Text style={text.small}>
-              {r.frequency} call{r.frequency === 1 ? '' : 's'} per cycle · {affected.filter((a) => a.tier === r.was).length} accounts
+              {r.frequency} call{r.frequency === 1 ? '' : 's'} per {monthly ? `quarter (${scaleFrequency(r.frequency, 'month')} a month)` : 'cycle'} · {affected.filter((a) => a.tier === r.was).length} accounts
               {r.was && r.was !== r.name.trim() && r.name.trim() ? ` · renaming from ${r.was}` : ''}
             </Text>
             {editing && (

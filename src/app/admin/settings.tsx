@@ -1,13 +1,13 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Text, View } from 'react-native';
-import { addDays, formatDate, toDateKey } from '@/data/dates';
 import { newId } from '@/data/ids';
 import type { Mutation } from '@/data/mutations';
 import { isAdmin } from '@/data/access';
 import { useMe, useStore } from '@/data/store';
 import { Badge, Button, Card, Empty, Field, ListRow, Row, SectionTitle, ToggleRow, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
+import { CycleLengthSettings } from '@/ui/CycleLengthSettings';
 import { Grid } from '@/ui/layout';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
@@ -57,20 +57,7 @@ export default function SettingsScreen() {
       </Card>
 
       <SectionTitle>Planning cycles</SectionTitle>
-      <Card>
-        <Text style={[text.body, { marginBottom: space.sm }]}>Cycles follow the calendar quarters and are created automatically each year. Reps plan each quarter and send the plan to their manager for approval.</Text>
-        {[...data.cycles]
-          .filter((c) => c.end >= toDateKey(addDays(new Date(), -92)) && c.start <= toDateKey(addDays(new Date(), 200)))
-          .sort((a, b) => a.start.localeCompare(b.start))
-          .map((c) => (
-            <Row key={c.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
-              <Text style={[text.title, { flex: 1 }]}>{c.name}</Text>
-              <Text style={text.muted}>
-                {formatDate(c.start)} – {formatDate(c.end)}
-              </Text>
-            </Row>
-          ))}
-      </Card>
+      <CycleLengthSettings attempt={(m) => attempt(m)} />
 
       <SectionTitle right={<Button small variant="ghost" icon="cloud-upload-outline" title="Import CSV" onPress={() => router.push({ pathname: '/admin/import', params: { kind: 'products' } })} />}>Products ({data.products.length})</SectionTitle>
       {!data.products.length && <Empty icon="medkit-outline">No products yet. Add one below or import a CSV.</Empty>}

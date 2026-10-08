@@ -55,7 +55,7 @@ function RootNav() {
         <Stack.Screen name="account/new" options={{ title: 'New account', presentation: 'modal' }} />
         <Stack.Screen name="call/[id]" options={{ title: 'Call' }} />
         <Stack.Screen name="call/edit" options={{ title: 'Log call', presentation: 'modal' }} />
-        <Stack.Screen name="plan/[id]" options={{ title: 'Quarterly plan' }} />
+        <Stack.Screen name="plan/[id]" options={{ title: 'Cycle plan' }} />
         <Stack.Screen name="password" options={{ title: 'Change password' }} />
         <Stack.Screen name="profile" options={{ title: 'My profile' }} />
         <Stack.Screen name="team/[id]" options={{ title: 'Team' }} />
