@@ -79,5 +79,13 @@ export function scopeSnapshot(s: Snapshot, user: User): Snapshot {
     accounts: s.accounts.filter((a) => owners.has(a.ownerId)),
     calls: s.calls.filter((c) => owners.has(c.ownerId)),
     plans: s.plans.filter((p) => owners.has(p.ownerId)),
+    leaves: s.leaves?.filter((l) => owners.has(l.userId)),
+    tasks: s.tasks?.filter((t) => owners.has(t.ownerId)),
+    samples: s.samples?.filter((x) => owners.has(x.repId)),
   };
+}
+
+/** People who take up a licence: active and not deleted (the same count the server checks). */
+export function activeUserCount(users: User[]): number {
+  return users.filter((u) => u.active && !u.deletedAt).length;
 }

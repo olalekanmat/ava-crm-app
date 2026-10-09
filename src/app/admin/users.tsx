@@ -1,13 +1,13 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
-import { isAdmin } from '@/data/access';
+import { Platform, Text, View } from 'react-native';
+import { activeUserCount, isAdmin } from '@/data/access';
 import { useStore } from '@/data/store';
 import { ROLE_LABEL, ROLES, type Role, type User } from '@/data/types';
-import { Badge, Button, Card, Chip, Empty, Row, SearchBox, SectionTitle, Segmented, UserAvatar, text } from '@/ui/components';
+import { Badge, Button, Card, Chip, Empty, ProgressBar, Row, SearchBox, SectionTitle, Segmented, UserAvatar, text } from '@/ui/components';
 import { Grid } from '@/ui/layout';
 import { Screen } from '@/ui/Screen';
-import { colors, space } from '@/ui/theme';
+import { colors, space, tone } from '@/ui/theme';
 
 type RoleFilter = 'All' | Role;
 type Status = 'Active' | 'Inactive' | 'All';
@@ -15,7 +15,9 @@ type Status = 'Active' | 'Inactive' | 'All';
 const NEEDS_MANAGER: Partial<Record<Role, boolean>> = { Rep: true, FLM: true };
 
 export default function UsersScreen() {
-  const { data, getUser, admin, syncNow, sync } = useStore();
+  const { data, getUser, admin, syncNow, sync, license } = useStore();
+  const seats = license.state === 'active' ? license.payload.seats : undefined;
+  const used = activeUserCount(data.users);
   const [q, setQ] = useState('');
   const [role, setRole] = useState<RoleFilter>('All');
   const [status, setStatus] = useState<Status>('Active');
@@ -46,6 +48,18 @@ export default function UsersScreen() {
         {(unmanaged > 0 || noManager) && <Chip label={`No manager ${unmanaged}`} icon="git-network-outline" selected={noManager} onPress={() => setNoManager(!noManager)} />}
       </View>
       <Segmented options={['Active', 'Inactive', 'All'] as Status[]} value={status} onChange={setStatus} labels={{ All: 'All statuses' }} />
+      {!!seats && (
+        <Card style={{ paddingVertical: space.md }}>
+          <Row style={{ marginBottom: space.sm }}>
+            <Text style={[text.title, { flex: 1 }]}>Licences</Text>
+            <Text style={[text.title, used >= seats && { color: tone.important }]}>
+              {used} of {seats} in use
+            </Text>
+          </Row>
+          <ProgressBar value={Math.min(1, used / seats)} color={used >= seats ? tone.important : colors.primary} />
+          {used >= seats && <Text style={[text.small, { marginTop: space.sm }]}>All licences are in use. Make someone inactive to add a new person{Platform.OS === 'web' ? ', or add licences in Company settings › Subscription' : ''}.</Text>}
+        </Card>
+      )}
       <Row style={{ marginBottom: space.sm }}>
         <Button title="Add user" icon="person-add-outline" onPress={() => router.push('/admin/user')} />
         <Button title="Import CSV" icon="cloud-upload-outline" variant="secondary" onPress={() => router.push({ pathname: '/admin/import', params: { kind: 'users' } })} />

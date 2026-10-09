@@ -1,16 +1,18 @@
 /** Ava palette, taken from the logo: deep blue to sky, with orange, crimson and lime accents. */
 export const colors = {
-  bg: '#F3F5FA',
+  bg: '#F4F6FB',
   card: '#FFFFFF',
   /** Subtle fill for inset areas (segmented controls, inputs on cards, table stripes). */
   sunken: '#EEF1F7',
   text: '#0B1526',
   muted: '#566276',
   faint: '#8A94A6',
-  border: '#E5E9F1',
+  border: '#E3E8F1',
   hairline: '#EEF1F6',
   primary: '#1846C8',
   primaryDark: '#0F2E8A',
+  /** Deepest brand navy, for premium headers. */
+  ink: '#081A44',
   primarySoft: '#EAF0FD',
   sky: '#12A5EC',
   orange: '#F26B1D',
@@ -39,7 +41,9 @@ export const radius = { sm: 8, md: 12, lg: 18, pill: 999 };
 export const touch = 44;
 
 /** Soft, layered card shadow. */
-export const shadow = { boxShadow: '0 1px 2px rgba(15, 30, 70, 0.05), 0 4px 14px rgba(15, 30, 70, 0.06)' } as const;
+export const shadow = { boxShadow: '0 1px 2px rgba(10, 25, 60, 0.04), 0 6px 20px rgba(10, 25, 60, 0.06)' } as const;
+/** Glow under primary buttons. */
+export const shadowPrimary = { boxShadow: '0 1px 2px rgba(15, 46, 138, 0.25), 0 6px 16px rgba(24, 70, 200, 0.22)' } as const;
 /** Raised surfaces: popovers, sheets, floating buttons. */
 export const shadowRaised = { boxShadow: '0 10px 30px rgba(15, 30, 70, 0.16), 0 2px 6px rgba(15, 30, 70, 0.08)' } as const;
 

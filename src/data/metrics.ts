@@ -36,11 +36,52 @@ export function cycleCalls(calls: Call[], cycle: Cycle): Call[] {
   });
 }
 
-/** Share of the cycle that has passed, 0..1. Attainment is compared against this pace. */
-export function cycleElapsed(cycle: Cycle, now = new Date()): number {
+/**
+ * Share of the cycle that has passed, 0..1. Attainment is compared against this pace. With the
+ * person's approved leave, days off count neither as passed nor as available, so being on leave
+ * does not put them behind (2.5).
+ */
+export function cycleElapsed(cycle: Cycle, now = new Date(), leave: DayRange[] = []): number {
   const start = new Date(`${cycle.start}T00:00:00`).getTime();
   const end = new Date(`${cycle.end}T23:59:59`).getTime();
-  return Math.min(1, Math.max(0, (now.getTime() - start) / (end - start)));
+  const plain = Math.min(1, Math.max(0, (now.getTime() - start) / (end - start)));
+  if (!leave.length) return plain;
+  const total = spanDays(cycle.start, cycle.end);
+  const off = leaveDaysIn(leave, cycle.start, cycle.end);
+  if (off >= total) return 1;
+  const today = toDateKey(now);
+  const passedEnd = today > cycle.end ? cycle.end : today;
+  const passed = today < cycle.start ? 0 : spanDays(cycle.start, passedEnd) - (today <= cycle.end ? 1 : 0) + plainFraction(now);
+  const offPassed = today < cycle.start ? 0 : leaveDaysIn(leave, cycle.start, passedEnd);
+  return Math.min(1, Math.max(0, (passed - Math.min(passed, offPassed)) / (total - off)));
+}
+
+/** Part of today that has passed, 0..1. */
+const plainFraction = (now: Date) => (now.getHours() * 60 + now.getMinutes()) / 1440;
+
+export interface DayRange {
+  start: string;
+  end: string;
+}
+
+/** Days from start to end, inclusive (YYYY-MM-DD). */
+export const spanDays = (start: string, end: string) => Math.round((Date.parse(`${end}T12:00:00Z`) - Date.parse(`${start}T12:00:00Z`)) / 864e5) + 1;
+
+/** Leave days that fall between `from` and `to` (inclusive), counting overlapping ranges once. */
+export function leaveDaysIn(leave: DayRange[], from: string, to: string): number {
+  const days = new Set<string>();
+  for (const l of leave) {
+    const a = l.start > from ? l.start : from;
+    const b = l.end < to ? l.end : to;
+    if (a > b) continue;
+    for (let d = new Date(`${a}T12:00:00Z`); d.toISOString().slice(0, 10) <= b; d.setUTCDate(d.getUTCDate() + 1)) days.add(d.toISOString().slice(0, 10));
+  }
+  return days.size;
+}
+
+/** A person's approved leave. */
+export function approvedLeave(s: Pick<Snapshot, 'leaves'>, userId: string): DayRange[] {
+  return (s.leaves ?? []).filter((l) => l.userId === userId && l.status === 'Approved');
 }
 
 export function daysLeft(cycle: Cycle, now = new Date()): number {

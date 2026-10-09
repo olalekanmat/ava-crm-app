@@ -1,19 +1,21 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
 import { CallNoteAssist } from '@/ai/CallNoteAssist';
 import { addDays, parseLocal, timeKey, toDateKey } from '@/data/dates';
 import { distanceM, formatDistance, hasLocation } from '@/data/geo';
 import { newId } from '@/data/ids';
-import { callProblems } from '@/data/mutations';
+import { callProblems, managersOf } from '@/data/mutations';
+import { sampleStock } from '@/data/samples';
 import { useMe, useStore } from '@/data/store';
-import { CHANNELS, type CallChannel, type CallStatus, type GeoTag } from '@/data/types';
-import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SearchBox, Segmented, ToggleRow, text } from '@/ui/components';
+import { CHANNELS, type CallChannel, type CallStatus, type GeoTag, type SampleGiven } from '@/data/types';
+import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SearchBox, ToggleRow, text, type IconName } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
 import { currentFix } from '@/ui/location';
 import { Screen } from '@/ui/Screen';
-import { colors, space } from '@/ui/theme';
+import { remindersSupported } from '@/ui/reminders';
+import { colors, radius, space } from '@/ui/theme';
 
 /** Create a call (optionally for ?accountId=, or ?plan=1 to schedule one) or edit an unsubmitted one (?id=). */
 export default function EditCallScreen() {
@@ -38,6 +40,13 @@ export default function EditCallScreen() {
   const [pinAccount, setPinAccount] = useState(true);
   const [locating, setLocating] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [samples, setSamples] = useState<Record<string, string>>(() => Object.fromEntries((existing?.samples ?? []).map((x) => [x.product, String(x.qty)])));
+  const [coachId, setCoachId] = useState(existing?.coachId);
+  const followTask = existing ? (data.tasks ?? []).find((t) => t.callId === existing.id && !t.doneAt) : undefined;
+  const [remind, setRemind] = useState(followTask ? !!followTask.remindAt : true);
+  const [remindAt, setRemindAt] = useState(followTask?.remindAt ?? '09:00');
+  const managers = useMemo(() => managersOf(data.users, existing?.ownerId ?? me.id), [data.users, existing?.ownerId, me.id]);
+  const stock = useMemo(() => new Map(sampleStock(data, me.id, existing?.id).map((x) => [x.product, x.balance])), [data, me.id, existing?.id]);
 
   const account = accountId ? getAccount(accountId) : undefined;
   const when = parseLocal(date, time);
@@ -56,6 +65,9 @@ export default function EditCallScreen() {
       </Screen>
     );
   }
+
+  // Products discussed, then any with stock or already entered.
+  const sampleRows = [...new Set([...chosen, ...[...stock.keys()].filter((p) => (stock.get(p) ?? 0) > 0), ...Object.keys(samples)])].filter((p) => products.some((x) => x.name === p));
 
   const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   const toggleProduct = (p: string) => {
@@ -85,6 +97,8 @@ export default function EditCallScreen() {
       : { when: 'Use date YYYY-MM-DD and time HH:MM.' };
     if (!accountId) errs.account = 'Choose an account.';
     if (followUp && !/^\d{4}-\d{2}-\d{2}$/.test(followUp)) errs.followUp = 'Use YYYY-MM-DD.';
+    if (followUp && remind && !/^([01]\d|2[0-3]):[0-5]\d$/.test(remindAt)) errs.followUp = 'Use HH:MM for the reminder time.';
+    const given: SampleGiven[] = isFuture ? [] : Object.entries(samples).filter(([, q]) => +q > 0).map(([product, q]) => ({ product, qty: Math.min(1000, Math.floor(+q)) }));
     setErrors(errs);
     if (Object.keys(errs).length || !accountId || !when) return;
 
@@ -108,10 +122,28 @@ export default function EditCallScreen() {
             nextStep: nextStep.trim() || undefined,
             followUpDate: followUp || undefined,
             checkIn: channel === 'In person' ? checkIn : undefined,
+            samples: given.length ? given : undefined,
+            coachId: coachId && channel === 'In person' ? coachId : undefined,
             createdAt: existing?.createdAt ?? now,
             updatedAt: now,
           },
         });
+        // A follow-up becomes a task with a reminder (one per call; it moves when the date changes).
+        if (followUp && !isFuture && account) {
+          run({
+            type: 'task.save',
+            task: {
+              id: followTask?.id ?? newId('tsk'),
+              ownerId: existing?.ownerId ?? me.id,
+              title: nextStep.trim() || `Follow up with ${account.name}`,
+              due: followUp,
+              remindAt: remind ? remindAt : undefined,
+              accountId,
+              callId: id,
+              createdAt: followTask?.createdAt ?? now,
+            },
+          });
+        } else if (followTask && !followUp) run({ type: 'task.delete', id: followTask.id });
         // Pinned after saving: this call stays "unverified"; later check-ins are verified against the pin.
         if (checkIn && pinAccount && account && !hasLocation(account) && account.ownerId === me.id) {
           run({ type: 'account.pin', id: account.id, lat: checkIn.lat, lng: checkIn.lng });
@@ -184,7 +216,11 @@ export default function EditCallScreen() {
       {!!errors.when && <Text style={styles.error}>{errors.when}</Text>}
 
       <Label>Channel</Label>
-      <Segmented options={CHANNELS} value={channel} onChange={setChannel} />
+      <View style={styles.wrap}>
+        {CHANNELS.map((c) => (
+          <Chip key={c} label={c} icon={CHANNEL_ICON[c]} selected={channel === c} onPress={() => setChannel(c)} />
+        ))}
+      </View>
 
       {channel === 'In person' && !isFuture && (
         <Card style={{ borderColor: checkIn ? (checkIn.distanceM !== undefined && checkIn.distanceM > data.settings.geofenceM ? colors.danger : colors.success) : colors.border }}>
@@ -228,6 +264,48 @@ export default function EditCallScreen() {
         </>
       )}
 
+      {!isFuture && sampleRows.length > 0 && (
+        <>
+          <Label>Samples given</Label>
+          <Card style={{ paddingVertical: space.sm }}>
+            {sampleRows.map((p) => {
+              const left = stock.get(p);
+              const q = +(samples[p] || 0);
+              return (
+                <Row key={p} style={{ paddingVertical: 4 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={text.body}>{p}</Text>
+                    {left !== undefined && <Text style={[text.small, left - q < 0 && { color: colors.danger }]}>{left - q} left in your stock</Text>}
+                  </View>
+                  <TextInput
+                    value={samples[p] ?? ''}
+                    onChangeText={(v) => setSamples({ ...samples, [p]: v.replace(/\D/g, '').slice(0, 4) })}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor={colors.faint}
+                    accessibilityLabel={`${p} samples given`}
+                    style={styles.qty}
+                  />
+                </Row>
+              );
+            })}
+          </Card>
+        </>
+      )}
+
+      {channel === 'In person' && managers.length > 0 && (
+        <>
+          <ToggleRow label="Coached visit" value={!!coachId} onChange={(v) => setCoachId(v ? managers[0].id : undefined)} hint="Your manager came along. They score the call and their feedback shows on it." />
+          {!!coachId && managers.length > 1 && (
+            <View style={styles.wrap}>
+              {managers.map((m) => (
+                <Chip key={m.id} label={m.name} selected={coachId === m.id} onPress={() => setCoachId(m.id)} />
+              ))}
+            </View>
+          )}
+        </>
+      )}
+
       {!isFuture && <Field label="Attendees" value={attendees} onChangeText={setAttendees} placeholder="Others present, if any" />}
       <CallNoteAssist
         accountName={account?.name}
@@ -240,6 +318,12 @@ export default function EditCallScreen() {
         <>
           <Field label="Next step" value={nextStep} onChangeText={setNextStep} placeholder="e.g. Bring study reprint" />
           <Field label="Follow-up date" value={followUp} onChangeText={setFollowUp} placeholder="YYYY-MM-DD" error={errors.followUp} />
+          {!!followUp && (
+            <>
+              <ToggleRow label="Remind me" value={remind} onChange={setRemind} hint={remindersSupported ? 'A phone notification on the follow-up day. It also shows in Tasks.' : 'It shows in Tasks; phones running the app also get a notification.'} />
+              {remind && <Field label="Reminder time" value={remindAt} onChangeText={setRemindAt} placeholder="HH:MM" />}
+            </>
+          )}
         </>
       )}
 
@@ -257,10 +341,13 @@ export default function EditCallScreen() {
   );
 }
 
+const CHANNEL_ICON: Record<CallChannel, IconName> = { 'In person': 'walk-outline', Phone: 'call-outline', Video: 'videocam-outline', Email: 'mail-outline', WhatsApp: 'logo-whatsapp' };
+
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: space.md },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: space.sm },
   actions: { flexDirection: 'row', gap: space.sm, marginTop: space.sm },
   error: { color: colors.danger, fontSize: 12, marginBottom: space.sm },
+  qty: { width: 64, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 6, paddingHorizontal: space.sm, textAlign: 'center', color: colors.text, backgroundColor: colors.card, fontVariant: ['tabular-nums'] },
   change: { color: colors.primary, marginTop: space.sm, fontWeight: '600' },
 });

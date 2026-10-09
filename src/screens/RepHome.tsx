@@ -2,7 +2,10 @@ import { router } from 'expo-router';
 import { Text, View } from 'react-native';
 import { planHealth } from '@/data/alerts';
 import { addDays, toDateKey, todayKey } from '@/data/dates';
-import { callsByAccount, cycleCalls, cycleElapsed, daysLeft, pct, repMetrics } from '@/data/metrics';
+import { approvedLeave, callsByAccount, cycleCalls, cycleElapsed, daysLeft, pct, repMetrics } from '@/data/metrics';
+import { useAiAvailable } from '@/ai/client';
+import { nextVisits } from '@/data/nextBest';
+import { profileTags } from '@/data/profile';
 import { useMe, useStore } from '@/data/store';
 import { CallRow } from '@/ui/CallRow';
 import { Banner, Button, Card, Empty, ProgressBar, Row, SectionTitle, TierBadge, text } from '@/ui/components';
@@ -23,7 +26,7 @@ export function RepHome() {
   const drafts = mine.filter((c) => c.status === 'Saved');
   const followUps = mine.filter((c) => c.status === 'Submitted' && c.followUpDate && c.followUpDate <= toDateKey(addDays(new Date(), 7)));
   const m = cycle ? repMetrics(data, me, cycle) : undefined;
-  const elapsed = cycle ? cycleElapsed(cycle) : 0;
+  const elapsed = cycle ? cycleElapsed(cycle, new Date(), approvedLeave(data, me.id)) : 0;
 
   // Planned accounts furthest behind the pace they should be at by now.
   const done = cycle ? callsByAccount(cycleCalls(mine, cycle)) : new Map();
@@ -34,6 +37,8 @@ export function RepHome() {
     .filter((x) => x.account && x.done < Math.floor(x.t.planned * elapsed))
     .sort((a, b) => a.done / a.t.planned - b.done / b.t.planned)
     .slice(0, 4);
+  const ai = useAiAvailable();
+  const next = nextVisits(data, me.id, cycle, new Date(), 4);
   // A phone held upright already shows the logo in the header.
   const showCompany = !compact && (width >= 600 || landscape);
   // Three columns of tiles: a ninth tile completes the last row.
@@ -60,6 +65,7 @@ export function RepHome() {
         <TasksTile key="tasks" />
         {cycle && m ? (
           <CyclePlanTile
+            elapsed={elapsed}
             key="plan"
             cycle={cycle}
             attainment={m.attainment}
@@ -79,7 +85,7 @@ export function RepHome() {
             ]}
           />
           <Text style={[text.small, { marginTop: space.md, textAlign: 'center' }]} numberOfLines={1}>
-            {behind[0] ? `Next: visit ${behind[0].account!.name}` : 'You are on pace with every planned account.'}
+            {next[0] ? `Next: visit ${next[0].account.name}` : behind[0] ? `Next: visit ${behind[0].account!.name}` : 'You are on pace with every planned account.'}
           </Text>
         </Tile>
         {m ? (
@@ -103,7 +109,7 @@ export function RepHome() {
             actions={[
               { title: 'Log a call', icon: 'add-circle-outline', onPress: () => router.push('/call/edit') },
               { title: 'Plan a visit', icon: 'calendar-outline', onPress: () => router.push({ pathname: '/call/edit', params: { plan: '1' } }) },
-              { title: 'New account', icon: 'person-add-outline', onPress: () => router.push('/account/new') },
+              { title: 'Today’s route', icon: 'map-outline', onPress: () => router.push('/route') },
             ]}
           />
         )}
@@ -120,32 +126,40 @@ export function RepHome() {
         </>
       )}
 
-      {behind.length > 0 && (
+      {next.length > 0 && (
         <>
-          <SectionTitle right={<Text style={text.small}>Accounts furthest behind pace</Text>}>Suggested visits</SectionTitle>
+          <SectionTitle right={<Text style={text.link} onPress={() => router.push('/route')}>Today’s route</Text>}>Visit next</SectionTitle>
           <Grid>
-            {behind.map(({ t, done: n, account }) => (
-              <Card key={t.accountId} onPress={() => router.push({ pathname: '/account/[id]', params: { id: t.accountId } })}>
-                <Row>
-                  <Text style={[text.title, { flex: 1 }]} numberOfLines={1}>
-                    {account!.name}
+            {next.map((v) => {
+              const t = targets.find((x) => x.accountId === v.account.id);
+              const n = done.get(v.account.id)?.length ?? 0;
+              const tags = profileTags(v.account);
+              return (
+                <Card key={v.account.id} onPress={() => router.push({ pathname: '/account/[id]', params: { id: v.account.id } })}>
+                  <Row>
+                    <Text style={[text.title, { flex: 1 }]} numberOfLines={1}>
+                      {v.account.name}
+                    </Text>
+                    <TierBadge tier={v.account.tier} />
+                  </Row>
+                  <Text style={text.muted} numberOfLines={1}>
+                    {[v.account.specialty, ...tags].join(' · ')}
                   </Text>
-                  <TierBadge tier={account!.tier} />
-                </Row>
-                <Text style={text.muted} numberOfLines={1}>
-                  {account!.specialty} · {account!.city}
-                </Text>
-                <Row style={{ marginTop: space.sm }}>
-                  <View style={{ flex: 1 }}>
-                    <ProgressBar value={n / t.planned} marker={elapsed} color={colors.orange} height={6} />
-                  </View>
-                  <Text style={text.muted}>
-                    {n}/{t.planned}
+                  <Text style={[text.small, { marginTop: 4, color: colors.text }]} numberOfLines={2}>
+                    {v.reasons.filter((r) => r !== 'Key opinion leader' && r !== 'High potential').slice(0, 3).join(' · ') || 'Worth seeing for their profile'}
                   </Text>
-                  <Button small title="Schedule" icon="calendar-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: t.accountId, plan: '1' } })} />
-                </Row>
-              </Card>
-            ))}
+                  {t && (
+                    <View style={{ marginTop: space.sm }}>
+                      <ProgressBar value={n / t.planned} marker={elapsed} color={colors.orange} height={6} />
+                    </View>
+                  )}
+                  <Row style={{ marginTop: space.sm }}>
+                    <Button small title="Schedule" icon="calendar-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: v.account.id, plan: '1' } })} />
+                    {ai && <Button small title="What to discuss" icon="sparkles-outline" variant="ghost" onPress={() => router.push({ pathname: '/ai/ask', params: { q: `What should I discuss with ${v.account.name} on my next visit?` } })} />}
+                  </Row>
+                </Card>
+              );
+            })}
           </Grid>
         </>
       )}
@@ -187,7 +201,7 @@ export function RepHome() {
         </>
       )}
 
-      {!todays.length && !drafts.length && !behind.length && !followUps.length && (
+      {!todays.length && !drafts.length && !next.length && !followUps.length && (
         <Empty icon="sunny-outline" title="You are all caught up">
           Nothing scheduled and nothing overdue. Plan your next visits from the Schedule tab.
         </Empty>

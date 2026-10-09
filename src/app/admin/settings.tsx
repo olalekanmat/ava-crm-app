@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { AiSettingsCard } from '@/ai/AiSettingsCard';
 import { useState } from 'react';
-import { Text } from 'react-native';
+import { Text, View } from 'react-native';
 import { newId } from '@/data/ids';
 import type { Mutation } from '@/data/mutations';
 import { isAdmin } from '@/data/access';
@@ -20,6 +20,7 @@ export default function SettingsScreen() {
   const [geofence, setGeofence] = useState(String(s.geofenceM));
   const [productName, setProductName] = useState('');
   const [productMessages, setProductMessages] = useState('');
+  const [productBrochure, setProductBrochure] = useState('');
 
   if (!isAdmin(me)) return <Screen><Empty>Only administrators can change settings.</Empty></Screen>;
 
@@ -74,6 +75,7 @@ export default function SettingsScreen() {
                 {!p.active && <Badge label="Inactive" fg={colors.muted} bg={colors.bg} />}
               </Row>
               <Text style={text.muted}>{p.keyMessages.join(' · ') || 'No key messages'}</Text>
+              <BrochureLink url={p.brochureUrl} onSave={(brochureUrl) => attempt({ type: 'product.upsert', product: { ...p, brochureUrl: brochureUrl || undefined } })} />
               <Row style={{ marginTop: space.sm, justifyContent: 'flex-end' }}>
                 <Button small variant="ghost" title={p.active ? 'Deactivate' : 'Activate'} onPress={() => attempt({ type: 'product.upsert', product: { ...p, active: !p.active } })} />
                 <Button
@@ -98,21 +100,48 @@ export default function SettingsScreen() {
         <Text style={[text.title, { marginBottom: space.sm }]}>Add a product</Text>
         <Field label="Name" value={productName} onChangeText={setProductName} />
         <Field label="Key messages" value={productMessages} onChangeText={setProductMessages} placeholder="Efficacy | Safety | Dosing" hint="Separate with |" />
+        <Field label="Brochure link" value={productBrochure} onChangeText={setProductBrochure} placeholder="https://… (optional)" autoCapitalize="none" keyboardType="url" hint="An approved brochure reps can share with doctors on WhatsApp." />
         <Button
           title="Add product"
           variant="secondary"
           icon="add"
           onPress={() =>
             attempt(
-              { type: 'product.upsert', product: { id: newId('prd'), name: productName.trim(), keyMessages: productMessages.split('|').map((x) => x.trim()).filter(Boolean), active: true } },
+              { type: 'product.upsert', product: { id: newId('prd'), name: productName.trim(), keyMessages: productMessages.split('|').map((x) => x.trim()).filter(Boolean), active: true, brochureUrl: productBrochure.trim() || undefined } },
               () => {
                 setProductName('');
                 setProductMessages('');
+                setProductBrochure('');
               },
             )
           }
         />
       </Card>
     </Screen>
+  );
+}
+
+/** A product's brochure link, edited in place. */
+function BrochureLink({ url, onSave }: { url?: string; onSave: (url: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(url ?? '');
+  if (!editing) {
+    return (
+      <Text style={[text.small, { marginTop: 4 }]} numberOfLines={1}>
+        {url ? `Brochure: ${url} · ` : ''}
+        <Text style={text.link} onPress={() => { setValue(url ?? ''); setEditing(true); }}>
+          {url ? 'Change' : 'Add brochure link'}
+        </Text>
+      </Text>
+    );
+  }
+  return (
+    <View style={{ marginTop: space.sm }}>
+      <Field label="Brochure link" value={value} onChangeText={setValue} placeholder="https://…" autoCapitalize="none" keyboardType="url" />
+      <Row>
+        <Button small title="Save" onPress={() => { onSave(value.trim()); setEditing(false); }} />
+        <Button small variant="ghost" title="Cancel" onPress={() => setEditing(false)} />
+      </Row>
+    </View>
   );
 }

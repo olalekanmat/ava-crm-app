@@ -1,6 +1,6 @@
 import * as Network from 'expo-network';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { registerBackgroundSync, setForegroundSync, unregisterBackgroundSync } from '@/cloud/background';
 import { adapterFor } from '@/cloud/connect';
 import type { FolderRef } from '@/cloud/drive';
@@ -8,7 +8,7 @@ import type { ReplayLogEntry } from '@/cloud/journal';
 import { licenseState, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
 import { saveToken } from '@/cloud/relay';
 import { pendingCount, rebuild, ROSTER_FILE, rosterKey, syncOnce, writeLicense, type CloudCache } from '@/cloud/sync';
-import { isAdmin, scopeSnapshot, withoutDeleted } from './access';
+import { activeUserCount, isAdmin, scopeSnapshot, withoutDeleted } from './access';
 import { sanitizeMutation } from './sanitize';
 import { removeBig, loadBig, saveBig } from './bigStorage';
 import { activeCycleLength } from './cycles';
@@ -270,6 +270,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // replay would drop fails here, visibly, instead of vanishing after the next sync.
       const clean = sanitizeMutation(JSON.parse(JSON.stringify(m)), now);
       const next = applyMutation(fullRef.current, clean, actor, now);
+      // The licence caps active users: a change may not add active people beyond it.
+      const seats = license.state === 'active' ? license.payload.seats : undefined;
+      if (seats && (m.type === 'user.upsert' || m.type === 'import.users')) {
+        const before = activeUserCount(fullRef.current.users);
+        const after = activeUserCount(next.users);
+        if (after > seats && after > before) {
+          throw new RuleError(
+            `Your licence covers ${seats} active user${seats === 1 ? '' : 's'}${before >= seats ? ', and all are in use' : ` and this would make ${after}`}. Make someone inactive first${Platform.OS === 'web' ? ', or add licences in Company settings › Subscription' : ', or ask for more licences'}.`,
+          );
+        }
+      }
       setFull(next);
       if (s.mode === 'cloud' && cacheRef.current) {
         const c = cacheRef.current;
@@ -286,7 +297,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }, AUTOSAVE_MS);
       }
     },
-    [setFull, setCache, licensed, license.state, syncNow],
+    [setFull, setCache, licensed, license, syncNow],
   );
 
   const enterCloud = useCallback(

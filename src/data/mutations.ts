@@ -1,7 +1,8 @@
 import { isAdmin as hasAdminRights, manages, visibleOwnerIds } from './access';
+import { spanDays } from './metrics';
 import { MAX_REPORTS, reportProblem } from './reports';
 import { teamOf, tierSchemeProblem } from './tiers';
-import type { Account, Call, Company, Cycle, CyclePlan, Product, ReportDef, Role, Settings, Snapshot, TierDef, User } from './types';
+import { COACHING_SKILLS, LEAVE_KINDS, POTENTIALS, type Account, type Call, type Coaching, type Company, type Cycle, type CyclePlan, type Leave, type Product, type ReportDef, type Role, type SampleIssue, type Settings, type Snapshot, type Task, type TierDef, type User } from './types';
 
 /**
  * Every change to the data is one of these. The app applies it locally right away and appends it
@@ -38,7 +39,16 @@ export type Mutation =
   | { type: 'import.products'; products: Product[] }
   // ----- reports (2.3): definitions shared with the company in settings.reports -----
   | { type: 'report.save'; report: ReportDef }
-  | { type: 'report.delete'; id: string };
+  | { type: 'report.delete'; id: string }
+  // ----- 2.5: leave, tasks, samples, coaching. Older versions skip these. -----
+  | { type: 'leave.request'; leave: Leave }
+  | { type: 'leave.review'; id: string; approve: boolean; note?: string }
+  | { type: 'leave.cancel'; id: string }
+  | { type: 'task.save'; task: Task }
+  | { type: 'task.done'; id: string; done: boolean }
+  | { type: 'task.delete'; id: string }
+  | { type: 'sample.issue'; issue: SampleIssue }
+  | { type: 'call.coach'; id: string; coaching: Coaching };
 
 export class RuleError extends Error {}
 
@@ -50,6 +60,36 @@ const replaceOrAdd = <T extends { id: string }>(list: T[], item: T): T[] =>
   list.some((x) => x.id === item.id) ? list.map((x) => (x.id === item.id ? item : x)) : [...list, item];
 
 const MANAGER_ROLE: Partial<Record<Role, Role>> = { Rep: 'FLM', FLM: 'SLM' };
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+export const MAX_LEAVE_DAYS = 90;
+export const MAX_SAMPLE_QTY = 10000;
+
+
+/** The first manager up the line who is still active: who approves a person's leave. */
+export function approverOf(users: User[], userId: string): User | undefined {
+  let cur = users.find((u) => u.id === userId);
+  for (let i = 0; cur?.managerId && i < 5; i++) {
+    const m = users.find((u) => u.id === cur!.managerId && !u.deletedAt);
+    if (m?.active) return m;
+    cur = m;
+  }
+  return undefined;
+}
+
+/** Managers above a rep, nearest first: who can join a call as coach. */
+export function managersOf(users: User[], userId: string): User[] {
+  const out: User[] = [];
+  let cur = users.find((u) => u.id === userId);
+  for (let i = 0; cur?.managerId && i < 5; i++) {
+    const m = users.find((u) => u.id === cur!.managerId && !u.deletedAt);
+    if (!m) break;
+    if (m.active) out.push(m);
+    cur = m;
+  }
+  return out;
+}
 
 /** Rules that apply to a call before it is saved with its status. Returns field -> message. */
 export function callProblems(call: Pick<Call, 'status' | 'datetime' | 'products' | 'channel' | 'checkIn'>, settings: Settings, now = new Date()): Record<string, string> {
@@ -112,6 +152,34 @@ function checkUser(s: Snapshot, u: User) {
   }
 }
 
+/** Profile fields a change leaves out (older versions, CSV without the columns) keep their values; empty clears. */
+function withProfile(a: Account, existing?: Account): Account {
+  const out: Account = { ...a };
+  const keep = <K extends 'kol' | 'potential' | 'segment'>(k: K) => {
+    if (a[k] === undefined) {
+      if (existing?.[k] !== undefined) out[k] = existing[k];
+      else delete out[k];
+    } else if (a[k] === '' || a[k] === false) delete out[k];
+  };
+  keep('kol');
+  keep('potential');
+  keep('segment');
+  if (out.potential && !POTENTIALS.includes(out.potential)) fail('Potential must be High, Medium or Low.');
+  if (out.segment !== undefined) {
+    out.segment = out.segment.trim() || undefined;
+    if (!out.segment) delete out.segment;
+    else if (out.segment.length > 40) fail('Segment must be 40 characters or fewer.');
+  }
+  return out;
+}
+
+function checkSamples(c: Call, s: Snapshot) {
+  for (const x of c.samples ?? []) {
+    if (!Number.isInteger(x.qty) || x.qty < 1 || x.qty > 1000) fail('Samples given must be a whole number from 1 to 1000.');
+    if (!s.products.some((p) => p.name === x.product)) fail(`${x.product} is not a product.`);
+  }
+}
+
 /** Applies one mutation as `actor`. Throws RuleError when it is not allowed. */
 export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new Date()): Snapshot {
   const nowIso = now.toISOString();
@@ -131,7 +199,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (!owner) fail('The account owner was not found.');
       if (!isAdmin && a.ownerId !== actor.id && !manages(s.users, actor, a.ownerId)) fail('You can only add accounts to your own territory or team.');
       if (!a.name.trim() || !a.specialty.trim() || !a.city.trim()) fail('Name, specialty and city are required.');
-      return { ...s, accounts: replaceOrAdd(s.accounts, { ...a, createdAt: existing?.createdAt ?? a.createdAt ?? nowIso }) };
+      return { ...s, accounts: replaceOrAdd(s.accounts, { ...withProfile(a, existing), createdAt: existing?.createdAt ?? a.createdAt ?? nowIso }) };
     }
 
     case 'account.pin': {
@@ -152,8 +220,12 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       const problems = callProblems(c, s.settings, now);
       const first = Object.values(problems)[0];
       if (first) fail(first);
+      checkSamples(c, s);
+      if (c.coachId && !managersOf(s.users, c.ownerId).some((m) => m.id === c.coachId)) fail('The coach must be one of your managers.');
       const call: Call = {
         ...c,
+        // The scorecard is the manager's, set with call.coach; the rep's save keeps it.
+        coaching: existing?.coaching,
         createdAt: existing?.createdAt ?? c.createdAt ?? nowIso,
         updatedAt: nowIso,
         submittedAt: c.status === 'Submitted' ? c.submittedAt ?? nowIso : undefined,
@@ -310,6 +382,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
     case 'product.upsert': {
       adminOnly();
       if (!m.product.name.trim()) fail('Product name is required.');
+      if (m.product.brochureUrl && !/^https:\/\/\S+$/.test(m.product.brochureUrl)) fail('The brochure link must start with https://');
       return { ...s, products: replaceOrAdd(s.products, m.product) };
     }
 
@@ -384,7 +457,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
         if (owner.deletedAt) continue; // their rep was deleted since the file was prepared
         const existing = accounts.find((x) => x.id === a.id);
         if (existing?.deletedAt) continue; // deleted since the file was prepared; the rest still import
-        accounts = replaceOrAdd(accounts, { ...existing, ...a, createdAt: existing?.createdAt ?? nowIso });
+        accounts = replaceOrAdd(accounts, { ...existing, ...withProfile(a, existing), createdAt: existing?.createdAt ?? nowIso });
       }
       return { ...s, accounts };
     }
@@ -408,8 +481,101 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
     case 'import.products': {
       adminOnly();
       let products = s.products;
-      for (const p of m.products) products = replaceOrAdd(products, p);
+      for (const p of m.products) {
+        if (p.brochureUrl && !/^https:\/\/\S+$/.test(p.brochureUrl)) fail(`The brochure link for ${p.name} must start with https://`);
+        products = replaceOrAdd(products, p);
+      }
       return { ...s, products };
+    }
+
+    // ----- leave (2.5) -----
+    case 'leave.request': {
+      const l = m.leave;
+      if (l.userId !== actor.id) fail('You can only ask for your own leave.');
+      const existing = (s.leaves ?? []).find((x) => x.id === l.id);
+      if (existing && (existing.userId !== actor.id || existing.status !== 'Pending')) fail('Only a pending request can be changed.');
+      if (!DAY_RE.test(l.start) || !DAY_RE.test(l.end)) fail('Use YYYY-MM-DD dates.');
+      if (l.end < l.start) fail('Leave must end on or after the day it starts.');
+      if (spanDays(l.start, l.end) > MAX_LEAVE_DAYS) fail(`Leave can be at most ${MAX_LEAVE_DAYS} days at a time.`);
+      if (!LEAVE_KINDS.includes(l.kind)) fail('Choose the kind of leave.');
+      const clash = (s.leaves ?? []).find((x) => x.userId === actor.id && x.id !== l.id && (x.status === 'Pending' || x.status === 'Approved') && x.start <= l.end && l.start <= x.end);
+      if (clash) fail(`You already have leave from ${clash.start} to ${clash.end}.`);
+      const leave: Leave = { id: l.id, userId: actor.id, start: l.start, end: l.end, kind: l.kind, note: l.note?.trim() || undefined, status: 'Pending', createdAt: existing?.createdAt ?? nowIso };
+      return { ...s, leaves: replaceOrAdd(s.leaves ?? [], leave) };
+    }
+
+    case 'leave.review': {
+      const l = (s.leaves ?? []).find((x) => x.id === m.id) ?? fail('Leave request not found.');
+      if (l.userId === actor.id || !manages(s.users, actor, l.userId)) fail('Only the person’s manager can review their leave.');
+      if (l.status !== 'Pending') fail('This request was already decided.');
+      if (!m.approve && !m.note?.trim()) fail('Say why when declining leave.');
+      const leave: Leave = { ...l, status: m.approve ? 'Approved' : 'Rejected', reviewerId: actor.id, reviewedAt: nowIso, reviewNote: m.note?.trim() || undefined };
+      return { ...s, leaves: replaceOrAdd(s.leaves ?? [], leave) };
+    }
+
+    case 'leave.cancel': {
+      const l = (s.leaves ?? []).find((x) => x.id === m.id) ?? fail('Leave request not found.');
+      if (l.userId !== actor.id) fail('You can only cancel your own leave.');
+      if (l.status !== 'Pending' && l.status !== 'Approved') return s;
+      return { ...s, leaves: replaceOrAdd(s.leaves ?? [], { ...l, status: 'Cancelled' }) };
+    }
+
+    // ----- tasks (2.5) -----
+    case 'task.save': {
+      const t = m.task;
+      const existing = (s.tasks ?? []).find((x) => x.id === t.id);
+      const mayEdit = (owner: string, by?: string) => owner === actor.id || by === actor.id || (owner !== actor.id && manages(s.users, actor, owner));
+      if (existing && !mayEdit(existing.ownerId, existing.assignedBy)) fail('You cannot change this task.');
+      if (t.ownerId !== actor.id && !manages(s.users, actor, t.ownerId)) fail('You can only set tasks for yourself or your team.');
+      if (!s.users.some((u) => u.id === t.ownerId && !u.deletedAt)) fail('Person not found.');
+      const title = t.title.trim();
+      if (!title || title.length > 200) fail('Write the task in 1 to 200 characters.');
+      if (!DAY_RE.test(t.due)) fail('Use YYYY-MM-DD for the due date.');
+      if (t.remindAt && !TIME_RE.test(t.remindAt)) fail('Use HH:MM for the reminder time.');
+      if (t.accountId && !s.accounts.some((a) => a.id === t.accountId)) fail('Account not found.');
+      const task: Task = {
+        id: t.id, ownerId: t.ownerId, title, due: t.due, remindAt: t.remindAt || undefined, accountId: t.accountId, callId: t.callId,
+        assignedBy: existing?.assignedBy ?? (t.ownerId !== actor.id ? actor.id : undefined), doneAt: existing?.doneAt, createdAt: existing?.createdAt ?? nowIso,
+      };
+      return { ...s, tasks: replaceOrAdd(s.tasks ?? [], task) };
+    }
+
+    case 'task.done':
+    case 'task.delete': {
+      const t = (s.tasks ?? []).find((x) => x.id === m.id);
+      if (!t) return s;
+      if (t.ownerId !== actor.id && t.assignedBy !== actor.id && !manages(s.users, actor, t.ownerId)) fail('You cannot change this task.');
+      if (m.type === 'task.delete') return { ...s, tasks: (s.tasks ?? []).filter((x) => x.id !== t.id) };
+      return { ...s, tasks: replaceOrAdd(s.tasks ?? [], { ...t, doneAt: m.done ? (t.doneAt ?? nowIso) : undefined }) };
+    }
+
+    // ----- samples (2.5) -----
+    case 'sample.issue': {
+      const x = m.issue;
+      const rep = s.users.find((u) => u.id === x.repId && !u.deletedAt) ?? fail('Person not found.');
+      if (rep.id === actor.id && !isAdmin) fail('Your manager records the samples you receive.');
+      if (!manages(s.users, actor, rep.id)) fail('You can only issue samples to your own team.');
+      if (!s.products.some((p) => p.name === x.product)) fail(`${x.product} is not a product.`);
+      if (!Number.isInteger(x.qty) || x.qty === 0 || Math.abs(x.qty) > MAX_SAMPLE_QTY) fail(`Quantity must be a whole number up to ${MAX_SAMPLE_QTY}, not zero.`);
+      if ((s.samples ?? []).some((y) => y.id === x.id)) return s;
+      const issue: SampleIssue = { id: x.id, repId: rep.id, product: x.product, qty: x.qty, batch: x.batch?.trim() || undefined, note: x.note?.trim() || undefined, byId: actor.id, at: nowIso };
+      return { ...s, samples: [...(s.samples ?? []), issue] };
+    }
+
+    // ----- coaching (2.5) -----
+    case 'call.coach': {
+      const c = s.calls.find((x) => x.id === m.id) ?? fail('Call not found.');
+      if (c.ownerId === actor.id || (c.coachId !== actor.id && !manages(s.users, actor, c.ownerId))) fail('Only the rep’s manager can coach this call.');
+      const scores: Coaching['scores'] = {};
+      for (const k of COACHING_SKILLS) {
+        const v = m.coaching.scores[k];
+        if (v === undefined) continue;
+        if (!Number.isInteger(v) || v < 1 || v > 5) fail('Scores go from 1 to 5.');
+        scores[k] = v;
+      }
+      if (!Object.keys(scores).length) fail('Score at least one skill.');
+      const coaching: Coaching = { by: actor.id, at: nowIso, scores, strengths: m.coaching.strengths?.trim() || undefined, improve: m.coaching.improve?.trim() || undefined };
+      return { ...s, calls: s.calls.map((x) => (x.id === c.id ? { ...x, coachId: x.coachId ?? actor.id, coaching } : x)) };
     }
 
     // ----- reports (2.3) -----
@@ -464,6 +630,14 @@ export function describeMutation(m: Mutation): string {
       return `Saved report “${m.report.name}”`;
     case 'report.delete':
       return 'Deleted a report';
+    case 'leave.request':
+      return `Asked for leave ${m.leave.start} to ${m.leave.end}`;
+    case 'leave.review':
+      return m.approve ? 'Approved leave' : 'Declined leave';
+    case 'sample.issue':
+      return `${m.issue.qty > 0 ? 'Issued' : 'Took back'} ${Math.abs(m.issue.qty)} ${m.issue.product} samples`;
+    case 'call.coach':
+      return 'Coached a call';
     default:
       return m.type;
   }

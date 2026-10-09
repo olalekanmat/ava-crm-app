@@ -1,6 +1,6 @@
 import { RuleError, type Mutation } from './mutations';
 import { REPORT_COLUMNS } from './reports';
-import { CHANNELS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, type Account, type ReportDef, type ReportFilters, type Call, type Company, type Cycle, type CyclePlan, type GeoTag, type Product, type Settings, type TierDef, type User } from './types';
+import { CHANNELS, COACHING_SKILLS, LEAVE_KINDS, POTENTIALS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, type Account, type ReportDef, type ReportFilters, type Call, type Company, type Cycle, type CyclePlan, type GeoTag, type Product, type Settings, type TierDef, type User, type Coaching, type Leave, type SampleIssue, type Task } from './types';
 
 /**
  * Rebuilds a mutation from untrusted JSON (a journal file in the company drive), keeping only
@@ -33,6 +33,10 @@ function account(v: unknown, now: string): Account {
     address: str(a.address ?? '', 'address', 300), city: str(a.city, 'city', 120), phone: optStr(a.phone, 'phone', 60), email: optStr(a.email, 'email', 200),
     notes: optStr(a.notes, 'notes'), ownerId: str(a.ownerId, 'owner', 80), lat: optNum(a.lat, 'latitude'), lng: optNum(a.lng, 'longitude'),
     createdAt: a.createdAt ? iso(a.createdAt, 'date') : now,
+    // 2.5 profile: absent keeps the current value, false or empty clears it (see withProfile).
+    kol: a.kol === undefined ? undefined : a.kol === null ? false : bool(a.kol, 'KOL flag'),
+    potential: a.potential === undefined ? undefined : a.potential === null || a.potential === '' ? ('' as never) : oneOf(a.potential, POTENTIALS, 'potential'),
+    segment: a.segment === undefined ? undefined : a.segment === null ? '' : str(a.segment, 'segment', 40),
   };
 }
 
@@ -54,6 +58,11 @@ function call(v: unknown, now: string): Call {
     keyMessages: arr(c.keyMessages, 'key messages', 50).map((k) => str(k, 'key message', 300)),
     attendees: optStr(c.attendees, 'attendees', 500), notes: optStr(c.notes, 'notes', 5000), nextStep: optStr(c.nextStep, 'next step', 500),
     followUpDate: c.followUpDate ? day(c.followUpDate, 'follow-up date') : undefined, checkIn: geo(c.checkIn),
+    samples: c.samples === undefined || c.samples === null ? undefined : arr(c.samples, 'samples', 20).map((x) => {
+      const o = obj(x, 'sample');
+      return { product: str(o.product, 'product', 120), qty: numb(o.qty, 'sample quantity'), batch: optStr(o.batch, 'batch', 60) };
+    }),
+    coachId: optStr(c.coachId, 'coach', 80),
     createdAt: c.createdAt ? iso(c.createdAt, 'date') : now, updatedAt: now,
     // applyMutation stamps the submit time from the journal entry.
     submittedAt: undefined,
@@ -88,7 +97,10 @@ function user(v: unknown, now: string): User {
 
 function product(v: unknown): Product {
   const p = obj(v, 'product');
-  return { id: str(p.id, 'product id', 80), name: str(p.name, 'product name', 120), keyMessages: arr(p.keyMessages, 'key messages', 50).map((k) => str(k, 'key message', 300)), active: bool(p.active, 'active flag') };
+  return {
+    id: str(p.id, 'product id', 80), name: str(p.name, 'product name', 120), keyMessages: arr(p.keyMessages, 'key messages', 50).map((k) => str(k, 'key message', 300)), active: bool(p.active, 'active flag'),
+    brochureUrl: optStr(p.brochureUrl, 'brochure link', 1000),
+  };
 }
 
 function cycle(v: unknown): Cycle {
@@ -182,6 +194,34 @@ function report(v: unknown): ReportDef {
   return out;
 }
 
+// ----- 2.5 -----
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function leave(v: unknown, now: string): Leave {
+  const l = obj(v, 'leave');
+  return { id: str(l.id, 'leave id', 80), userId: str(l.userId, 'person', 80), start: day(l.start, 'start date'), end: day(l.end, 'end date'), kind: oneOf(l.kind, LEAVE_KINDS, 'leave kind'), note: optStr(l.note, 'note', 500), status: 'Pending', createdAt: now };
+}
+
+function task(v: unknown, now: string): Task {
+  const t = obj(v, 'task');
+  const remindAt = optStr(t.remindAt, 'reminder time', 5);
+  if (remindAt && !TIME.test(remindAt)) bad('reminder time');
+  return { id: str(t.id, 'task id', 80), ownerId: str(t.ownerId, 'person', 80), title: str(t.title, 'task', 200), due: day(t.due, 'due date'), remindAt, accountId: optStr(t.accountId, 'account', 80), callId: optStr(t.callId, 'call', 80), createdAt: now };
+}
+
+function sampleIssue(v: unknown, now: string): SampleIssue {
+  const x = obj(v, 'samples');
+  return { id: str(x.id, 'id', 80), repId: str(x.repId, 'person', 80), product: str(x.product, 'product', 120), qty: numb(x.qty, 'quantity'), batch: optStr(x.batch, 'batch', 60), note: optStr(x.note, 'note', 300), byId: '', at: now };
+}
+
+function coaching(v: unknown, now: string): Coaching {
+  const c = obj(v, 'coaching');
+  const sc = obj(c.scores ?? {}, 'scores');
+  const scores: Coaching['scores'] = {};
+  for (const k of COACHING_SKILLS) if (sc[k] !== undefined && sc[k] !== null) scores[k] = numb(sc[k], 'score');
+  return { by: '', at: now, scores, strengths: optStr(c.strengths, 'strengths', 1000), improve: optStr(c.improve, 'what to improve', 1000) };
+}
+
 export function sanitizeMutation(raw: unknown, at: Date): Mutation {
   const now = at.toISOString();
   const m = obj(raw, 'change');
@@ -238,6 +278,22 @@ export function sanitizeMutation(raw: unknown, at: Date): Mutation {
       return { type: m.type, report: report(m.report) };
     case 'report.delete':
       return { type: m.type, id: str(m.id, 'report id', 80) };
+    // ----- 2.5 -----
+    case 'leave.request':
+      return { type: m.type, leave: leave(m.leave, now) };
+    case 'leave.review':
+      return { type: m.type, id: str(m.id, 'id', 80), approve: bool(m.approve, 'decision'), note: optStr(m.note, 'note', 1000) };
+    case 'leave.cancel':
+    case 'task.delete':
+      return { type: m.type, id: str(m.id, 'id', 80) };
+    case 'task.save':
+      return { type: m.type, task: task(m.task, now) };
+    case 'task.done':
+      return { type: m.type, id: str(m.id, 'id', 80), done: bool(m.done, 'done flag') };
+    case 'sample.issue':
+      return { type: m.type, issue: sampleIssue(m.issue, now) };
+    case 'call.coach':
+      return { type: m.type, id: str(m.id, 'id', 80), coaching: coaching(m.coaching, now) };
     default:
       return bad('change type');
   }

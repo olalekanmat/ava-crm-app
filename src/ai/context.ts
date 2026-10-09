@@ -7,6 +7,7 @@ import { repsUnder, roleLabel } from '../data/access';
 import { activeCycleLength } from '../data/cycles';
 import { toDateKey } from '../data/dates';
 import { callsByAccount, currentCycle, cycleCalls, cycleElapsed, daysLeft, repMetrics, rollup, type RepMetrics } from '../data/metrics';
+import { nextVisits } from '../data/nextBest';
 import { tierRank, tiersFor } from '../data/tiers';
 import type { Snapshot, User } from '../data/types';
 
@@ -97,6 +98,28 @@ function build(data: Snapshot, me: User, now: Date, limit: number): Record<strin
     }
   }
 
+  // Whom to see next (2.6): ranked offline from plan pace, follow-ups, tasks and the doctor's profile,
+  // with what was discussed last time so Ava can suggest talking points.
+  if (me.role === 'Rep') {
+    ctx.visitNext = nextVisits(data, me.id, cycle, now, Math.min(limit, 10)).map((v) => {
+      const last = calls.filter((c) => c.accountId === v.account.id && c.status === 'Submitted').sort((a, b) => b.datetime.localeCompare(a.datetime))[0];
+      return {
+        accountId: v.account.id,
+        account: v.account.name,
+        specialty: v.account.specialty,
+        kol: v.account.kol || undefined,
+        potential: v.account.potential,
+        segment: v.account.segment,
+        why: v.reasons,
+        lastVisit: last ? { date: day(last.datetime), products: last.products.map((p) => p.product), keyMessages: last.keyMessages, notes: last.notes?.slice(0, 160), nextStep: last.nextStep?.slice(0, 120) } : null,
+      };
+    });
+  }
+  const openTasks = (data.tasks ?? []).filter((t) => !t.doneAt && (me.role !== 'Rep' || t.ownerId === me.id)).sort((a, b) => a.due.localeCompare(b.due));
+  if (openTasks.length) ctx.openTasks = openTasks.slice(0, limit).map((t) => ({ task: t.title, due: t.due, account: t.accountId ? accountName.get(t.accountId) : undefined, owner: me.role === 'Rep' ? undefined : userName.get(t.ownerId) }));
+  const leave = (data.leaves ?? []).filter((l) => (l.status === 'Approved' || l.status === 'Pending') && l.end >= today).sort((a, b) => a.start.localeCompare(b.start));
+  if (leave.length) ctx.leave = leave.slice(0, limit).map((l) => ({ who: userName.get(l.userId), from: l.start, to: l.end, kind: l.kind, status: l.status }));
+
   ctx.overdueCalls = overdue.slice(Math.max(0, overdue.length - limit)).map(callLine);
   ctx.upcomingCalls = upcoming.slice(0, limit).map(callLine);
   ctx.followUpsDue = followUps.slice(0, limit).map((c) => ({ accountId: c.accountId, account: accountName.get(c.accountId), due: c.followUpDate, nextStep: c.nextStep?.slice(0, 120) }));
@@ -106,7 +129,7 @@ function build(data: Snapshot, me: User, now: Date, limit: number): Record<strin
     .map((a) => ({ a, rank: tierRank(tiersFor(data.settings, data.users, a.ownerId), a.tier) }))
     .sort((x, y) => x.rank - y.rank || (lastCall.get(x.a.id) ?? '').localeCompare(lastCall.get(y.a.id) ?? '') || x.a.name.localeCompare(y.a.name))
     .slice(0, limit * 2)
-    .map(({ a }) => ({ accountId: a.id, name: a.name, type: a.type, specialty: a.specialty, tier: a.tier, city: a.city, owner: me.role === 'Rep' ? undefined : userName.get(a.ownerId), lastCall: lastCall.has(a.id) ? day(lastCall.get(a.id)!) : null }));
+    .map(({ a }) => ({ accountId: a.id, name: a.name, type: a.type, specialty: a.specialty, tier: a.tier, kol: a.kol || undefined, potential: a.potential, segment: a.segment, city: a.city, owner: me.role === 'Rep' ? undefined : userName.get(a.ownerId), lastCall: lastCall.has(a.id) ? day(lastCall.get(a.id)!) : null }));
 
   ctx.recentCalls = calls
     .filter((c) => c.status === 'Submitted')

@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { Text, View } from 'react-native';
 import { geoStatus } from '@/data/geo';
-import { callsByAccount, cycleCalls, cycleElapsed, pct, repMetrics } from '@/data/metrics';
+import { approvedLeave, callsByAccount, cycleCalls, cycleElapsed, pct, repMetrics } from '@/data/metrics';
 import { useStore } from '@/data/store';
 import type { User } from '@/data/types';
 import { CallRow } from '@/ui/CallRow';
@@ -14,7 +14,7 @@ export function RepDetail({ rep }: { rep: User }) {
   const { data, cycle, calls, getUser, getAccount } = useStore();
   if (!cycle) return <Screen><Empty>No cycle is set up yet.</Empty></Screen>;
   const m = repMetrics(data, rep, cycle);
-  const elapsed = cycleElapsed(cycle);
+  const elapsed = cycleElapsed(cycle, new Date(), approvedLeave(data, rep.id));
   const theirs = calls.filter((c) => c.ownerId === rep.id);
   const inCycle = cycleCalls(theirs, cycle);
   const done = callsByAccount(inCycle);

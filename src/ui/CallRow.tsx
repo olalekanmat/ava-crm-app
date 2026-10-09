@@ -8,7 +8,7 @@ import type { Call, CallChannel } from '@/data/types';
 import { Card, GeoBadge, StatusBadge, text, type IconName } from './components';
 import { colors } from './theme';
 
-const CHANNEL_ICON: Record<CallChannel, IconName> = { 'In person': 'walk-outline', Phone: 'call-outline', Video: 'videocam-outline', Email: 'mail-outline' };
+const CHANNEL_ICON: Record<CallChannel, IconName> = { 'In person': 'walk-outline', Phone: 'call-outline', Video: 'videocam-outline', Email: 'mail-outline', WhatsApp: 'logo-whatsapp' };
 
 export function CallRow({ call, showAccount = true, showRep = false }: { call: Call; showAccount?: boolean; showRep?: boolean }) {
   const { getAccount, getUser, data } = useStore();

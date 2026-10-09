@@ -6,8 +6,9 @@ import { PlanAssist } from '@/ai/PlanAssist';
 import { manages } from '@/data/access';
 import { formatDate } from '@/data/dates';
 import { newId } from '@/data/ids';
-import { callsByAccount, cycleCalls, cycleElapsed, daysLeft, pct } from '@/data/metrics';
+import { approvedLeave, callsByAccount, cycleCalls, cycleElapsed, daysLeft, leaveDaysIn, pct, spanDays } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
+import { profileBoost } from '@/data/profile';
 import { lengthOfCycle, scaleFrequency } from '@/data/cycles';
 import { tierFrequency, tierRank, tiersFor } from '@/data/tiers';
 import type { Cycle, PlanTarget } from '@/data/types';
@@ -35,7 +36,11 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
   const isOwner = ownerId === me.id;
   const editable = isOwner && (!plan || plan.status === 'Draft' || plan.status === 'Rejected');
   const canReview = !isOwner && plan?.status === 'Submitted' && manages(data.users, me, ownerId);
-  const elapsed = cycleElapsed(cycle);
+  const leave = approvedLeave(data, ownerId);
+  const elapsed = cycleElapsed(cycle, new Date(), leave);
+  const leaveDays = leaveDaysIn(leave, cycle.start, cycle.end);
+  // Share of the cycle the person is available; suggested plans shrink to match approved leave.
+  const available = Math.max(0, 1 - leaveDays / spanDays(cycle.start, cycle.end));
   const done = callsByAccount(cycleCalls(calls.filter((c) => c.ownerId === ownerId), cycle));
   const territory = accounts.filter((a) => a.ownerId === ownerId);
 
@@ -61,7 +66,12 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
 
   if (!plan) {
     if (!isOwner) return <Empty icon="calendar-outline">{owner?.name ?? 'This rep'} has no plan for {cycle.name} yet.</Empty>;
-    const suggested = territory.filter((a) => freqOf(a.tier) > 0).map((a) => ({ accountId: a.id, planned: freqOf(a.tier) }));
+    // Key opinion leaders and high-potential doctors get extra calls; approved leave scales the plan down.
+    const want = (a: (typeof territory)[number]) => {
+      const n = freqOf(a.tier) + profileBoost(a, cycleLength);
+      return n > 0 ? Math.max(1, Math.round(n * available)) : 0;
+    };
+    const suggested = territory.filter((a) => want(a) > 0).map((a) => ({ accountId: a.id, planned: want(a) }));
     const total = suggested.reduce((n, t) => n + t.planned, 0);
     return (
       <View>
@@ -73,6 +83,12 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
         <Text style={[text.body, { marginVertical: space.md }]}>
           Start from a suggested plan: all {territory.length} of your accounts at their tier frequency ({scheme.map((t) => `${t.name} ${freqOf(t.name)}`).join(', ')} calls {cycleLength === 'month' ? 'this month' : 'per cycle'}), {total} calls in total. You can adjust each account before submitting.
         </Text>
+        {(territory.some((a) => profileBoost(a, cycleLength) > 0) || leaveDays > 0) && (
+          <Text style={[text.small, { marginBottom: space.md }]}>
+            {territory.some((a) => profileBoost(a, cycleLength) > 0) ? 'Key opinion leaders and high-potential doctors get extra visits. ' : ''}
+            {leaveDays > 0 ? `You have ${leaveDays} day${leaveDays === 1 ? '' : 's'} of approved leave in this cycle, so the suggestion is ${Math.round(available * 100)}% of the usual.` : ''}
+          </Text>
+        )}
         {cycleLength === 'month' && <Text style={[text.small, { marginBottom: space.md }]}>Your company plans by month. Tier frequencies are calls per quarter, so the monthly suggestion is about a third of them (at least one call per account).</Text>}
         <Row>
           <Button title="Use suggested plan" icon="sparkles-outline" onPress={() => saveTargets(suggested)} disabled={!territory.length} />
@@ -95,6 +111,11 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
 
   return (
     <View>
+      {leaveDays > 0 && (
+        <Banner tone="info" icon="airplane-outline">
+          {isOwner ? 'You have' : `${owner?.name ?? 'This rep'} has`} {leaveDays} day{leaveDays === 1 ? '' : 's'} of approved leave in {cycle.name}. The pace marker leaves those days out, so leave does not count as falling behind.
+        </Banner>
+      )}
       {!isOwner && owner && (
         <Card>
           <Row gap={space.md}>

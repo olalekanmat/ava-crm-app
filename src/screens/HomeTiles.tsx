@@ -110,13 +110,12 @@ export function AlertsTile() {
   );
 }
 
-/** My tasks: follow-ups promised in calls, overdue and due this week. */
+/** My tasks: tasks and follow-ups promised in calls, overdue and due this week. */
 export function TasksTile() {
   const { tasks } = useAlerts();
-  const { getAccount } = useStore();
   const next = tasks.overdue[0] ?? tasks.current[0];
   return (
-    <Tile title="My tasks" icon="checkbox-outline" alert={tasks.overdue.length > 0} onPress={next ? () => router.push({ pathname: '/account/[id]', params: { id: next.call.accountId } }) : undefined}>
+    <Tile title="My tasks" icon="checkbox-outline" alert={tasks.overdue.length > 0} onPress={() => router.push('/tasks')}>
       <StatSplit
         items={[
           { value: tasks.overdue.length, label: 'Overdue', color: tasks.overdue.length ? tone.urgent : colors.faint },
@@ -124,7 +123,7 @@ export function TasksTile() {
         ]}
       />
       <Text style={[text.small, styles.foot]} numberOfLines={1}>
-        {next ? `Follow up ${getAccount(next.call.accountId)?.name ?? ''} · ${next.due}` : 'No open follow-ups.'}
+        {next ? `${next.title} · ${next.due}` : 'No open tasks or follow-ups.'}
       </Text>
     </Tile>
   );
@@ -137,8 +136,7 @@ const PACE: Record<Pace, { label: string; color: string }> = {
 };
 
 /** Cycle plan ring: done against plan, coloured by pace, with how many accounts (or reps) are on track. */
-export function CyclePlanTile({ cycle, attainment, planned, health, unit, onPress, empty }: { cycle: Cycle; attainment: number; planned: number; health: Record<Pace, number>; unit: string; onPress: () => void; empty?: string }) {
-  const elapsed = cycleElapsed(cycle);
+export function CyclePlanTile({ cycle, attainment, planned, health, unit, onPress, empty, elapsed = cycleElapsed(cycle) }: { cycle: Cycle; attainment: number; planned: number; health: Record<Pace, number>; unit: string; onPress: () => void; empty?: string; elapsed?: number }) {
   const c = paceColor(attainment, elapsed);
   return (
     <Tile title={`${cycle.name} plan`} icon="flag-outline" onPress={onPress} alert={health.behind > 0}>
