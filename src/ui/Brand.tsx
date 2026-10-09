@@ -30,9 +30,9 @@ export function CompanyLogo({ size = 32 }: { size?: number }) {
     .map((w) => w[0]!.toUpperCase())
     .join('');
   return (
-    <View style={{ width: size, height: size, borderRadius: size / 4, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel={company.name}>
+    <LinearGradient colors={[colors.primaryDark, colors.primary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ width: size, height: size, borderRadius: size / 4, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel={company.name}>
       <Text style={{ color: '#fff', fontWeight: '800', fontSize: size * 0.4 }}>{initials}</Text>
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -53,9 +53,10 @@ export function HeaderTitle({ title }: { title?: string }) {
 /** Gradient header card at the top of each home dashboard, in Ava blue with soft light shapes. */
 export function Hero({ children, slim }: { children: ReactNode; slim?: boolean }) {
   return (
-    <LinearGradient colors={[colors.primaryDark, colors.primary, '#2F6BEA']} locations={[0, 0.55, 1]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, slim && { padding: space.md, marginBottom: space.md }]}>
-      <View pointerEvents="none" style={[styles.orb, { width: 260, height: 260, right: -70, top: -120, backgroundColor: 'rgba(18,165,236,0.35)' }]} />
-      <View pointerEvents="none" style={[styles.orb, { width: 180, height: 180, right: 120, bottom: -130, backgroundColor: 'rgba(255,255,255,0.07)' }]} />
+    <LinearGradient colors={[colors.ink, colors.primaryDark, colors.primary]} locations={[0, 0.5, 1]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, slim && { padding: space.md, marginBottom: space.md }]}>
+      <View pointerEvents="none" style={[styles.orb, { width: 320, height: 320, right: -90, top: -170, backgroundColor: 'rgba(18,165,236,0.22)' }]} />
+      <View pointerEvents="none" style={[styles.orb, { width: 200, height: 200, right: 140, bottom: -150, backgroundColor: 'rgba(255,255,255,0.05)' }]} />
+      <View pointerEvents="none" style={styles.sheen} />
       {children}
     </LinearGradient>
   );
@@ -80,9 +81,11 @@ export function HeroStat({ label, value }: { label: string; value: string | numb
 }
 
 const styles = StyleSheet.create({
-  hero: { borderRadius: radius.lg + 4, padding: space.lg + 4, marginBottom: space.lg, overflow: 'hidden' },
+  hero: { borderRadius: radius.lg + 4, padding: space.lg + 4, marginBottom: space.lg, overflow: 'hidden', boxShadow: '0 10px 30px rgba(8, 26, 68, 0.22)' },
+  /** A hairline of light along the top edge, like polished glass. */
+  sheen: { position: 'absolute', left: 0, right: 0, top: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.18)' },
   orb: { position: 'absolute', borderRadius: 999 },
-  stat: { flexGrow: 1, flexBasis: 64, backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: radius.md, paddingVertical: space.sm, paddingHorizontal: space.sm + 2 },
-  statValue: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  stat: { flexGrow: 1, flexBasis: 64, backgroundColor: 'rgba(255,255,255,0.10)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', borderRadius: radius.md, paddingVertical: space.sm, paddingHorizontal: space.sm + 2 },
+  statValue: { color: '#fff', fontSize: 20, fontWeight: '800', fontVariant: ['tabular-nums'] },
   statLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '600' },
 });

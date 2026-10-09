@@ -25,7 +25,28 @@ export function previewState(): { snapshot: Snapshot; session: { mode: 'cloud'; 
     license: {
       state: 'active',
       daysLeft: 365,
-      payload: { v: 1, companyId: 'preview', company: snapshot.company.name, adminEmail: '', issuedAt: new Date(now).toISOString(), expiresAt: new Date(now + 14 * 864e5).toISOString(), subscriptionEnd: new Date(now + 365 * 864e5).toISOString() },
+      payload: { v: 1, companyId: 'preview', company: snapshot.company.name, adminEmail: '', issuedAt: new Date(now).toISOString(), expiresAt: new Date(now + 14 * 864e5).toISOString(), subscriptionEnd: new Date(now + 365 * 864e5).toISOString(), seats: 30 },
     },
+  };
+}
+
+/** A made-up subscription quote, so the Subscription card can be reviewed without a server. */
+export function previewBilling(pick: { kind: 'renew' | 'add'; months: number; seats: number }, activeUsers: number) {
+  const perUserMonth = 12500;
+  const durationDiscounts = [{ minMonths: 3, percent: 5 }, { minMonths: 6, percent: 10 }, { minMonths: 12, percent: 16.67, label: '2 months free' }];
+  const seats = pick.kind === 'add' ? Math.max(1, pick.seats) : Math.max(5, activeUsers, pick.seats);
+  const days = pick.kind === 'add' ? 120 : Math.round((pick.months * 365) / 12);
+  const subtotal = pick.kind === 'add' ? Math.round((perUserMonth * 100 * seats * days * 12) / 365) : perUserMonth * 100 * seats * pick.months;
+  const d = pick.kind === 'add' ? undefined : durationDiscounts.filter((x) => pick.months >= x.minMonths).at(-1);
+  const discounts = [...(d ? [{ label: d.label ?? `${d.minMonths}+ month discount`, percent: d.percent }] : []), { label: 'Launch offer', percent: 10, until: '2026-10-31' }].map((x) => ({ ...x, amount: 0 }));
+  let amount = subtotal;
+  for (const x of discounts) {
+    x.amount = Math.round((amount * x.percent) / 100);
+    amount -= x.amount;
+  }
+  return {
+    configured: true, currency: 'NGN', perUserMonth, minSeats: 5, maxMonths: 24, durationDiscounts, promotion: { label: 'Launch offer', percent: 10, until: '2026-10-31' }, activeUsers,
+    quote: { kind: pick.kind, months: pick.kind === 'add' ? 0 : pick.months, days, seats, minSeats: 5, perUserMonth, currency: 'NGN', subtotal, discounts, amount: Math.round(amount / 100) * 100 },
+    licence: { status: 'active', subscriptionEnd: new Date(Date.now() + 120 * 864e5).toISOString(), seats: 30, payments: [{ at: '2026-09-01T10:00:00Z', kind: 'renew', amount: 2250000 * 100, currency: 'NGN', months: 6, seats: 30, reference: 'ava-preview' }] },
   };
 }

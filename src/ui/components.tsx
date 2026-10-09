@@ -6,7 +6,7 @@ import type { GeoStatus } from '@/data/geo';
 import { useStore } from '@/data/store';
 import { tierRankIn } from '@/data/tiers';
 import type { CallStatus, PlanStatus, Tier, User } from '@/data/types';
-import { avatarColor, colors, radius, shadow, space, touch } from './theme';
+import { avatarColor, colors, radius, shadow, shadowPrimary, space, touch } from './theme';
 
 export type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -57,6 +57,7 @@ export function Button({
         small && styles.buttonSmall,
         { backgroundColor: bg, opacity: disabled ? 0.5 : pressed ? 0.85 : 1 },
         variant === 'danger' && { borderWidth: 1, borderColor: colors.danger },
+        variant === 'primary' && !disabled && shadowPrimary,
       ]}
     >
       {icon && <Ionicons name={icon} size={small ? 15 : 18} color={fg} />}
@@ -357,10 +358,10 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: 0.8 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space.xl, marginBottom: space.md },
-  section: { fontSize: 17, fontWeight: '700', color: colors.text, letterSpacing: -0.2 },
+  section: { fontSize: 17, fontWeight: '700', color: colors.text, letterSpacing: -0.3 },
   button: { minHeight: touch, paddingVertical: 11, paddingHorizontal: space.lg, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', flexGrow: 1, flexDirection: 'row', gap: 8 },
   buttonSmall: { minHeight: 34, paddingVertical: 7, paddingHorizontal: space.md, flexGrow: 0 },
-  buttonText: { fontSize: 15, fontWeight: '600' },
+  buttonText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.1 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -425,7 +426,7 @@ const styles = StyleSheet.create({
     ...shadow,
   },
   kpiLabel: { fontSize: 12, color: colors.muted, fontWeight: '600', flexShrink: 1 },
-  kpiValue: { fontSize: 26, fontWeight: '800', color: colors.text, marginTop: 4, letterSpacing: -0.5 },
+  kpiValue: { fontSize: 26, fontWeight: '800', color: colors.text, marginTop: 4, letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
   kpiSub: { fontSize: 12, color: colors.faint, marginTop: 2 },
   listRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 56, paddingVertical: space.md, paddingHorizontal: space.lg },
   listIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },

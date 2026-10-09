@@ -76,23 +76,41 @@ export const api = {
    */
   deleteAccount: (token: string, password: string, closeCompany = false) =>
     call<{ deleted?: true; closed?: true; folderUrl?: string; provider?: string }>('POST', 'account/delete', { token, body: { password, closeCompany } }),
-  billingQuote: (token: string) => call<BillingQuote>('GET', 'billing/quote', { token }),
-  /** Starts a Paystack payment; returns the checkout page to open. */
-  billingCheckout: (token: string, plan: BillingPlan) => call<{ url: string; reference: string }>('POST', 'billing/checkout', { token, body: { plan } }),
+  billingQuote: (token: string, pick: BillingPick) =>
+    call<BillingQuote>('GET', `billing/quote?kind=${pick.kind}&months=${pick.months}&seats=${pick.seats}`, { token }),
+  /** Starts a Paystack payment; returns the checkout page to open. `expectedAmount` guards against a price change in between. */
+  billingCheckout: (token: string, pick: BillingPick, expectedAmount: number) =>
+    call<{ url: string; reference: string }>('POST', 'billing/checkout', { token, body: { ...pick, expectedAmount } }),
   billingVerify: (token: string, reference: string) =>
-    call<{ status: string; subscriptionEnd?: string }>('GET', `billing/verify?reference=${encodeURIComponent(reference)}`, { token }),
+    call<{ status: string; subscriptionEnd?: string; seats?: number }>('GET', `billing/verify?reference=${encodeURIComponent(reference)}`, { token }),
 };
 
-export type BillingPlan = 'month' | 'year';
-export interface PlanQuote { plan: BillingPlan; months: number; days: number; seats: number; /** In the currency's smallest unit (kobo, cents). */ amount: number; currency: string; perUserMonth: number }
+/** renew: `seats` licences for `months` months after the current end. add: `seats` more licences until the current end. */
+export interface BillingPick { kind: 'renew' | 'add'; months: number; seats: number }
+export interface PriceQuote {
+  kind: 'renew' | 'add';
+  months: number;
+  days: number;
+  seats: number;
+  minSeats: number;
+  perUserMonth: number;
+  currency: string;
+  /** Amounts are in the currency's smallest unit (kobo, cents). */
+  subtotal: number;
+  discounts: { label: string; percent: number; amount: number; until?: string }[];
+  amount: number;
+}
 export interface BillingQuote {
   configured: boolean;
   currency: string;
   perUserMonth: number;
   minSeats: number;
+  maxMonths: number;
+  durationDiscounts: { minMonths: number; percent: number; label?: string }[];
+  promotion: { label: string; percent: number; until?: string } | null;
   activeUsers: number;
-  plans: Record<BillingPlan, PlanQuote>;
-  licence?: { status: string; subscriptionEnd?: string; payments?: { at: string; amount: number; currency: string; months: number; seats: number; reference: string }[] };
+  quote: PriceQuote;
+  licence?: { status: string; subscriptionEnd?: string; seats?: number | null; payments?: { at: string; kind?: string; amount: number; currency: string; months: number; seats: number; reference: string }[] };
 }
 
 /** The company folder, reached through the server with this person's sign-in. */

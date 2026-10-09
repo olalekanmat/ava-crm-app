@@ -55,7 +55,9 @@ function HeaderActions() {
 
 export default function TabsLayout() {
   const { me, company } = useStore();
-  const { compact } = useLayout();
+  const { compact, width } = useLayout();
+  // Phones show the label under the icon; wide screens put it beside the icon, where a pill would look lost.
+  const pill = width < 768;
   if (!me) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
@@ -65,7 +67,12 @@ export default function TabsLayout() {
   }
   const isRep = me.role === 'Rep';
   const icon = (name: IconName, active: IconName) => {
-    const TabIcon = ({ color, size, focused }: { color: unknown; size: number; focused: boolean }) => <Ionicons name={focused ? active : name} color={color as string} size={size} />;
+    // The current tab sits on a soft pill, so where you are reads at a glance.
+    const TabIcon = ({ color, size, focused }: { color: unknown; size: number; focused: boolean }) => (
+      <View style={{ paddingHorizontal: pill ? 14 : 0, paddingVertical: 2, borderRadius: 999, backgroundColor: focused && pill ? colors.primarySoft : 'transparent' }}>
+        <Ionicons name={focused ? active : name} color={color as string} size={size - 2} />
+      </View>
+    );
     return TabIcon;
   };
 
@@ -74,7 +81,7 @@ export default function TabsLayout() {
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
-        tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border, ...(Platform.OS === 'web' && !compact ? { height: 62, paddingTop: 6 } : {}) },
+        tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.hairline, boxShadow: '0 -4px 20px rgba(10, 25, 60, 0.05)', ...(Platform.OS === 'web' && !compact ? { height: 62, paddingTop: 6 } : {}) },
         tabBarLabelStyle: { fontWeight: '600', fontSize: 11 },
         headerStyle: { backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.hairline },
         headerShadowVisible: false,

@@ -21,6 +21,8 @@ export interface LicensePayload {
   issuedAt: string;
   expiresAt: string;
   subscriptionEnd: string;
+  /** Active users the company has paid for; absent means no limit. */
+  seats?: number;
 }
 
 /** Stored in the company folder as ava-license.json, so every device sees the latest licence. */
