@@ -46,10 +46,10 @@ export function CallNoteAssist({ accountName, fields, onChange, tidy = true }: {
     <View style={{ marginBottom: space.sm }}>
       <Row style={{ flexWrap: 'wrap' }}>
         <MicButton label="Dictate notes" size={34} onText={(t) => onChange({ ...fields, notes: appendText(fields.notes, t) })} />
-        {ai && tidy && (busy ? <ActivityIndicator color={colors.primary} /> : <Button small variant="ghost" icon="sparkles-outline" title="Tidy with AI" onPress={run} disabled={!fields.notes.trim()} />)}
+        {ai && tidy && (busy ? <ActivityIndicator color={colors.primary} /> : <Button small variant="ghost" icon="sparkles-outline" title="Tidy with Ava AI" onPress={run} disabled={!fields.notes.trim()} />)}
       </Row>
-      {ai && tidy && !fields.notes.trim() && <Text style={styles.hint}>Say or type what happened in the call, then let AI fill in the form for you to check.</Text>}
-      {done && <Banner tone="success" icon="sparkles">AI filled in the form from your notes. Check everything before saving.</Banner>}
+      {ai && tidy && !fields.notes.trim() && <Text style={styles.hint}>Say or type what happened in the call, then let Ava AI fill in the form for you to check.</Text>}
+      {done && <Banner tone="success" icon="sparkles">Ava AI filled in the form from your notes. Check everything before saving.</Banner>}
       {!!error && <Banner tone="warn">{error}</Banner>}
     </View>
   );
