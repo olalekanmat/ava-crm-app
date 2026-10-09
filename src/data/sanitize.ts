@@ -212,6 +212,8 @@ export function sanitizeMutation(raw: unknown, at: Date): Mutation {
       };
     case 'user.photo':
       return { type: m.type, id: str(m.id, 'user id', 80), photo: optStr(m.photo, 'photo', 200_000) };
+    case 'user.leave':
+      return { type: m.type };
     case 'account.delete':
     case 'product.delete':
       return { type: m.type, ids: arr(m.ids, 'ids', 20000).map((x) => str(x, 'id', 80)) };

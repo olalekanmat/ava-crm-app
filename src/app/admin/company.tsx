@@ -9,9 +9,10 @@ import { formatDate, formatDateTime } from '@/data/dates';
 import { isAdmin } from '@/data/access';
 import { useMe, useStore } from '@/data/store';
 import type { Company } from '@/data/types';
+import { BillingCard } from '@/ui/BillingCard';
 import { Badge, Banner, Button, Card, Empty, ListRow, Row, SectionTitle, text } from '@/ui/components';
 import { cleanCompany, CompanyForm } from '@/ui/CompanyForm';
-import { confirm, notify } from '@/ui/confirm';
+import { notify } from '@/ui/confirm';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
 
@@ -20,7 +21,7 @@ const STATE_LABEL = { active: 'Approved', pending: 'Waiting for approval', none:
 /** Admin: company profile, licence and approval, and the drive folder the team shares. */
 export default function CompanyScreen() {
   const me = useMe();
-  const { company, run, session, license, licenseFile, saveLicense, data, syncNow } = useStore();
+  const { company, run, session, license, licenseFile, saveLicense, syncNow } = useStore();
   const [draft, setDraft] = useState<Company>(company);
   const [busy, setBusy] = useState<string>();
   const [folderUrl, setFolderUrl] = useState<string>();
@@ -110,6 +111,8 @@ export default function CompanyScreen() {
           </View>
         )}
       </Card>
+
+      {cloud && <BillingCard />}
 
       {cloud && (
         <>

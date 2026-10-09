@@ -22,6 +22,8 @@ export type Mutation =
   | { type: 'user.delete'; users: { id: string; transferTo?: string }[] }
   /** Sets or removes (`photo` absent) a profile picture: the person themselves or an administrator. */
   | { type: 'user.photo'; id: string; photo?: string }
+  /** The person deletes their own account (2.4): they become inactive and their photo goes. Older versions skip it. */
+  | { type: 'user.leave' }
   | { type: 'account.delete'; ids: string[] }
   | { type: 'product.upsert'; product: Product }
   | { type: 'product.delete'; ids: string[] }
@@ -234,9 +236,17 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (existing?.deletedAt) fail('This person was deleted.');
       // The photo is changed with user.photo only, so editing someone keeps their picture.
       const u = { ...normalUser(keepMissing(m.user, existing)), photo: existing?.photo, deletedAt: undefined };
+      // Reactivating someone who deleted their own account clears the mark.
+      const leftAt = u.active ? undefined : existing?.leftAt;
       if (u.id === actor.id && (!u.active || !hasAdminRights(u))) fail('You cannot remove your own admin access.');
       checkUser(s, u);
-      return { ...s, users: replaceOrAdd(s.users, { ...u, createdAt: existing?.createdAt ?? u.createdAt ?? nowIso }) };
+      return { ...s, users: replaceOrAdd(s.users, { ...u, leftAt, createdAt: existing?.createdAt ?? u.createdAt ?? nowIso }) };
+    }
+
+    case 'user.leave': {
+      const u = s.users.find((x) => x.id === actor.id && !x.deletedAt) ?? fail('Person not found.');
+      // Their accounts, plans and calls stay for an administrator to reassign; their sign-in and photo go.
+      return { ...s, users: s.users.map((x) => (x.id === u.id ? { ...x, active: false, admin: undefined, photo: undefined, leftAt: nowIso } : x)) };
     }
 
     case 'user.delete': {
@@ -440,6 +450,8 @@ export function describeMutation(m: Mutation): string {
       return `Deleted ${m.users.length} user${m.users.length > 1 ? 's' : ''}`;
     case 'user.photo':
       return m.photo ? 'Changed a profile photo' : 'Removed a profile photo';
+    case 'user.leave':
+      return 'Deleted their own account';
     case 'account.delete':
       return `Deleted ${m.ids.length} account${m.ids.length > 1 ? 's' : ''}`;
     case 'product.delete':

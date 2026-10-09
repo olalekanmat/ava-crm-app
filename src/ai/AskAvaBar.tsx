@@ -8,8 +8,8 @@ import { useAiAvailable } from './client';
 import { MicButton } from './MicButton';
 import { appendText } from './useDictation';
 
-const REP_IDEAS = ['Who should I see this week?', 'Which accounts am I behind on?', 'What follow-ups are due?'];
-const MANAGER_IDEAS = ['Which reps are behind plan?', 'Whose plans need my approval?', 'Which top-tier accounts were not seen lately?'];
+export const REP_IDEAS = ['Who should I see this week?', 'Which accounts am I behind on?', 'What follow-ups are due?'];
+export const MANAGER_IDEAS = ['Which reps are behind plan?', 'Whose plans need my approval?', 'Which top-tier accounts were not seen lately?'];
 
 /** "How can I help?" box inside the blue home header. Opens Ask Ava with the question. */
 export function AskAvaBar() {

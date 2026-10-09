@@ -20,6 +20,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status = 0,
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -36,8 +37,8 @@ async function call<T>(method: 'GET' | 'POST', path: string, { body, token }: { 
   } catch {
     throw new ApiError('No connection to Ava CRM. Check your internet connection and try again.', 0);
   }
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new ApiError(data.error ?? `Ava CRM answered ${res.status}.`, res.status);
+  const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+  if (!res.ok) throw new ApiError(data.error ?? `Ava CRM answered ${res.status}.`, res.status, data.code);
   return data as T;
 }
 
@@ -69,7 +70,30 @@ export const api = {
   /** `provider` picks where the company's data lives; servers without Google Drive support ignore it. */
   startSetup: (company: Company, admin: { name: string; email: string; password: string }, provider: SetupProvider = 'onedrive') =>
     call<{ authorizeUrl: string; provider?: string }>('POST', 'setup/start', { body: { company, admin, provider } }),
+  /**
+   * Deletes the signed-in person's account after checking their password. The company's only
+   * administrator must pass `closeCompany`: the server then forgets the whole company.
+   */
+  deleteAccount: (token: string, password: string, closeCompany = false) =>
+    call<{ deleted?: true; closed?: true; folderUrl?: string; provider?: string }>('POST', 'account/delete', { token, body: { password, closeCompany } }),
+  billingQuote: (token: string) => call<BillingQuote>('GET', 'billing/quote', { token }),
+  /** Starts a Paystack payment; returns the checkout page to open. */
+  billingCheckout: (token: string, plan: BillingPlan) => call<{ url: string; reference: string }>('POST', 'billing/checkout', { token, body: { plan } }),
+  billingVerify: (token: string, reference: string) =>
+    call<{ status: string; subscriptionEnd?: string }>('GET', `billing/verify?reference=${encodeURIComponent(reference)}`, { token }),
 };
+
+export type BillingPlan = 'month' | 'year';
+export interface PlanQuote { plan: BillingPlan; months: number; days: number; seats: number; /** In the currency's smallest unit (kobo, cents). */ amount: number; currency: string; perUserMonth: number }
+export interface BillingQuote {
+  configured: boolean;
+  currency: string;
+  perUserMonth: number;
+  minSeats: number;
+  activeUsers: number;
+  plans: Record<BillingPlan, PlanQuote>;
+  licence?: { status: string; subscriptionEnd?: string; payments?: { at: string; amount: number; currency: string; months: number; seats: number; reference: string }[] };
+}
 
 /** The company folder, reached through the server with this person's sign-in. */
 export function relayDrive(getToken: () => Promise<string | null>, folder: FolderRef): DriveAdapter {

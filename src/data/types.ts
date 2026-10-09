@@ -29,6 +29,8 @@ export interface User {
   createdAt: string;
   /** Set when an administrator deleted the person. They are hidden everywhere and cannot sign in; submitted calls keep their name. */
   deletedAt?: string;
+  /** Set when the person deleted their own account in the app (2.4). They are inactive until an administrator reassigns their work and deletes or restores them. */
+  leftAt?: string;
 }
 
 export type AccountType = 'HCP' | 'HCO';

@@ -80,6 +80,8 @@ interface Store {
   signOut(): Promise<void>;
   /** `manual`: the person pressed Sync (admins then also refresh the CSV copies in the drive). */
   syncNow(manual?: boolean): Promise<void>;
+  /** Uploads this device's changes now; true when nothing is left waiting. */
+  uploadNow(): Promise<boolean>;
   saveLicense(file: LicenseFile): Promise<void>;
   clearRejected(): void;
 }
@@ -256,7 +258,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const s = sessionRef.current;
       const actor = fullRef.current.users.find((u) => u.id === s?.userId);
       if (!s || !actor) throw new Error('Not signed in.');
-      if (s.mode === 'cloud' && !licensed && !(isAdmin(actor) && SETUP_TYPES.has(m.type))) {
+      if (s.mode === 'cloud' && !licensed && m.type !== 'user.leave' && !(isAdmin(actor) && SETUP_TYPES.has(m.type))) {
         throw new RuleError(
           license.state === 'pending' || license.state === 'none'
             ? 'Your company is waiting for approval. You can view data, but changes are off until it is approved.'
@@ -296,6 +298,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [setCache, applyReplay],
   );
+
+  const uploadNow = useCallback(async () => {
+    // Wait for a sync that is already running, then run one that includes the latest changes.
+    for (let i = 0; i < 40 && syncing.current; i++) await new Promise((r) => setTimeout(r, 250));
+    await syncNow();
+    const c = cacheRef.current;
+    return !c || pendingCount(c) === 0;
+  }, [syncNow]);
 
   const signOut = useCallback(async () => {
     const s = sessionRef.current;
@@ -355,11 +365,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       run,
       enterCloud,
       signOut,
+      uploadNow,
       syncNow,
       saveLicense,
       clearRejected: () => setSync((x) => ({ ...x, rejected: [] })),
     };
-  }, [full, me, ready, session, sync, license, licensed, cache?.license, activity, run, enterCloud, signOut, syncNow, saveLicense]);
+  }, [full, me, ready, session, sync, license, licensed, cache?.license, activity, run, enterCloud, signOut, syncNow, uploadNow, saveLicense]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

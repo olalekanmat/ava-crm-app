@@ -3,7 +3,6 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { Text, View } from 'react-native';
 import { providerLabel } from '@/cloud/drive';
-import { formatDateTime } from '@/data/dates';
 import { roleLabel } from '@/data/access';
 import { canViewReports } from '@/data/reports';
 import { useMe, useStore } from '@/data/store';
@@ -51,6 +50,7 @@ export default function MoreScreen() {
       <SectionTitle>Account</SectionTitle>
       <Card style={{ padding: 0 }}>
         <ListRow icon="key-outline" title="Change password" subtitle={session?.companyCode ? `Company code ${session.companyCode}` : undefined} onPress={() => router.push('/password')} />
+        <ListRow icon="trash-outline" title="Delete my account" tone={colors.danger} onPress={() => router.push('/delete-account')} />
       </Card>
 
       <SectionTitle>Data</SectionTitle>

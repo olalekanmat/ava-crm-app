@@ -57,6 +57,7 @@ function RootNav() {
         <Stack.Screen name="call/edit" options={{ title: 'Log call', presentation: 'modal' }} />
         <Stack.Screen name="plan/[id]" options={{ title: 'Cycle plan' }} />
         <Stack.Screen name="password" options={{ title: 'Change password' }} />
+        <Stack.Screen name="delete-account" options={{ title: 'Delete account' }} />
         <Stack.Screen name="profile" options={{ title: 'My profile' }} />
         <Stack.Screen name="team/[id]" options={{ title: 'Team' }} />
         <Stack.Screen name="overview" options={{ title: 'Organisation overview' }} />
