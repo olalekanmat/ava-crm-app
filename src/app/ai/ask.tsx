@@ -5,13 +5,14 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { aiErrorMessage, runAi, useAiAvailable } from '@/ai/client';
 import { buildAskContext } from '@/ai/context';
 import { filterAskActions } from '@/ai/logic';
+import { MANAGER_IDEAS, REP_IDEAS } from '@/ai/AskAvaBar';
 import { MicButton } from '@/ai/MicButton';
 import type { AskAction } from '@/ai/types';
 import { appendText } from '@/ai/useDictation';
 import { roleLabel } from '@/data/access';
 import { todayKey } from '@/data/dates';
 import { useMe, useStore } from '@/data/store';
-import { Banner, Button, Empty, text } from '@/ui/components';
+import { Banner, Button, Chip, Empty, text } from '@/ui/components';
 import { Screen } from '@/ui/Screen';
 import { colors, radius, space } from '@/ui/theme';
 
@@ -74,7 +75,15 @@ export default function AskScreen() {
     <Screen>
       <Stack.Screen options={{ title: 'Ask Ava' }} />
       {messages.length === 0 && (
-        <Banner icon="sparkles">Ask about your accounts, calls, plans{me.role === 'Rep' ? '' : ' and team'}. Ava only uses data you can already see in the app.</Banner>
+        <>
+          <Banner icon="sparkles">Ask about your accounts, calls, plans{me.role === 'Rep' ? '' : ' and team'}. Ava only uses data you can already see in the app.</Banner>
+          <Text style={[text.small, { marginBottom: space.sm }]}>Try one of these</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginBottom: space.md }}>
+            {(me.role === 'Rep' ? REP_IDEAS : MANAGER_IDEAS).map((q) => (
+              <Chip key={q} label={q} icon="sparkles-outline" onPress={() => ask(q)} />
+            ))}
+          </View>
+        </>
       )}
       {messages.map((m) => (
         <View key={m.id} style={[styles.bubble, m.from === 'me' ? styles.mine : m.error ? styles.err : styles.theirs]}>

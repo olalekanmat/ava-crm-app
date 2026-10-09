@@ -1,9 +1,12 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
+import { useAiAvailable } from '@/ai/client';
+import { AI_CONSENT_TEXT, hasAiConsent, setAiConsent } from '@/ai/consent';
 import { roleLabel } from '@/data/access';
 import { formatDate } from '@/data/dates';
 import { useMe, useStore } from '@/data/store';
-import { Card, ListRow, Row, SectionTitle, text } from '@/ui/components';
+import { Card, ListRow, Row, SectionTitle, text, ToggleRow } from '@/ui/components';
 import { PhotoEditor } from '@/ui/PhotoEditor';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
@@ -13,6 +16,11 @@ export default function ProfileScreen() {
   const me = useMe();
   const { getUser, session, company, admin } = useStore();
   const manager = getUser(me.managerId);
+  const ai = useAiAvailable();
+  const [aiOk, setAiOk] = useState(false);
+  useEffect(() => {
+    hasAiConsent().then(setAiOk);
+  }, []);
   const rows: [string, string | undefined][] = [
     ['Name', me.name],
     ['Role', roleLabel(me)],
@@ -42,9 +50,24 @@ export default function ProfileScreen() {
           ))}
         <Text style={[text.small, { marginTop: space.sm }]}>{admin ? 'Change these in Users & roles.' : 'Your administrator keeps these details up to date.'}</Text>
       </Card>
+      {ai && (
+        <>
+          <SectionTitle>AI</SectionTitle>
+          <Card>
+            <ToggleRow
+              label="Allow AI features on this device"
+              value={aiOk}
+              onChange={(on) => setAiConsent(on).then(() => setAiOk(on))}
+              hint={aiOk ? 'Turn off to stop sending anything to AI. You will be asked again the next time you use an AI feature.' : 'You will be asked before anything is sent to AI.'}
+            />
+            <Text style={[text.small, { marginTop: space.sm }]}>{AI_CONSENT_TEXT}</Text>
+          </Card>
+        </>
+      )}
       <SectionTitle>Security</SectionTitle>
       <Card style={{ padding: 0 }}>
         <ListRow icon="key-outline" title="Change password" onPress={() => router.push('/password')} />
+        <ListRow icon="trash-outline" title="Delete my account" subtitle="Remove your sign-in from Ava CRM" tone={colors.danger} onPress={() => router.push('/delete-account')} />
       </Card>
       <View style={{ height: space.xl }} />
     </Screen>

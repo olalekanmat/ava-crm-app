@@ -395,3 +395,25 @@ test('CSV: blank id makes a new account; deletes are checked after adds; limits 
   assert.equal(users.deletes.length, 1, users.rows.map((x) => x.errors.join()).join('|'));
   assert.match(importUsers('action,email\ndelete,admin@ava.demo\n', s, admin.id).rows[0].errors.join(), /yourself/);
 });
+
+test('user.leave: a person deletes their own account; work stays, reactivation clears the mark', () => {
+  const s = seed();
+  const rep = user(s, 'usr_rep1');
+  const owned = s.accounts.filter((a) => a.ownerId === rep.id).length;
+  const m = sanitizeMutation(JSON.parse(JSON.stringify({ type: 'user.leave', extra: 'ignored' })), now);
+  assert.deepEqual(m, { type: 'user.leave' });
+  const withPhoto = { ...s, users: s.users.map((u) => (u.id === rep.id ? { ...u, photo: 'data:image/jpeg;base64,AAAA' } : u)) };
+  const next = applyMutation(withPhoto, m, rep, now);
+  const left = user(next, rep.id);
+  assert.equal(left.active, false);
+  assert.equal(left.photo, undefined);
+  assert.equal(left.leftAt, now.toISOString());
+  assert.equal(next.accounts.filter((a) => a.ownerId === rep.id).length, owned, 'accounts stay for reassignment');
+  // An administrator brings them back.
+  const admin = user(s, 'usr_admin');
+  const back = applyMutation(next, { type: 'user.upsert', user: { ...left, active: true } }, admin, now);
+  assert.equal(user(back, rep.id).leftAt, undefined);
+  // Editing them while still inactive keeps the mark.
+  const edited = applyMutation(next, { type: 'user.upsert', user: { ...left, territory: 'Ikeja North' } }, admin, now);
+  assert.equal(user(edited, rep.id).leftAt, now.toISOString());
+});

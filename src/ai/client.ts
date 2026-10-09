@@ -1,9 +1,10 @@
 import { useStore } from '@/data/store';
 import { API, loadToken } from '@/cloud/relay';
+import { ensureAiConsent } from './consent';
 import { coerceResult } from './logic';
 import type { AiTask, AiTasks } from './types';
 
-export type AiErrorCode = 'not_configured' | 'disabled' | 'offline' | 'timeout' | 'auth' | 'busy' | 'too_large' | 'server' | 'bad_reply';
+export type AiErrorCode = 'declined' | 'not_configured' | 'disabled' | 'offline' | 'timeout' | 'auth' | 'busy' | 'too_large' | 'server' | 'bad_reply';
 
 /** A failed AI request, with a message that can be shown as is. */
 export class AiError extends Error {
@@ -17,6 +18,7 @@ export class AiError extends Error {
 }
 
 const MESSAGES: Record<AiErrorCode, string> = {
+  declined: 'Nothing was sent to AI. You can allow AI the next time you use an AI feature.',
   not_configured: 'AI is not set up yet for Ava CRM. Everything else works as usual; please try again later.',
   disabled: 'Your administrator has turned AI features off.',
   offline: 'No connection. AI needs the internet; your typing and dictation still work offline.',
@@ -39,6 +41,7 @@ const TIMEOUT_MS: Record<AiTask, number> = { call_note: 45_000, schedule: 45_000
 export async function runAi<T extends AiTask>(task: T, input: AiTasks[T]['input'], opts: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<AiTasks[T]['result']> {
   const token = await loadToken().catch(() => null);
   if (!token) throw new AiError(MESSAGES.auth, 'auth', 401);
+  if (!(await ensureAiConsent())) throw new AiError(MESSAGES.declined, 'declined');
   const ctrl = new AbortController();
   const onAbort = () => ctrl.abort();
   opts.signal?.addEventListener('abort', onAbort);
