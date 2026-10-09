@@ -113,7 +113,7 @@ function settings(v: unknown): Partial<Pick<Settings, 'geofenceM' | 'requireChec
   const out: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled' | 'cycleLength'>> = {};
   if ('geofenceM' in s) out.geofenceM = numb(s.geofenceM, 'geofence');
   if ('requireCheckIn' in s) out.requireCheckIn = bool(s.requireCheckIn, 'check-in setting');
-  if ('aiEnabled' in s && s.aiEnabled !== undefined) out.aiEnabled = bool(s.aiEnabled, 'AI setting');
+  if ('aiEnabled' in s && s.aiEnabled !== undefined) out.aiEnabled = bool(s.aiEnabled, 'Ava AI setting');
   // 2.3: cycle length. Older versions drop this field and keep planning by quarter.
   if ('cycleLength' in s) out.cycleLength = oneOf(s.cycleLength, ['quarter', 'month'] as const, 'cycle length');
   return out;

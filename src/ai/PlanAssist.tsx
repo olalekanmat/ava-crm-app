@@ -31,7 +31,7 @@ export function PlanAssist({ ownerId, cycle, hasPlan, onAccept }: { ownerId: str
       if (!input.accounts.length) throw new Error('You have no accounts to plan yet.');
       const r = await runAi('plan', input);
       const targets = filterPlanTargets(r.targets, input.accounts.map((a) => a.id));
-      if (!targets.length) throw new Error('AI did not suggest any of your accounts. Try again, or use the suggested plan.');
+      if (!targets.length) throw new Error('Ava AI did not suggest any of your accounts. Try again, or use the suggested plan.');
       setResult({ targets, summary: r.summary, capacity: input.capacity });
     } catch (e) {
       setError(aiErrorMessage(e));
@@ -59,11 +59,11 @@ export function PlanAssist({ ownerId, cycle, hasPlan, onAccept }: { ownerId: str
         <Row>
           <Ionicons name="sparkles" size={20} color={colors.primary} />
           <View style={{ flex: 1 }}>
-            <Text style={text.title}>Suggest a plan with AI</Text>
+            <Text style={text.title}>Suggest a plan with Ava AI</Text>
             <Text style={text.muted}>Uses your accounts’ tiers, last cycle’s calls and how many calls you can make. You review every account before saving.</Text>
           </View>
         </Row>
-        <Row style={{ marginTop: space.md }}>{busy ? <ActivityIndicator color={colors.primary} /> : <Button small title="Suggest with AI" icon="sparkles-outline" onPress={suggest} />}</Row>
+        <Row style={{ marginTop: space.md }}>{busy ? <ActivityIndicator color={colors.primary} /> : <Button small title="Suggest with Ava AI" icon="sparkles-outline" onPress={suggest} />}</Row>
         {!!error && <View style={{ marginTop: space.sm }}><Banner tone="warn">{error}</Banner></View>}
       </Card>
     );
@@ -74,7 +74,7 @@ export function PlanAssist({ ownerId, cycle, hasPlan, onAccept }: { ownerId: str
     <Card style={{ borderColor: colors.primary }}>
       <Row>
         <Ionicons name="sparkles" size={20} color={colors.primary} />
-        <Text style={[text.title, { flex: 1 }]}>AI suggestion · {result.targets.length} accounts, {total} calls</Text>
+        <Text style={[text.title, { flex: 1 }]}>Ava AI suggestion · {result.targets.length} accounts, {total} calls</Text>
       </Row>
       {!!result.summary && <Text style={[text.body, { marginTop: space.sm }]}>{result.summary}</Text>}
       <Text style={[text.small, { marginTop: 4 }]}>About {result.capacity} calls fit in this cycle. Adjust any account, then accept.</Text>

@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { SyncIcon } from '@/ui/SyncIcon';
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -191,10 +192,10 @@ export function SyncTile() {
     >
       <View style={styles.ringRow}>
         <Ring value={1} color={c} size={84} stroke={8}>
-          <Ionicons name={icon} size={30} color={c} />
+          <SyncIcon spinning={sync.syncing} name={icon} size={30} color={c} />
         </Ring>
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={text.title}>{problem ? 'Offline' : waiting ? 'Changes waiting' : 'Up to date'}</Text>
+          <Text style={text.title}>{sync.syncing ? 'Syncing…' : problem ? 'Offline' : waiting ? 'Changes waiting' : 'Up to date'}</Text>
           <Text style={text.muted}>Last sync {ago(sync.lastSync)}</Text>
           <Text style={[text.muted, waiting && { color: colors.orange, fontWeight: '600' }]}>
             {waiting ? `${sync.pending} pending change${sync.pending > 1 ? 's' : ''}` : 'No pending changes'}

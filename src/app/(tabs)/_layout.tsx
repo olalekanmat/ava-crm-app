@@ -10,6 +10,7 @@ import { HeaderTitle } from '@/ui/Brand';
 import { UserAvatar } from '@/ui/components';
 import { useLayout } from '@/ui/layout';
 import { colors, tone } from '@/ui/theme';
+import { SyncIcon } from '@/ui/SyncIcon';
 import { useAlerts } from '@/ui/useAlerts';
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -35,7 +36,7 @@ function HeaderActions() {
         accessibilityLabel={problem ? 'Offline. Sync now' : waiting ? `${sync.pending} changes waiting. Sync now` : 'Sync now'}
         style={({ pressed }) => [styles.syncBtn, pressed && { opacity: 0.6 }]}
       >
-        {sync.syncing ? <ActivityIndicator size="small" color={colors.primary} /> : <Ionicons name={syncIcon} size={20} color={syncTone} />}
+        <SyncIcon spinning={sync.syncing} name={syncIcon} size={20} color={sync.syncing ? colors.primary : syncTone} />
         {width >= 600 && <Text style={[styles.syncText, { color: syncTone }]}>{sync.syncing ? 'Syncing' : waiting ? `Sync (${sync.pending})` : 'Sync'}</Text>}
       </Pressable>
       <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={count ? `${count} alerts` : 'Alerts'} style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}>
@@ -58,7 +59,9 @@ export default function TabsLayout() {
   const { me, company } = useStore();
   const { compact, width } = useLayout();
   // Phones show the label under the icon; wide screens put it beside the icon, where a pill would look lost.
-  const pill = width < 768;
+  // Only on the web: the phone apps draw the icon in a box the icon's own size and clip anything wider,
+  // so a padded pill there hid the icons (2.5/2.6 APK).
+  const pill = Platform.OS === 'web' && width < 768;
   if (!me) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>

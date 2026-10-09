@@ -317,6 +317,8 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
 
     case 'user.leave': {
       const u = s.users.find((x) => x.id === actor.id && !x.deletedAt) ?? fail('Person not found.');
+      // 2.6: only administrators delete their own account; others ask an administrator.
+      adminOnly();
       // Their accounts, plans and calls stay for an administrator to reassign; their sign-in and photo go.
       return { ...s, users: s.users.map((x) => (x.id === u.id ? { ...x, active: false, admin: undefined, photo: undefined, leftAt: nowIso } : x)) };
     }
