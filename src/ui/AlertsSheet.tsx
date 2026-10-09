@@ -19,12 +19,15 @@ const ICON: Record<AlertItem['kind'], IconName> = {
   draft: 'create-outline',
   'plan-returned': 'arrow-undo-outline',
   'plan-review': 'checkmark-done-outline',
+  'leave-review': 'airplane-outline',
+  'leave-decided': 'airplane-outline',
 };
 
 /** Where an alert leads. */
 export function openAlert(a: AlertItem) {
   if (a.callId) router.push({ pathname: '/call/[id]', params: { id: a.callId } });
   else if (a.kind === 'plan-review' && a.planId) router.push({ pathname: '/plan/[id]', params: { id: a.planId } });
+  else if (a.kind === 'leave-review' || a.kind === 'leave-decided') router.push('/leave');
   else router.navigate('/plan');
 }
 

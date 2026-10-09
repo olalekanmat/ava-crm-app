@@ -1,7 +1,7 @@
 import { addDays, toDateKey } from './dates';
 import { distanceM } from './geo';
 import { tierFrequency } from './tiers';
-import type { Account, Call, CallChannel, Company, Cycle, CyclePlan, Product, Snapshot, User } from './types';
+import type { Account, Call, CallChannel, Company, Cycle, CyclePlan, Leave, Product, SampleIssue, Snapshot, Task, User } from './types';
 import { DEFAULT_SETTINGS, DEFAULT_TIERS } from './types';
 
 /** Small deterministic PRNG so the demo looks the same on every device. */
@@ -204,6 +204,46 @@ export function buildSeed(now = new Date()): Snapshot {
     }
   }
 
-  return { company: { ...DEMO_COMPANY }, users, accounts, calls, plans, cycles, products: DEMO_PRODUCTS, settings: { ...DEFAULT_SETTINGS } };
+  // 2.6 field work, added after the random data so the rest of the seed stays the same.
+  const iso = (days: number, h = 9) => {
+    const d = addDays(now, days);
+    d.setHours(h, 0, 0, 0);
+    return d.toISOString();
+  };
+  for (const rep of users.filter((u) => u.role === 'Rep')) {
+    const mine = accounts.filter((a) => a.ownerId === rep.id && a.type === 'HCP');
+    Object.assign(mine[0], { kol: true, potential: 'High', segment: 'Opinion leader' });
+    Object.assign(mine[1], { potential: 'High', segment: 'Early adopter' });
+    Object.assign(mine[3], { potential: 'Medium', segment: 'Loyalist' });
+    Object.assign(mine[5], { potential: 'Low' });
+  }
+  const samples: SampleIssue[] = users
+    .filter((u) => u.role === 'Rep')
+    .flatMap((u, i) => [
+      { id: `smp_${u.id}_1`, repId: u.id, product: 'Cardiovex', qty: 40 - i * 5, batch: 'CVX-2609', byId: u.managerId!, at: iso(-20) },
+      { id: `smp_${u.id}_2`, repId: u.id, product: 'Glucara XR', qty: 24, batch: 'GLX-0910', byId: u.managerId!, at: iso(-12) },
+    ]);
+  const own = (id: string) => calls.filter((c) => c.ownerId === id && c.status === 'Submitted' && c.channel === 'In person');
+  for (const c of own('usr_rep1').slice(0, 3)) c.samples = [{ product: 'Cardiovex', qty: 2, batch: 'CVX-2609' }];
+  const coached = own('usr_rep1')[1];
+  if (coached) {
+    coached.coachId = 'usr_flm1';
+    coached.coaching = { by: 'usr_flm1', at: coached.submittedAt ?? coached.datetime, scores: { Opening: 4, 'Needs discovery': 3, 'Product knowledge': 5, 'Objection handling': 3, Closing: 2, Compliance: 5 }, strengths: 'Strong product knowledge and a clear opening.', improve: 'Ask for a commitment before you leave.' };
+  }
+  const waiting = own('usr_rep2')[0];
+  if (waiting) waiting.coachId = 'usr_flm1';
+  const leaves: Leave[] = [
+    { id: 'lv_rep1', userId: 'usr_rep1', start: toDateKey(addDays(now, 10)), end: toDateKey(addDays(now, 14)), kind: 'Annual', status: 'Approved', reviewerId: 'usr_flm1', reviewedAt: iso(-3), createdAt: iso(-5) },
+    { id: 'lv_rep2', userId: 'usr_rep2', start: toDateKey(addDays(now, 20)), end: toDateKey(addDays(now, 21)), kind: 'Training', note: 'Product launch training', status: 'Pending', createdAt: iso(-1) },
+  ];
+  const repOne = accounts.filter((a) => a.ownerId === 'usr_rep1' && a.type === 'HCP');
+  const tasks: Task[] = [
+    { id: 'tsk_1', ownerId: 'usr_rep1', title: 'Send the outcomes study reprint', due: toDateKey(now), remindAt: '16:00', accountId: repOne[0].id, createdAt: iso(-2) },
+    { id: 'tsk_2', ownerId: 'usr_rep1', title: 'Confirm the lunch & learn headcount', due: toDateKey(addDays(now, -1)), accountId: repOne[2].id, createdAt: iso(-4) },
+    { id: 'tsk_3', ownerId: 'usr_rep1', title: 'Update the pharmacy stock list', due: toDateKey(addDays(now, 2)), assignedBy: 'usr_flm1', createdAt: iso(-1) },
+  ];
+  const products = DEMO_PRODUCTS.map((p, i) => (i < 2 ? { ...p, brochureUrl: `https://example.com/brochures/${p.name.toLowerCase().replace(/\W+/g, '-')}.pdf` } : p));
+
+  return { company: { ...DEMO_COMPANY }, users, accounts, calls, plans, cycles, products, settings: { ...DEFAULT_SETTINGS }, leaves, tasks, samples };
 }
 

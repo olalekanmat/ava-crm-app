@@ -74,6 +74,11 @@ function RootNav() {
         <Stack.Screen name="reports/index" options={{ title: 'Reports' }} />
         <Stack.Screen name="reports/builder" options={{ title: 'Report builder' }} />
         <Stack.Screen name="reports/[id]" options={{ title: 'Report' }} />
+        <Stack.Screen name="leave" options={{ title: 'Leave' }} />
+        <Stack.Screen name="tasks" options={{ title: 'Tasks & reminders' }} />
+        <Stack.Screen name="samples" options={{ title: 'Samples' }} />
+        <Stack.Screen name="route" options={{ title: "Today's route" }} />
+        <Stack.Screen name="coaching" options={{ title: 'Coaching' }} />
       </Stack.Protected>
     </Stack>
   );

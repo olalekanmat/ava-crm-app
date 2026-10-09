@@ -4,7 +4,7 @@ import { newId } from './ids';
 import { repMetrics, callsByAccount, cycleCalls } from './metrics';
 import { tiersFor } from './tiers';
 import type { Account, Cycle, Product, Role, Snapshot, User } from './types';
-import { ROLES } from './types';
+import { POTENTIALS, ROLES } from './types';
 
 /** RFC 4180 parser: quoted fields, escaped quotes, commas and newlines inside quotes, CRLF. */
 export function parseCsv(text: string): string[][] {
@@ -107,9 +107,9 @@ function tooLong(r: Record<string, string | undefined>, limits: Record<string, n
   for (const [col, max] of Object.entries(limits)) if ((r[col] ?? '').length > max) errors.push(`${col} must be ${max} characters or fewer`);
 }
 
-export const ACCOUNT_COLUMNS = ['action', 'id', 'type', 'name', 'specialty', 'affiliation', 'tier', 'address', 'city', 'phone', 'email', 'owner_email', 'territory_id', 'lat', 'lng'];
+export const ACCOUNT_COLUMNS = ['action', 'id', 'type', 'name', 'specialty', 'affiliation', 'tier', 'address', 'city', 'phone', 'email', 'owner_email', 'territory_id', 'lat', 'lng', 'kol', 'potential', 'segment'];
 export const USER_COLUMNS = ['action', 'name', 'email', 'role', 'admin', 'user_id', 'manager_email', 'territory', 'territory_id', 'active', 'transfer_to_email'];
-export const PRODUCT_COLUMNS = ['action', 'name', 'key_messages', 'active'];
+export const PRODUCT_COLUMNS = ['action', 'name', 'key_messages', 'active', 'brochure_url'];
 
 export function importAccounts(text: string, s: Snapshot): ImportResult<Account> {
   const { header, rows } = records(text);
@@ -163,6 +163,11 @@ export function importAccounts(text: string, s: Snapshot): ImportResult<Account>
     if ((lat === undefined) !== (lng === undefined)) errors.push('give both lat and lng, or neither');
     if (lat !== undefined && (Number.isNaN(lat) || Math.abs(lat) > 90)) errors.push('lat must be between -90 and 90');
     if (lng !== undefined && (Number.isNaN(lng) || Math.abs(lng) > 180)) errors.push('lng must be between -180 and 180');
+    // Profile columns (2.6) are optional: a file without them keeps what each account has; an empty cell clears it.
+    const potentialCell = (r.potential ?? '').trim().toLowerCase();
+    const potential = POTENTIALS.find((p) => p.toLowerCase() === potentialCell);
+    if (potentialCell && !potential) errors.push('potential must be High, Medium or Low');
+    if ((r.segment ?? '').length > 40) errors.push('segment must be 40 characters or fewer');
     const id = existing?.id ?? (r.id || newId('acc'));
     if (seen.has(id)) errors.push('duplicate row for the same account');
     seen.add(id);
@@ -185,6 +190,9 @@ export function importAccounts(text: string, s: Snapshot): ImportResult<Account>
         ownerId: owner!.id,
         lat,
         lng,
+        ...(header.includes('kol') ? { kol: yes(r.kol) } : {}),
+        ...(header.includes('potential') ? { potential: potential ?? ('' as never) } : {}),
+        ...(header.includes('segment') ? { segment: r.segment ?? '' } : {}),
         createdAt: existing?.createdAt ?? new Date().toISOString(),
       },
     };
@@ -290,7 +298,8 @@ export function importProducts(text: string, s: Snapshot): ImportResult<Product>
     const keyMessages = (r.key_messages ?? '').split('|').map((x) => x.trim()).filter(Boolean);
     if (action === 'upsert') {
       const errors: string[] = [];
-      tooLong(r, { name: 120 }, errors);
+      tooLong(r, { name: 120, brochure_url: 1000 }, errors);
+      if (r.brochure_url && !/^https:\/\/\S+$/.test(r.brochure_url)) errors.push('brochure_url must start with https://');
       if (keyMessages.length > 50) errors.push('at most 50 key messages');
       if (keyMessages.some((k) => k.length > 300)) errors.push('each key message must be 300 characters or fewer');
       if (errors.length) return { line, errors };
@@ -311,6 +320,7 @@ export function importProducts(text: string, s: Snapshot): ImportResult<Product>
         name: r.name,
         keyMessages,
         active: !no(r.active),
+        brochureUrl: header.includes('brochure_url') ? r.brochure_url || undefined : existing?.brochureUrl,
       },
     };
   });
@@ -319,15 +329,15 @@ export function importProducts(text: string, s: Snapshot): ImportResult<Product>
 
 export const TEMPLATES = {
   accounts: toCsv(ACCOUNT_COLUMNS, [
-    ['', '', 'HCP', 'Dr. Jane Doe', 'Cardiology', 'City Hospital', 'ST', '1 Main St', 'Lakeview', '+1 555 0100', 'jane@example.com', 'rep@example.com', '', '6.4541', '3.3947'],
-    ['', '', 'HCO', 'City Hospital', 'Teaching hospital', '', 'T1', '1 Main St', 'Lakeview', '', '', '', 'LAG-IKJ-01', '', ''],
+    ['', '', 'HCP', 'Dr. Jane Doe', 'Cardiology', 'City Hospital', 'ST', '1 Main St', 'Lakeview', '+1 555 0100', 'jane@example.com', 'rep@example.com', '', '6.4541', '3.3947', 'yes', 'High', 'Early adopter'],
+    ['', '', 'HCO', 'City Hospital', 'Teaching hospital', '', 'T1', '1 Main St', 'Lakeview', '', '', '', 'LAG-IKJ-01', '', '', '', 'Medium', ''],
   ]),
   users: toCsv(USER_COLUMNS, [
     ['', 'Sam Regional', 'sam@example.com', 'SLM', 'yes', 'EMP-001', '', 'West region', 'WEST', 'yes', ''],
     ['', 'Fola Manager', 'fola@example.com', 'FLM', 'no', 'EMP-002', 'sam@example.com', 'Lagos district', 'LAG', 'yes', ''],
     ['', 'Ade Rep', 'ade@example.com', 'Rep', 'no', 'EMP-003', 'fola@example.com', 'Ikeja', 'LAG-IKJ-01', 'yes', ''],
   ]),
-  products: toCsv(PRODUCT_COLUMNS, [['', 'Cardiovex', 'Efficacy vs. standard of care|Once-daily dosing', 'yes']]),
+  products: toCsv(PRODUCT_COLUMNS, [['', 'Cardiovex', 'Efficacy vs. standard of care|Once-daily dosing', 'yes', 'https://example.com/cardiovex-brochure.pdf']]),
 };
 
 // ---------- Exports ----------
@@ -358,7 +368,7 @@ export function exportAccounts(s: Snapshot): string {
     ACCOUNT_COLUMNS,
     s.accounts
       .filter((a) => !a.deletedAt)
-      .map((a) => ['', a.id, a.type, a.name, a.specialty, a.affiliation, a.tier, a.address, a.city, a.phone, a.email, userEmail(s, a.ownerId), userOf(s, a.ownerId)?.territoryId, a.lat, a.lng]),
+      .map((a) => ['', a.id, a.type, a.name, a.specialty, a.affiliation, a.tier, a.address, a.city, a.phone, a.email, userEmail(s, a.ownerId), userOf(s, a.ownerId)?.territoryId, a.lat, a.lng, a.kol ? 'yes' : '', a.potential, a.segment]),
   );
 }
 

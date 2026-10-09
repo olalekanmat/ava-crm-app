@@ -5,8 +5,8 @@ import { repsUnder } from '@/data/access';
 import { newId } from '@/data/ids';
 import { useMe, useStore } from '@/data/store';
 import { tiersFor } from '@/data/tiers';
-import type { AccountType, Tier } from '@/data/types';
-import { Button, Chip, Field, Label, Row, Segmented, text } from '@/ui/components';
+import { POTENTIALS, type AccountType, type Potential, type Tier } from '@/data/types';
+import { Button, Chip, Field, Label, Row, Segmented, ToggleRow, text } from '@/ui/components';
 import { notify } from '@/ui/confirm';
 import { currentFix, type Fix } from '@/ui/location';
 import { Screen } from '@/ui/Screen';
@@ -26,6 +26,9 @@ export default function NewAccountScreen() {
   const [city, setCity] = useState(me.role === 'Rep' ? me.territory ?? '' : '');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [kol, setKol] = useState(false);
+  const [potential, setPotential] = useState<Potential>();
+  const [segment, setSegment] = useState('');
   const [fix, setFix] = useState<Fix>();
   const [locating, setLocating] = useState(false);
   const [tried, setTried] = useState(false);
@@ -65,6 +68,9 @@ export default function NewAccountScreen() {
           city: city.trim(),
           phone: phone.trim() || undefined,
           email: email.trim() || undefined,
+          kol: type === 'HCP' && kol ? true : undefined,
+          potential,
+          segment: segment.trim() || undefined,
           lat: fix?.lat,
           lng: fix?.lng,
           createdAt: new Date().toISOString(),
@@ -106,6 +112,14 @@ export default function NewAccountScreen() {
       )}
       <Label>Tier</Label>
       <Segmented options={scheme.map((t) => t.name)} value={tier} onChange={setTier} />
+      {type === 'HCP' && <ToggleRow label="Key opinion leader" value={kol} onChange={setKol} hint="Visited more often in suggested plans." />}
+      <Label>Prescribing potential</Label>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: space.sm }}>
+        {POTENTIALS.map((p) => (
+          <Chip key={p} label={p} selected={potential === p} onPress={() => setPotential(potential === p ? undefined : p)} />
+        ))}
+      </View>
+      <Field label="Segment" value={segment} onChangeText={setSegment} placeholder="Optional, e.g. Early adopter" maxLength={40} />
       <Field label="Address" value={address} onChangeText={setAddress} />
       <Field label="City *" value={city} onChangeText={setCity} error={tried && missing.city ? 'Required' : undefined} />
       <Field label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />

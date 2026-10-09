@@ -1,11 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Linking, Text, View } from 'react-native';
+import { manages } from '@/data/access';
 import { formatDateTime } from '@/data/dates';
 import { formatDistance, geoStatus, mapsUrl } from '@/data/geo';
 import { useMe, useStore } from '@/data/store';
 import { Button, Card, Empty, GeoBadge, Row, SectionTitle, StatusBadge, UserAvatar, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
+import { CoachingCard } from '@/ui/CoachingCard';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
 
@@ -27,6 +29,7 @@ export default function CallScreen() {
   const locked = call.status === 'Submitted';
   const mine = call.ownerId === me.id;
   const geo = geoStatus(call, data.settings.geofenceM);
+  const canCoach = !mine && call.status !== 'Planned' && (call.coachId === me.id || manages(data.users, me, call.ownerId));
 
   return (
     <Screen>
@@ -85,6 +88,20 @@ export default function CallScreen() {
         {call.keyMessages.length > 0 && <Text style={[text.muted, { marginTop: space.sm }]}>Key messages: {call.keyMessages.join(', ')}</Text>}
       </Card>
 
+      {!!call.samples?.length && (
+        <>
+          <SectionTitle>Samples given</SectionTitle>
+          <Card>
+            {call.samples.map((x, i) => (
+              <Text key={i} style={text.body}>
+                {x.qty} × {x.product}
+                {x.batch ? <Text style={text.muted}> · batch {x.batch}</Text> : null}
+              </Text>
+            ))}
+          </Card>
+        </>
+      )}
+
       {(call.notes || call.attendees) && (
         <>
           <SectionTitle>Notes</SectionTitle>
@@ -104,6 +121,8 @@ export default function CallScreen() {
           </Card>
         </>
       )}
+
+      <CoachingCard call={call} canCoach={canCoach} />
 
       {locked ? (
         <Row style={{ marginTop: space.lg, justifyContent: 'center' }}>

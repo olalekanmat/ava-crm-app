@@ -47,6 +47,15 @@ export default function MoreScreen() {
         </>
       )}
 
+      <SectionTitle>Field work</SectionTitle>
+      <Card style={{ padding: 0 }}>
+        <ListRow icon="checkbox-outline" title="Tasks & reminders" subtitle="Follow-ups and to-dos, with phone reminders" onPress={() => router.push('/tasks')} />
+        {me.role !== 'Admin' && <ListRow icon="map-outline" tone={colors.success} title="Today’s route" subtitle="Today’s visits in the best order" onPress={() => router.push('/route')} />}
+        <ListRow icon="airplane-outline" tone={colors.orange} title="Leave" subtitle={me.role === 'Rep' ? 'Ask for leave; your plan adjusts' : 'Ask for leave and approve your team’s'} onPress={() => router.push('/leave')} />
+        <ListRow icon="medkit-outline" tone={colors.crimson} title="Samples" subtitle={me.role === 'Rep' ? 'Your stock and what you handed out' : 'Issue samples and see team stock'} onPress={() => router.push('/samples')} />
+        <ListRow icon="school-outline" tone={colors.primaryDark} title="Coaching" subtitle={me.role === 'Rep' ? 'Feedback from coached visits' : 'Score coached visits'} onPress={() => router.push('/coaching')} />
+      </Card>
+
       <SectionTitle>Account</SectionTitle>
       <Card style={{ padding: 0 }}>
         <ListRow icon="key-outline" title="Change password" subtitle={session?.companyCode ? `Company code ${session.companyCode}` : undefined} onPress={() => router.push('/password')} />

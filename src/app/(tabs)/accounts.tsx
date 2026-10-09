@@ -26,6 +26,8 @@ export default function AccountsScreen() {
   const [tier, setTier] = useState<Tier | null>(null);
   const [owner, setOwner] = useState<string | null>(null);
   const [planOnly, setPlanOnly] = useState(false);
+  const [kolOnly, setKolOnly] = useState(false);
+  const [highOnly, setHighOnly] = useState(false);
 
   const owners = useMemo(() => [...new Set(accounts.map((a) => a.ownerId))].map((id) => getUser(id)).filter((u) => !!u), [accounts, getUser]);
   // Planned vs done this cycle, per account (for the account's own rep).
@@ -47,7 +49,9 @@ export default function AccountsScreen() {
         (!tier || a.tier === tier) &&
         (!owner || a.ownerId === owner) &&
         (!planOnly || progress.has(a.id)) &&
-        (!q || [a.name, a.specialty, a.city, a.affiliation ?? ''].some((v) => v.toLowerCase().includes(q))),
+        (!kolOnly || a.kol) &&
+        (!highOnly || a.potential === 'High') &&
+        (!q || [a.name, a.specialty, a.city, a.affiliation ?? '', a.segment ?? ''].some((v) => v.toLowerCase().includes(q))),
     );
     if (sort === 'Tier') return [...list].sort((x, y) => tierRankIn(data.settings, x.tier) - tierRankIn(data.settings, y.tier) || x.name.localeCompare(y.name));
     if (sort === 'Last call') {
@@ -59,7 +63,7 @@ export default function AccountsScreen() {
       return [...list].sort((x, y) => last(x.id).localeCompare(last(y.id)) || x.name.localeCompare(y.name));
     }
     return list;
-  }, [accounts, query, filter, tier, owner, planOnly, progress, sort, data.settings, calls]);
+  }, [accounts, query, filter, tier, owner, planOnly, kolOnly, highOnly, progress, sort, data.settings, calls]);
 
   const tierNames = useMemo(() => {
     const order = allTierNames(data.settings);
@@ -70,13 +74,15 @@ export default function AccountsScreen() {
   return (
     <View style={styles.root}>
       <View style={[styles.inner, { maxWidth: maxWide, padding: pad }]}>
-        <SearchBox value={query} onChangeText={setQuery} placeholder="Search name, specialty, city" />
+        <SearchBox value={query} onChangeText={setQuery} placeholder="Search name, specialty, city, segment" />
         <Segmented options={['All', 'HCP', 'HCO'] as Filter[]} value={filter} onChange={setFilter} labels={{ HCP: 'People', HCO: 'Organizations' }} />
         <View style={styles.filters}>
           {tierNames.map((t) => (
             <Chip key={t} label={t} selected={tier === t} onPress={() => setTier(tier === t ? null : t)} />
           ))}
           <Chip label="In my plan" icon="calendar-outline" selected={planOnly} onPress={() => setPlanOnly(!planOnly)} />
+          {accounts.some((a) => a.kol) && <Chip label="KOL" icon="star-outline" selected={kolOnly} onPress={() => setKolOnly(!kolOnly)} />}
+          {accounts.some((a) => a.potential === 'High') && <Chip label="High potential" icon="trending-up-outline" selected={highOnly} onPress={() => setHighOnly(!highOnly)} />}
           {(me.role !== 'Rep' || admin) &&
             owners.map((u) => <Chip key={u!.id} label={u!.name.split(' ')[0]} selected={owner === u!.id} onPress={() => setOwner(owner === u!.id ? null : u!.id)} />)}
         </View>
@@ -127,10 +133,12 @@ export default function AccountsScreen() {
                         <Text style={[text.title, { flex: 1 }]} numberOfLines={1}>
                           {a.name}
                         </Text>
+                        {a.kol && <Ionicons name="star" size={14} color={colors.warn} accessibilityLabel="Key opinion leader" />}
                         <TierBadge tier={a.tier} />
                       </Row>
                       <Text style={text.muted} numberOfLines={1}>
                         {a.specialty}
+                        {a.potential ? ` · ${a.potential} potential` : ''}
                         {a.affiliation ? ` · ${a.affiliation}` : ''}
                       </Text>
                       <Row style={{ marginTop: 2 }}>

@@ -74,11 +74,21 @@ export interface Account {
   createdAt: string;
   /** Set when an administrator deleted the account. It is hidden everywhere; submitted calls keep its name. */
   deletedAt?: string;
+  // ----- profiling (2.5); a change that leaves these out keeps the current values -----
+  /** Key opinion leader: influences other prescribers, so is seen more often. */
+  kol?: boolean;
+  /** Prescribing potential. */
+  potential?: Potential;
+  /** The company's own segment name, e.g. "Early adopter" or "Hospital decision maker". */
+  segment?: string;
 }
 
-export type CallChannel = 'In person' | 'Phone' | 'Video' | 'Email';
+export type Potential = 'High' | 'Medium' | 'Low';
+export const POTENTIALS: Potential[] = ['High', 'Medium', 'Low'];
+
+export type CallChannel = 'In person' | 'Phone' | 'Video' | 'Email' | 'WhatsApp';
 export type CallStatus = 'Planned' | 'Saved' | 'Submitted';
-export const CHANNELS: CallChannel[] = ['In person', 'Phone', 'Video', 'Email'];
+export const CHANNELS: CallChannel[] = ['In person', 'Phone', 'Video', 'Email', 'WhatsApp'];
 
 export interface ProductDetail {
   product: string;
@@ -117,6 +127,85 @@ export interface Call {
   createdAt: string;
   updatedAt: string;
   submittedAt?: string;
+  /** Samples handed over in the call (2.5). */
+  samples?: SampleGiven[];
+  /** A manager who joined the call to coach the rep (2.5). */
+  coachId?: string;
+  /** The manager's scorecard for a coached call; set with call.coach only. */
+  coaching?: Coaching;
+}
+
+export interface SampleGiven {
+  product: string;
+  qty: number;
+  batch?: string;
+}
+
+/** Skills a manager scores on a coached call, 1 (needs work) to 5 (excellent). */
+export const COACHING_SKILLS = ['Opening', 'Needs discovery', 'Product knowledge', 'Objection handling', 'Closing', 'Compliance'] as const;
+export type CoachingSkill = (typeof COACHING_SKILLS)[number];
+
+export interface Coaching {
+  by: string;
+  at: string;
+  scores: Partial<Record<CoachingSkill, number>>;
+  strengths?: string;
+  improve?: string;
+}
+
+// ----- leave (2.5) -----
+
+export type LeaveKind = 'Annual' | 'Sick' | 'Training' | 'Conference' | 'Other';
+export const LEAVE_KINDS: LeaveKind[] = ['Annual', 'Sick', 'Training', 'Conference', 'Other'];
+export type LeaveStatus = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
+
+/** Time out of the field. Approved leave lowers how many calls the person is expected to have made by now. */
+export interface Leave {
+  id: string;
+  userId: string;
+  /** YYYY-MM-DD, inclusive. */
+  start: string;
+  end: string;
+  kind: LeaveKind;
+  note?: string;
+  status: LeaveStatus;
+  reviewerId?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+  createdAt: string;
+}
+
+// ----- tasks (2.5) -----
+
+/** A to-do with a due date, often the follow-up from a call. Reminders are scheduled on the owner's devices. */
+export interface Task {
+  id: string;
+  ownerId: string;
+  title: string;
+  /** YYYY-MM-DD. */
+  due: string;
+  /** HH:MM local time for the reminder; absent means no reminder. */
+  remindAt?: string;
+  accountId?: string;
+  callId?: string;
+  /** A manager who set the task for the person. */
+  assignedBy?: string;
+  doneAt?: string;
+  createdAt: string;
+}
+
+// ----- samples (2.5) -----
+
+/** Samples a manager hands to a rep (positive) or takes back or writes off (negative). */
+export interface SampleIssue {
+  id: string;
+  repId: string;
+  product: string;
+  qty: number;
+  batch?: string;
+  note?: string;
+  byId: string;
+  at: string;
 }
 
 /** A planning period, e.g. an 8-week promotional cycle. Dates are YYYY-MM-DD, inclusive. */
@@ -154,6 +243,8 @@ export interface Product {
   name: string;
   keyMessages: string[];
   active: boolean;
+  /** A web link to the product's approved brochure, for sharing with doctors (2.5). */
+  brochureUrl?: string;
 }
 
 /** The company using Ava CRM, set up by its administrator. */
@@ -247,6 +338,10 @@ export interface Snapshot {
   cycles: Cycle[];
   products: Product[];
   settings: Settings;
+  // 2.5; absent in data saved by older versions.
+  leaves?: Leave[];
+  tasks?: Task[];
+  samples?: SampleIssue[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -267,4 +362,7 @@ export const emptySnapshot = (company: Company = { name: '' }): Snapshot => ({
   cycles: [],
   products: [],
   settings: DEFAULT_SETTINGS,
+  leaves: [],
+  tasks: [],
+  samples: [],
 });

@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
+import { ReminderSync } from '@/ui/ReminderSync';
 import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useStore } from '@/data/store';
@@ -77,6 +78,8 @@ export default function TabsLayout() {
   };
 
   return (
+    <>
+    <ReminderSync />
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
@@ -104,6 +107,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="plan" options={{ title: isRep ? 'Plan' : 'Plans', tabBarIcon: icon('flag-outline', 'flag') }} />
       <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: icon('ellipsis-horizontal-circle-outline', 'ellipsis-horizontal-circle') }} />
     </Tabs>
+    </>
   );
 }
 

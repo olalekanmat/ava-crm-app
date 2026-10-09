@@ -3,9 +3,11 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { AccountBrief } from '@/ai/AccountBrief';
 import { useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
+import { manages } from '@/data/access';
 import { hasLocation, mapsUrl } from '@/data/geo';
-import { callsByAccount, cycleCalls, cycleElapsed } from '@/data/metrics';
+import { approvedLeave, callsByAccount, cycleCalls, cycleElapsed } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
+import { BrochureShare, ProfileBadges, ProfileCard } from '@/ui/AccountProfile';
 import { CallRow } from '@/ui/CallRow';
 import { AccountTimeline } from '@/ui/AccountTimeline';
 import { Avatar, Banner, Button, Card, Empty, ProgressBar, Row, SectionTitle, Segmented, TierBadge, text } from '@/ui/components';
@@ -104,6 +106,7 @@ export default function AccountScreen() {
           </View>
           <TierBadge tier={account.tier} />
         </Row>
+        <ProfileBadges account={account} />
         {!!account.affiliation && (
           <Text
             style={[text.body, { marginTop: space.md }]}
@@ -137,6 +140,11 @@ export default function AccountScreen() {
           <Button title="Log a call" icon="add-circle-outline" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id } })} />
           <Button title="Plan a visit" icon="calendar-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id, plan: '1' } })} />
         </Row>
+      )}
+      {!deleted && account.ownerId === me.id && (
+        <View style={{ marginBottom: space.md }}>
+          <BrochureShare account={account} />
+        </View>
       )}
 
       <Segmented
@@ -179,6 +187,8 @@ export default function AccountScreen() {
         </Card>
       )}
 
+      {tab === 'Detail' && <ProfileCard key={account.id} account={account} canEdit={!deleted && (account.ownerId === me.id || manages(data.users, me, account.ownerId))} />}
+
       {tab === 'Detail' && cycle && target && (
         <Card>
           <Row style={{ justifyContent: 'space-between', marginBottom: space.sm }}>
@@ -187,7 +197,7 @@ export default function AccountScreen() {
               {doneInCycle} of {target.planned} calls
             </Text>
           </Row>
-          <ProgressBar value={doneInCycle / target.planned} marker={cycleElapsed(cycle)} color={doneInCycle >= target.planned ? colors.success : colors.primary} />
+          <ProgressBar value={doneInCycle / target.planned} marker={cycleElapsed(cycle, new Date(), approvedLeave(data, account.ownerId))} color={doneInCycle >= target.planned ? colors.success : colors.primary} />
         </Card>
       )}
 
