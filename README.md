@@ -77,6 +77,17 @@ The `android/` folder is generated and not committed. The release build is signe
 
 Cloud build alternative: `npx eas build -p android --profile preview` (profiles in `eas.json`, needs an Expo account).
 
+### Store builds (Google Play, App Store)
+
+For Google Play, build the bundle instead of the APK (`./gradlew bundleRelease`) and sign `android/app/build/outputs/bundle/release/app-release.aab` with the Play upload key (kept outside the repo):
+
+```bash
+zip -d app-release.aab 'META-INF/*'
+jarsigner -keystore ava-upload-key.jks -sigalg SHA256withRSA -digestalg SHA-256 app-release.aab ava-upload
+```
+
+For the App Store, no Mac is needed: `npx eas-cli@latest build -p ios --profile production`, then `npx eas-cli@latest submit -p ios --latest`. Bump `expo.ios.buildNumber` along with `expo.version` for each iOS upload.
+
 ### Web app (for avahealthcareltd.com/AvaCRM/app)
 
 ```bash

@@ -9,6 +9,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.avacrm.app",
+      "buildNumber": "1",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Ava CRM records your location when you check in to a call, so your visit can be verified.",
         "NSCameraUsageDescription": "Ava CRM uses the camera to take your profile picture.",
