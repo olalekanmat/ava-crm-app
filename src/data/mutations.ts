@@ -1,8 +1,9 @@
 import { isAdmin as hasAdminRights, manages, visibleOwnerIds } from './access';
+import { handover } from './handover';
 import { spanDays } from './metrics';
 import { MAX_REPORTS, reportProblem } from './reports';
 import { teamOf, tierSchemeProblem } from './tiers';
-import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, type Account, type AccountChange, type AccountChanges, type Call, type Coaching, type Company, type Cycle, type CyclePlan, type Leave, type MeetingEvent, type Product, type ReportDef, type Role, type SampleCount, type SampleIssue, type Settings, type Signature, type Snapshot, type Task, type TierDef, type User } from './types';
+import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, type Account, type AccountChange, type AccountChanges, type Call, type Coaching, type Company, type Cycle, type CyclePlan, type Leave, type MeetingEvent, type Product, type ReportDef, type Role, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type Snapshot, type Task, type TierDef, type User } from './types';
 
 /**
  * Every change to the data is one of these. The app applies it locally right away and appends it
@@ -59,7 +60,14 @@ export type Mutation =
   | { type: 'account.merge'; keepId: string; ids: string[] }
   | { type: 'event.save'; event: MeetingEvent }
   | { type: 'event.delete'; id: string }
-  | { type: 'sample.count'; count: SampleCount };
+  | { type: 'sample.count'; count: SampleCount }
+  // ----- 2.8. Older versions skip these. -----
+  /** Moves a person's accounts, live plans, planned visits, open tasks, upcoming events, direct reports and sample stock to someone with the same role. */
+  | { type: 'user.handover'; fromId: string; toId: string }
+  /** A rep asks for more samples; their manager approves it, then records the issue with sample.issue. */
+  | { type: 'sample.request'; request: SampleRequest }
+  | { type: 'sample.requestReview'; id: string; approve: boolean; note?: string }
+  | { type: 'sample.requestCancel'; id: string };
 
 export const SETTINGS_KEYS = ['geofenceM', 'requireCheckIn', 'aiEnabled', 'cycleLength', 'objectives', 'reviewNewAccounts', 'sampleSignature'] as const;
 export type SettingsKey = (typeof SETTINGS_KEYS)[number];
@@ -840,6 +848,50 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       return { ...s, sampleCounts: replaceOrAdd(s.sampleCounts ?? [], count) };
     }
 
+    // ----- 2.8 -----
+    case 'user.handover': {
+      const from = s.users.find((u) => u.id === m.fromId && !u.deletedAt) ?? fail('Person not found.');
+      const to = s.users.find((u) => u.id === m.toId && !u.deletedAt && u.active) ?? fail('The person taking over was not found or is inactive.');
+      if (from.id === to.id) fail('Choose someone else to take over.');
+      if (from.role !== to.role) fail(`${from.name}'s work can only move to another ${from.role}; ${to.name} is a ${to.role}.`);
+      if (!isAdmin && (!manages(s.users, actor, from.id) || !manages(s.users, actor, to.id) || from.id === actor.id)) fail('Only an administrator or a manager of both people can hand work over.');
+      return handover(s, from.id, to.id, actor.id, nowIso).snapshot;
+    }
+
+    case 'sample.request': {
+      const x = m.request;
+      if (x.repId !== actor.id) fail('You can only ask for samples for yourself.');
+      const existing = (s.sampleRequests ?? []).find((y) => y.id === x.id);
+      if (existing && (existing.repId !== actor.id || existing.status !== 'Pending')) fail('Only a pending request can be changed.');
+      if (!x.items.length || x.items.length > 20) fail('Ask for 1 to 20 products.');
+      const seen = new Set<string>();
+      for (const it of x.items) {
+        if (!s.products.some((p) => p.name === it.product)) fail(`${it.product} is not a product.`);
+        if (seen.has(it.product)) fail(`${it.product} is listed twice.`);
+        seen.add(it.product);
+        if (!Number.isInteger(it.qty) || it.qty < 1 || it.qty > MAX_SAMPLE_QTY) fail(`Ask for a whole number from 1 to ${MAX_SAMPLE_QTY}.`);
+      }
+      const request: SampleRequest = { id: x.id, repId: actor.id, items: x.items, note: x.note?.trim() || undefined, status: 'Pending', at: existing?.at ?? nowIso };
+      return { ...s, sampleRequests: replaceOrAdd(s.sampleRequests ?? [], request) };
+    }
+
+    case 'sample.requestReview': {
+      const x = (s.sampleRequests ?? []).find((y) => y.id === m.id) ?? fail('Request not found.');
+      if (x.status !== 'Pending') fail('This request was already decided.');
+      if ((x.repId === actor.id && !isAdmin) || !manages(s.users, actor, x.repId)) fail('Only the rep’s manager can decide this request.');
+      if (!m.approve && !m.note?.trim()) fail('Say why when declining a request.');
+      const decided: SampleRequest = { ...x, status: m.approve ? 'Approved' : 'Rejected', reviewerId: actor.id, reviewedAt: nowIso, reviewNote: m.note?.trim() || undefined };
+      return { ...s, sampleRequests: replaceOrAdd(s.sampleRequests ?? [], decided) };
+    }
+
+    case 'sample.requestCancel': {
+      const x = (s.sampleRequests ?? []).find((y) => y.id === m.id);
+      if (!x) return s;
+      if (x.repId !== actor.id) fail('You can only cancel your own request.');
+      if (x.status !== 'Pending') return s;
+      return { ...s, sampleRequests: replaceOrAdd(s.sampleRequests ?? [], { ...x, status: 'Cancelled' }) };
+    }
+
     // ----- reports (2.3) -----
     case 'report.save': {
       adminOnly();
@@ -914,6 +966,14 @@ export function describeMutation(m: Mutation): string {
       return 'Deleted an event';
     case 'sample.count':
       return `Counted samples for ${m.count.month}`;
+    case 'user.handover':
+      return 'Handed over a person’s work';
+    case 'sample.request':
+      return 'Asked for samples';
+    case 'sample.requestReview':
+      return m.approve ? 'Approved a sample request' : 'Declined a sample request';
+    case 'sample.requestCancel':
+      return 'Cancelled a sample request';
     default:
       return m.type;
   }

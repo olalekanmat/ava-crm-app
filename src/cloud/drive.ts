@@ -54,6 +54,8 @@ export class DriveError extends Error {
   constructor(
     message: string,
     readonly status = 0,
+    /** The server's reason, e.g. "update_required" (2.9). */
+    readonly code?: string,
   ) {
     super(message);
   }

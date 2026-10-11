@@ -8,6 +8,8 @@ import type { Account, AccountChange, AccountChanges } from '@/data/types';
 import { Badge, Button, Card, Empty, Row, SectionTitle, TierBadge, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
 import { Grid } from '@/ui/layout';
+import { inReviewWindow } from '@/data/tierReview';
+import { RestockReview, useRestockToReview } from '@/ui/SampleRequests';
 import { Screen } from '@/ui/Screen';
 import { colors, radius, space } from '@/ui/theme';
 
@@ -44,7 +46,10 @@ export default function ApprovalsScreen() {
   const confirmAll = () =>
     confirm(`Confirm ${newAccounts.length} new account${newAccounts.length > 1 ? 's' : ''}?`, 'They become normal accounts for everyone.', () => attempt(() => run({ type: 'account.verify', ids: newAccounts.map((a) => a.id), approve: true })), 'Confirm all');
 
-  const nothing = !toReview.length && !newAccounts.length && !mine.length;
+  const { cycle } = useStore();
+  const tierReview = me.role !== 'Rep' && inReviewWindow(cycle);
+  const restock = useRestockToReview().filter((r) => r.repId !== me.id || admin);
+  const nothing = !toReview.length && !newAccounts.length && !mine.length && !restock.length && !tierReview;
 
   return (
     <Screen>
@@ -52,6 +57,27 @@ export default function ApprovalsScreen() {
         <Empty icon="checkmark-done-outline" title="Nothing waiting">
           {me.role === 'Rep' ? 'When you suggest a correction to an account, you can follow it here.' : 'Corrections from your reps and new accounts to check appear here.'}
         </Empty>
+      )}
+
+      {tierReview && (
+        <Card onPress={() => router.push('/tier-review')}>
+          <Row>
+            <Text style={[text.title, { flex: 1 }]}>Tier review for {cycle?.name}</Text>
+            <Text style={text.link}>Open</Text>
+          </Row>
+          <Text style={text.muted}>The cycle is ending. See which doctors Ava suggests moving up or down a tier.</Text>
+        </Card>
+      )}
+
+      {restock.length > 0 && me.role !== 'Rep' && (
+        <>
+          <SectionTitle>Sample requests ({restock.length})</SectionTitle>
+          <Grid>
+            {restock.map((r) => (
+              <RestockReview key={r.id} request={r} />
+            ))}
+          </Grid>
+        </>
       )}
 
       {toReview.length > 0 && (

@@ -1,6 +1,6 @@
 import { RuleError, type Mutation, type SettingsKey } from './mutations';
 import { REPORT_COLUMNS } from './reports';
-import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, CHANNELS, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, type Account, type AccountChange, type AccountChanges, type Call, type CallObjective, type Coaching, type Company, type Cycle, type CyclePlan, type DeckRef, type GeoTag, type Leave, type MeetingEvent, type Product, type ReportDef, type ReportFilters, type SampleCount, type SampleIssue, type Settings, type Signature, type SlideView, type Task, type TierDef, type User } from './types';
+import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, CHANNELS, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, type Account, type AccountChange, type AccountChanges, type Call, type CallObjective, type Coaching, type Company, type Cycle, type CyclePlan, type DeckRef, type GeoTag, type Leave, type MeetingEvent, type Product, type ReportDef, type ReportFilters, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type SlideView, type Task, type TierDef, type User } from './types';
 
 /**
  * Rebuilds a mutation from untrusted JSON (a journal file in the company drive), keeping only
@@ -309,6 +309,18 @@ function coaching(v: unknown, now: string): Coaching {
   return { by: '', at: now, scores, strengths: optStr(c.strengths, 'strengths', 1000), improve: optStr(c.improve, 'what to improve', 1000) };
 }
 
+function sampleRequest(v: unknown, now: string): SampleRequest {
+  const x = obj(v, 'sample request');
+  return {
+    id: str(x.id, 'id', 80), repId: str(x.repId, 'person', 80),
+    items: arr(x.items, 'products', 20).map((it) => {
+      const o = obj(it, 'product');
+      return { product: str(o.product, 'product', 120), qty: numb(o.qty, 'quantity') };
+    }),
+    note: optStr(x.note, 'note', 500), status: 'Pending', at: now,
+  };
+}
+
 export function sanitizeMutation(raw: unknown, at: Date): Mutation {
   const now = at.toISOString();
   const m = obj(raw, 'change');
@@ -396,6 +408,15 @@ export function sanitizeMutation(raw: unknown, at: Date): Mutation {
       return { type: m.type, id: str(m.id, 'id', 80) };
     case 'sample.count':
       return { type: m.type, count: sampleCount(m.count, now) };
+    // ----- 2.8 -----
+    case 'user.handover':
+      return { type: m.type, fromId: str(m.fromId, 'person', 80), toId: str(m.toId, 'person', 80) };
+    case 'sample.request':
+      return { type: m.type, request: sampleRequest(m.request, now) };
+    case 'sample.requestReview':
+      return { type: m.type, id: str(m.id, 'id', 80), approve: bool(m.approve, 'decision'), note: optStr(m.note, 'note', 1000) };
+    case 'sample.requestCancel':
+      return { type: m.type, id: str(m.id, 'id', 80) };
     default:
       return bad('change type');
   }

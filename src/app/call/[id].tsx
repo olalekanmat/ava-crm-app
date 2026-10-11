@@ -171,7 +171,13 @@ export default function CallScreen() {
           <Ionicons name="lock-closed-outline" size={14} color={colors.muted} />
           <Text style={text.muted}>Submitted calls are locked for compliance.</Text>
         </Row>
-      ) : mine ? (
+      ) : null}
+      {locked && mine && (
+        <View style={{ marginTop: space.md, alignItems: 'center' }}>
+          <Button title="Repeat this call" icon="repeat-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { repeat: call.id } })} />
+        </View>
+      )}
+      {locked ? null : mine ? (
         <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.lg }}>
           <Button title={call.status === 'Planned' ? 'Record this call' : 'Edit'} icon="create-outline" onPress={() => router.push({ pathname: '/call/edit', params: { id: call.id } })} />
           <Button
