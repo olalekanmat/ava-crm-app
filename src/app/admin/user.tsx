@@ -8,6 +8,7 @@ import { ROLES, type Role } from '@/data/types';
 import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SectionTitle, Segmented, ToggleRow, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
 import { PhotoEditor } from '@/ui/PhotoEditor';
+import { TrialBadge } from '@/ui/TrialBadge';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
 
@@ -127,6 +128,9 @@ export default function UserEditScreen() {
       {existing && (
         <Card>
           <PhotoEditor user={existing} />
+          <View style={{ alignItems: 'center' }}>
+            <TrialBadge />
+          </View>
         </Card>
       )}
       <Field label="Full name" value={name} onChangeText={setName} />

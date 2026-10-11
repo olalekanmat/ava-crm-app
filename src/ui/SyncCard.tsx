@@ -2,7 +2,9 @@ import { SyncIcon } from './SyncIcon';
 import { router } from 'expo-router';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { providerLabel } from '@/cloud/drive';
+import { activeTrial } from '@/cloud/license';
 import { isAdmin } from '@/data/access';
+import { trialSummary } from '@/data/trial';
 import { formatDate, formatDateTime } from '@/data/dates';
 import { useStore } from '@/data/store';
 import { Banner, Button, text } from './components';
@@ -97,8 +99,16 @@ export function LicenseBanner() {
   const go = admin ? () => router.push('/admin/company') : undefined;
   const msg = (() => {
     switch (license.state) {
-      case 'active':
+      case 'active': {
+        const trial = activeTrial(license);
+        if (trial) {
+          const left = license.daysLeft;
+          const when = `Free trial: ${left} day${left === 1 ? '' : 's'} left, until ${formatDate(license.payload.subscriptionEnd.slice(0, 10))}.`;
+          if (admin) return { tone: left <= 10 ? ('warn' as const) : ('info' as const), text: `${when} It includes ${trialSummary(trial)}.${Platform.OS === 'web' ? ' Subscribe in Company & approval to keep going without limits.' : ' Contact Ava Healthcare to subscribe and keep going without limits.'}`, trial: true };
+          return left <= 10 ? { tone: 'warn' as const, text: `${when} After that only your administrator can sign in until the company subscribes.` } : null;
+        }
         return license.daysLeft <= 14 ? { tone: 'warn' as const, text: `Your Ava CRM subscription ends on ${formatDate(license.payload.subscriptionEnd.slice(0, 10))}.${admin ? ' Contact Ava Healthcare to renew.' : ''}` } : null;
+      }
       case 'pending':
       case 'none':
         return { tone: 'info' as const, text: admin ? 'Waiting for Ava Healthcare to approve your company. You can set up users, accounts and products meanwhile.' : 'Your company is waiting for approval. You can look around; changes are off until then.' };
@@ -116,7 +126,7 @@ export function LicenseBanner() {
   return (
     <View>
       <Banner tone={msg.tone}>{msg.text}</Banner>
-      {go && license.state !== 'active' && <Button small variant="ghost" title="Company & approval" icon="chevron-forward" onPress={go} />}
+      {go && (license.state !== 'active' || ('trial' in msg && Platform.OS === 'web')) && <Button small variant="ghost" title="Company & approval" icon="chevron-forward" onPress={go} />}
     </View>
   );
 }

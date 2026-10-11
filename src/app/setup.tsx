@@ -1,13 +1,15 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { normalizeProvider, type SetupProvider } from '@/cloud/drive';
+import { DEFAULT_TRIAL, licenseApi, type TrialLimits } from '@/cloud/license';
 import { api, DEFAULT_PASSWORD } from '@/cloud/relay';
+import { trialSummary } from '@/data/trial';
 import type { Company } from '@/data/types';
 import { BrandTitle } from '@/ui/Brand';
-import { Banner, Button, Field, text, type IconName } from '@/ui/components';
+import { Banner, Button, Field, text, ToggleRow, type IconName } from '@/ui/components';
 import { cleanCompany, CompanyForm } from '@/ui/CompanyForm';
 import { colors, radius, shadow, space } from '@/ui/theme';
 
@@ -36,7 +38,7 @@ const PROVIDERS: { key: SetupProvider; title: string; icon: IconName; account: s
  * Microsoft or Google sign-in to link the drive where all of the company's data will be kept.
  */
 export default function SetupScreen() {
-  const params = useLocalSearchParams<{ error?: string }>();
+  const params = useLocalSearchParams<{ error?: string; trial?: string }>();
   const [company, setCompany] = useState<Company>({ name: '' });
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -47,6 +49,12 @@ export default function SetupScreen() {
   const [error, setError] = useState<string | undefined>(params.error);
   const [provider, setProvider] = useState<SetupProvider>('onedrive');
   const choice = PROVIDERS.find((p) => p.key === provider)!;
+  // New companies start on a free trial ("Start free trial" on the website links here with ?trial=1).
+  const [trial, setTrial] = useState(params.trial !== '0');
+  const [limits, setLimits] = useState<TrialLimits>(DEFAULT_TRIAL);
+  useEffect(() => {
+    licenseApi.trial().then(setLimits, () => {});
+  }, []);
 
   const submit = async () => {
     setTried(true);
@@ -58,7 +66,7 @@ export default function SetupScreen() {
     if (password !== confirmPw) return setError('The two passwords do not match.');
     try {
       setBusy(`Preparing the ${choice.drive} link…`);
-      const r = await api.startSetup(cleanCompany(company), { name: name.trim(), email: email.trim().toLowerCase(), password }, provider);
+      const r = await api.startSetup(cleanCompany(company), { name: name.trim(), email: email.trim().toLowerCase(), password }, provider, trial);
       // A server that does not know Google Drive yet would link OneDrive instead: say so rather than surprise.
       if (r.provider && normalizeProvider(r.provider) !== provider) throw new Error(`${choice.drive} cannot be linked right now. Choose ${provider === 'google' ? 'Microsoft OneDrive' : 'Google Drive'} or try again later.`);
       const { authorizeUrl } = r;
@@ -77,6 +85,20 @@ export default function SetupScreen() {
           <BrandTitle size={30} />
           <Text style={[text.h2, { marginTop: space.md }]}>Set up your company</Text>
           <Text style={[text.muted, { textAlign: 'center' }]}>You will be the company’s first administrator. It takes about two minutes.</Text>
+        </View>
+
+        <View style={[styles.card, trial && styles.trialCard]}>
+          <Text style={styles.step}>{trial ? `${limits.days}-day free trial` : 'Subscription'}</Text>
+          <ToggleRow
+            label="Start with a free trial"
+            value={trial}
+            onChange={setTrial}
+            hint={
+              trial
+                ? `Your company can use Ava CRM as soon as setup is done, free for ${limits.days} days, with ${trialSummary(limits)}. We email you 10 and 3 days before it ends. Subscribe any time to remove the limits; everything you recorded carries on.`
+                : 'Without a trial, your company waits for Ava Healthcare to approve it, or you subscribe online in Company settings after setup.'
+            }
+          />
         </View>
 
         <View style={styles.card}>
@@ -124,7 +146,7 @@ export default function SetupScreen() {
           <Text style={text.muted}>
             Next, {choice.account} asks you to sign in and allow Ava CRM to use your {choice.drive}. Ava CRM creates a folder named “Ava CRM - {company.name.trim() || 'your company'}” and keeps all of your company’s data there: accounts, calls, plans and users. Ava Healthcare does not store it.
           </Text>
-          <Text style={[text.muted, { marginTop: space.sm }]}>Your company name and your name and email are also sent to Ava Healthcare to approve your subscription. Only you link {choice.drive}; your team just signs in.</Text>
+          <Text style={[text.muted, { marginTop: space.sm }]}>Your company name and your name and email are also sent to Ava Healthcare to {trial ? 'start your free trial' : 'approve your subscription'}. Only you link {choice.drive}; your team just signs in.</Text>
         </View>
 
         {!!error && <Banner tone="danger">{error}</Banner>}
@@ -151,4 +173,5 @@ const styles = StyleSheet.create({
   busy: { flexDirection: 'row', alignItems: 'center', gap: space.sm, justifyContent: 'center', padding: space.md },
   option: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
   optionOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  trialCard: { borderWidth: 1.5, borderColor: colors.primary },
 });

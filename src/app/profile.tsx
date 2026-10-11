@@ -8,6 +8,7 @@ import { formatDate } from '@/data/dates';
 import { useMe, useStore } from '@/data/store';
 import { Card, ListRow, Row, SectionTitle, text, ToggleRow } from '@/ui/components';
 import { PhotoEditor } from '@/ui/PhotoEditor';
+import { TrialBadge } from '@/ui/TrialBadge';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
 
@@ -35,6 +36,9 @@ export default function ProfileScreen() {
     <Screen>
       <Card>
         <PhotoEditor user={me} />
+        <View style={{ alignItems: 'center' }}>
+          <TrialBadge days />
+        </View>
       </Card>
       <SectionTitle>Details</SectionTitle>
       <Card>

@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import type { LicenseState } from '@/cloud/license';
+import { DEFAULT_TRIAL, type LicenseState } from '@/cloud/license';
 import { buildSeed } from '@/data/seed';
 import type { Snapshot } from '@/data/types';
 
@@ -19,6 +19,17 @@ export function previewState(): { snapshot: Snapshot; session: { mode: 'cloud'; 
   const userId = AS[as] ?? AS.rep;
   const email = snapshot.users.find((u) => u.id === userId)?.email ?? '';
   const now = Date.now();
+  // ?trial=1 shows a company on a free trial with 8 days left, ?trial=ended one whose trial is over.
+  const trial = UI_PREVIEW && Platform.OS === 'web' && typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('trial') : null;
+  if (trial) {
+    const end = now + (trial === 'ended' ? -864e5 : 8 * 864e5 - 3600e3);
+    const payload = { v: 1 as const, companyId: 'preview', company: snapshot.company.name, adminEmail: '', issuedAt: new Date(now - 22 * 864e5).toISOString(), expiresAt: new Date(end).toISOString(), subscriptionEnd: new Date(end).toISOString(), seats: 5, trial: true, limits: DEFAULT_TRIAL };
+    return {
+      snapshot,
+      session: { mode: 'cloud', userId, email, companyId: 'preview', folder: { provider: 'google', id: 'preview' }, deviceId: 'preview' },
+      license: trial === 'ended' ? { state: 'expired', payload, trial: true } : { state: 'active', payload, daysLeft: 8 },
+    };
+  }
   return {
     snapshot,
     session: { mode: 'cloud', userId, email, companyId: 'preview', folder: { provider: 'google', id: 'preview' }, deviceId: 'preview' },
