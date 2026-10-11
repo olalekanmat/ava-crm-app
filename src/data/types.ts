@@ -81,6 +81,33 @@ export interface Account {
   potential?: Potential;
   /** The company's own segment name, e.g. "Early adopter" or "Hospital decision maker". */
   segment?: string;
+  // ----- 2.7; a change that leaves these out keeps the current values -----
+  /** HCP: the organizations (HCO account ids) they work at, main workplace first. */
+  workplaces?: string[];
+  /** A rep added it and a manager or administrator has not confirmed it yet. */
+  pendingReview?: boolean;
+  /** Set when an administrator merged this duplicate into another account (it is then deleted). */
+  mergedInto?: string;
+}
+
+/** Account details a rep can ask to change; a manager or administrator approves (2.7). */
+export const ACCOUNT_CHANGE_FIELDS = ['name', 'type', 'specialty', 'affiliation', 'workplaces', 'address', 'city', 'phone', 'email'] as const;
+export type AccountChangeField = (typeof ACCOUNT_CHANGE_FIELDS)[number];
+export type AccountChanges = Partial<Pick<Account, AccountChangeField>>;
+export type ReviewStatus = 'Pending' | 'Approved' | 'Rejected';
+
+/** A rep's proposed correction to an account's details (2.7). */
+export interface AccountChange {
+  id: string;
+  accountId: string;
+  byId: string;
+  at: string;
+  changes: AccountChanges;
+  note?: string;
+  status: ReviewStatus;
+  reviewerId?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
 }
 
 export type Potential = 'High' | 'Medium' | 'Low';
@@ -133,12 +160,47 @@ export interface Call {
   coachId?: string;
   /** The manager's scorecard for a coached call; set with call.coach only. */
   coaching?: Coaching;
+  // ----- 2.7 -----
+  /** What the rep wants from the visit, set when planning, marked achieved or not when recording. */
+  objectives?: CallObjective[];
+  /** Presentation slides shown in the call and for how long. */
+  detailing?: SlideView[];
+  /** How the doctor responded to the presentation. */
+  reaction?: Reaction;
+  /** The doctor's signature for the samples handed over. */
+  signature?: Signature;
+}
+
+export interface CallObjective {
+  text: string;
+  /** Set when the call is recorded: true achieved, false not achieved. */
+  achieved?: boolean;
+}
+
+export type Reaction = 'Positive' | 'Neutral' | 'Negative';
+export const REACTIONS: Reaction[] = ['Positive', 'Neutral', 'Negative'];
+
+/** One slide of a product presentation shown in a call. `slide` counts from 1. */
+export interface SlideView {
+  product: string;
+  slide: number;
+  seconds: number;
+}
+
+/** A signature drawn on screen: strokes of x,y points (0 to 1000), flattened [x1, y1, x2, y2, ...]. */
+export interface Signature {
+  /** The person who signed, as they gave it. */
+  name: string;
+  strokes: number[][];
+  at: string;
 }
 
 export interface SampleGiven {
   product: string;
   qty: number;
   batch?: string;
+  /** Expiry month of the batch, YYYY-MM (2.7). */
+  expiry?: string;
 }
 
 /** Skills a manager scores on a coached call, 1 (needs work) to 5 (excellent). */
@@ -203,9 +265,55 @@ export interface SampleIssue {
   product: string;
   qty: number;
   batch?: string;
+  /** Expiry month of the batch, YYYY-MM (2.7). */
+  expiry?: string;
   note?: string;
   byId: string;
   at: string;
+}
+
+/** A rep's count of the samples physically in hand, for the monthly reconciliation (2.7). */
+export interface SampleCount {
+  id: string;
+  repId: string;
+  /** The month being reconciled, YYYY-MM. */
+  month: string;
+  counts: { product: string; counted: number }[];
+  note?: string;
+  at: string;
+}
+
+// ----- events (2.7) -----
+
+export type EventKind = 'CME' | 'Round table' | 'Lunch & learn' | 'Symposium' | 'Webinar' | 'Other';
+export const EVENT_KINDS: EventKind[] = ['CME', 'Round table', 'Lunch & learn', 'Symposium', 'Webinar', 'Other'];
+export type EventStatus = 'Planned' | 'Done' | 'Cancelled';
+export const EVENT_STATUSES: EventStatus[] = ['Planned', 'Done', 'Cancelled'];
+export type AttendeeStatus = 'Invited' | 'Confirmed' | 'Attended' | 'No-show';
+export const ATTENDEE_STATUSES: AttendeeStatus[] = ['Invited', 'Confirmed', 'Attended', 'No-show'];
+
+/** A medical meeting run by a rep or manager: invitations, attendance and budget. */
+export interface MeetingEvent {
+  id: string;
+  title: string;
+  kind: EventKind;
+  /** YYYY-MM-DD */
+  date: string;
+  /** HH:MM local time. */
+  time?: string;
+  venue?: string;
+  city?: string;
+  /** The organiser. */
+  ownerId: string;
+  products: string[];
+  /** Planned budget and actual spend, in the company's currency. */
+  budget?: number;
+  spent?: number;
+  status: EventStatus;
+  attendees: { accountId: string; status: AttendeeStatus }[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** A planning period, e.g. an 8-week promotional cycle. Dates are YYYY-MM-DD, inclusive. */
@@ -245,6 +353,17 @@ export interface Product {
   active: boolean;
   /** A web link to the product's approved brochure, for sharing with doctors (2.5). */
   brochureUrl?: string;
+  /** The approved slide presentation for calls (2.7); the slides are a file in the company folder. */
+  deck?: DeckRef;
+}
+
+/** Points to a presentation file in the company folder; `hash` proves the file is the one the administrator uploaded. */
+export interface DeckRef {
+  file: string;
+  /** SHA-256 of the file's content, hex. */
+  hash: string;
+  slides: number;
+  updatedAt: string;
 }
 
 /** The company using Ava CRM, set up by its administrator. */
@@ -277,7 +396,26 @@ export interface Settings {
   cycleLength?: CycleLength;
   /** Report definitions saved by administrators and shared with the company (up to 50). */
   reports?: ReportDef[];
+  // ----- 2.7 -----
+  /** Ready-made call objectives reps can pick. Absent means the defaults. */
+  objectives?: string[];
+  /** Accounts a rep adds wait for a manager or administrator to confirm them. */
+  reviewNewAccounts?: boolean;
+  /** Doctor's signature for samples: offered (absent), required, or not used. */
+  sampleSignature?: SignatureRule;
 }
+
+export type SignatureRule = 'optional' | 'required' | 'off';
+
+export const DEFAULT_OBJECTIVES = [
+  'Introduce the product',
+  'Agree to try it with suitable patients',
+  'Address a concern raised last time',
+  'Share new clinical data',
+  'Get it on the hospital formulary',
+  'Invite to an upcoming event',
+  'Confirm stock at the pharmacy',
+];
 
 // ----- planning cycle length -----
 
@@ -342,6 +480,10 @@ export interface Snapshot {
   leaves?: Leave[];
   tasks?: Task[];
   samples?: SampleIssue[];
+  // 2.7
+  events?: MeetingEvent[];
+  accountChanges?: AccountChange[];
+  sampleCounts?: SampleCount[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -365,4 +507,7 @@ export const emptySnapshot = (company: Company = { name: '' }): Snapshot => ({
   leaves: [],
   tasks: [],
   samples: [],
+  events: [],
+  accountChanges: [],
+  sampleCounts: [],
 });

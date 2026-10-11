@@ -1,6 +1,6 @@
 import { calendarState } from './calendar';
 import { toDateKey } from './dates';
-import type { Call, CyclePlan, Leave, PlanTarget, Task } from './types';
+import type { Account, AccountChange, Call, CyclePlan, Leave, MeetingEvent, PlanTarget, Task } from './types';
 
 /** Calls should be recorded (submitted) within this long of the visit, for compliance. */
 export const RECORD_WITHIN_MS = 24 * 60 * 60 * 1000;
@@ -10,14 +10,20 @@ export type AlertLevel = 'urgent' | 'important' | 'normal';
 export interface AlertItem {
   id: string;
   level: AlertLevel;
-  kind: 'overdue' | 'draft-late' | 'draft' | 'plan-returned' | 'plan-review' | 'leave-review' | 'leave-decided';
+  kind: 'overdue' | 'draft-late' | 'draft' | 'plan-returned' | 'plan-review' | 'leave-review' | 'leave-decided'
+    // 2.7
+    | 'plan-approved' | 'account-review' | 'account-new' | 'change-decided' | 'task-assigned' | 'event-soon';
   title: string;
   /** The call or plan the alert is about. */
   callId?: string;
   planId?: string;
   accountId?: string;
+  eventId?: string;
   at: string;
 }
+
+/** Alerts that also arrive as a phone notification when they first appear (2.7). */
+export const NOTIFY_KINDS = new Set<AlertItem['kind']>(['plan-returned', 'plan-review', 'plan-approved', 'leave-review', 'leave-decided', 'account-review', 'account-new', 'change-decided', 'task-assigned']);
 
 export interface AlertSummary {
   items: AlertItem[];
@@ -35,7 +41,13 @@ export interface AlertSummary {
  * from `reviewable` owners (the reps who report to them).
  */
 export function computeAlerts(
-  { calls, plans, userId, reviewable = [], accountName = () => 'Account', leaves = [] }: { calls: Call[]; plans: CyclePlan[]; userId: string; reviewable?: string[]; accountName?: (id: string) => string; leaves?: Leave[] },
+  {
+    calls, plans, userId, reviewable = [], accountName = () => 'Account', leaves = [], accountChanges = [], accounts = [], canReviewAccount = () => false, tasks = [], events = [],
+  }: {
+    calls: Call[]; plans: CyclePlan[]; userId: string; reviewable?: string[]; accountName?: (id: string) => string; leaves?: Leave[];
+    // 2.7
+    accountChanges?: AccountChange[]; accounts?: Account[]; canReviewAccount?: (ownerId: string, byId?: string) => boolean; tasks?: Task[]; events?: MeetingEvent[];
+  },
   now = new Date(),
 ): AlertSummary {
   const items: AlertItem[] = [];
@@ -60,6 +72,21 @@ export function computeAlerts(
     if (l.userId === userId && (l.status === 'Approved' || l.status === 'Rejected') && l.reviewedAt && now.getTime() - Date.parse(l.reviewedAt) < 7 * 864e5)
       items.push({ id: `ld:${l.id}`, level: 'normal', kind: 'leave-decided', title: `Your leave from ${l.start} was ${l.status === 'Approved' ? 'approved' : 'declined'}`, at: l.reviewedAt });
   }
+  // 2.7: plan approved, account changes and new accounts to review, decisions on mine, tasks from a manager, events soon.
+  const week = 7 * 864e5;
+  const recent = (iso?: string) => !!iso && now.getTime() - Date.parse(iso) < week;
+  for (const p of plans) if (p.ownerId === userId && p.status === 'Approved' && recent(p.reviewedAt)) items.push({ id: `pa:${p.id}`, level: 'normal', kind: 'plan-approved', title: 'Your cycle plan was approved', planId: p.id, at: p.reviewedAt! });
+  const ownerOf = new Map(accounts.map((a) => [a.id, a.ownerId]));
+  for (const x of accountChanges) {
+    const owner = ownerOf.get(x.accountId);
+    if (x.status === 'Pending' && owner && x.byId !== userId && canReviewAccount(owner, x.byId)) items.push({ id: `ac:${x.id}`, level: 'important', kind: 'account-review', title: `Account change to review · ${accountName(x.accountId)}`, accountId: x.accountId, at: x.at });
+    if (x.byId === userId && x.status !== 'Pending' && recent(x.reviewedAt)) items.push({ id: `acd:${x.id}`, level: 'normal', kind: 'change-decided', title: `Your change to ${accountName(x.accountId)} was ${x.status === 'Approved' ? 'approved' : 'declined'}`, accountId: x.accountId, at: x.reviewedAt! });
+  }
+  for (const a of accounts) if (a.pendingReview && !a.deletedAt && a.ownerId !== userId && canReviewAccount(a.ownerId)) items.push({ id: `an:${a.id}`, level: 'important', kind: 'account-new', title: `New account to confirm · ${a.name}`, accountId: a.id, at: a.createdAt });
+  for (const t of tasks) if (t.ownerId === userId && t.assignedBy && t.assignedBy !== userId && !t.doneAt && recent(t.createdAt)) items.push({ id: `ta:${t.id}`, level: 'normal', kind: 'task-assigned', title: `New task from your manager: ${t.title}`, accountId: t.accountId, at: t.createdAt });
+  const today = toDateKey(now);
+  const soon = toDateKey(new Date(now.getTime() + 2 * 864e5));
+  for (const e of events) if (e.ownerId === userId && e.status === 'Planned' && e.date >= today && e.date <= soon) items.push({ id: `ev:${e.id}`, level: 'normal', kind: 'event-soon', title: `${e.title} on ${e.date}${e.time ? ` at ${e.time}` : ''}`, eventId: e.id, at: `${e.date}T${e.time ?? '09:00'}:00` });
   const rank = { urgent: 0, important: 1, normal: 2 } as const;
   items.sort((a, b) => rank[a.level] - rank[b.level] || a.at.localeCompare(b.at));
   return {

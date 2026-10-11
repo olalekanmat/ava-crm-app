@@ -2,7 +2,7 @@ import { isAdmin as hasAdminRights, manages, visibleOwnerIds } from './access';
 import { spanDays } from './metrics';
 import { MAX_REPORTS, reportProblem } from './reports';
 import { teamOf, tierSchemeProblem } from './tiers';
-import { COACHING_SKILLS, LEAVE_KINDS, POTENTIALS, type Account, type Call, type Coaching, type Company, type Cycle, type CyclePlan, type Leave, type Product, type ReportDef, type Role, type SampleIssue, type Settings, type Snapshot, type Task, type TierDef, type User } from './types';
+import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, type Account, type AccountChange, type AccountChanges, type Call, type Coaching, type Company, type Cycle, type CyclePlan, type Leave, type MeetingEvent, type Product, type ReportDef, type Role, type SampleCount, type SampleIssue, type Settings, type Signature, type Snapshot, type Task, type TierDef, type User } from './types';
 
 /**
  * Every change to the data is one of these. The app applies it locally right away and appends it
@@ -30,7 +30,7 @@ export type Mutation =
   | { type: 'product.delete'; ids: string[] }
   | { type: 'cycle.upsert'; cycle: Cycle }
   /** `cycleLength` (2.3) switches planning between calendar quarters and months; existing plans keep their cycle. */
-  | { type: 'settings.update'; settings: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled' | 'cycleLength'>> }
+  | { type: 'settings.update'; settings: Partial<Pick<Settings, SettingsKey>> }
   | { type: 'company.update'; company: Partial<Company> }
   /** Sets the tier names for one team (FLM id), or the company default when teamId is absent. `tiers: null` makes a team use the default again. `renames` maps old to new names on that team's accounts. */
   | { type: 'tiers.update'; teamId?: string; tiers: TierDef[] | null; renames?: Record<string, string> }
@@ -48,7 +48,21 @@ export type Mutation =
   | { type: 'task.done'; id: string; done: boolean }
   | { type: 'task.delete'; id: string }
   | { type: 'sample.issue'; issue: SampleIssue }
-  | { type: 'call.coach'; id: string; coaching: Coaching };
+  | { type: 'call.coach'; id: string; coaching: Coaching }
+  // ----- 2.7. Older versions skip these. -----
+  /** A rep asks to correct an account's details; a manager or administrator reviews it. */
+  | { type: 'account.change'; change: AccountChange }
+  | { type: 'account.review'; id: string; approve: boolean; note?: string }
+  /** Confirms (or turns down, which deletes) accounts a rep added while new accounts need review. */
+  | { type: 'account.verify'; ids: string[]; approve: boolean; note?: string }
+  /** Merges duplicates into `keepId`: their calls, plans, tasks and events move over and they are deleted. */
+  | { type: 'account.merge'; keepId: string; ids: string[] }
+  | { type: 'event.save'; event: MeetingEvent }
+  | { type: 'event.delete'; id: string }
+  | { type: 'sample.count'; count: SampleCount };
+
+export const SETTINGS_KEYS = ['geofenceM', 'requireCheckIn', 'aiEnabled', 'cycleLength', 'objectives', 'reviewNewAccounts', 'sampleSignature'] as const;
+export type SettingsKey = (typeof SETTINGS_KEYS)[number];
 
 export class RuleError extends Error {}
 
@@ -92,7 +106,7 @@ export function managersOf(users: User[], userId: string): User[] {
 }
 
 /** Rules that apply to a call before it is saved with its status. Returns field -> message. */
-export function callProblems(call: Pick<Call, 'status' | 'datetime' | 'products' | 'channel' | 'checkIn'>, settings: Settings, now = new Date()): Record<string, string> {
+export function callProblems(call: Pick<Call, 'status' | 'datetime' | 'products' | 'channel' | 'checkIn' | 'samples' | 'signature'>, settings: Settings, now = new Date()): Record<string, string> {
   const errors: Record<string, string> = {};
   const when = new Date(call.datetime).getTime();
   if (Number.isNaN(when)) errors.when = 'Enter a valid date and time.';
@@ -102,6 +116,9 @@ export function callProblems(call: Pick<Call, 'status' | 'datetime' | 'products'
     if (call.products.length === 0) errors.products = 'Add at least one product discussed before submitting.';
     if (settings.requireCheckIn && call.channel === 'In person' && !call.checkIn) {
       errors.checkIn = 'Check in at the account before submitting an in-person call.';
+    }
+    if (settings.sampleSignature === 'required' && call.samples?.some((x) => x.qty > 0) && !call.signature) {
+      errors.signature = 'Ask the doctor to sign for the samples before submitting.';
     }
   }
   if (call.status === 'Planned' && when < now.getTime() - 24 * 3600 * 1000) errors.when = 'Planned calls should be today or later.';
@@ -173,11 +190,95 @@ function withProfile(a: Account, existing?: Account): Account {
   return out;
 }
 
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
 function checkSamples(c: Call, s: Snapshot) {
   for (const x of c.samples ?? []) {
     if (!Number.isInteger(x.qty) || x.qty < 1 || x.qty > 1000) fail('Samples given must be a whole number from 1 to 1000.');
     if (!s.products.some((p) => p.name === x.product)) fail(`${x.product} is not a product.`);
+    if (x.expiry && !MONTH_RE.test(x.expiry)) fail('Use YYYY-MM for the expiry month.');
+    // A batch is usable until the end of its expiry month.
+    if (x.expiry && c.status !== 'Planned' && x.expiry < c.datetime.slice(0, 7)) fail(`The ${x.product} batch${x.batch ? ` ${x.batch}` : ''} expired in ${x.expiry} and cannot be given out.`);
   }
+}
+
+export const MAX_OBJECTIVES = 5;
+export const MAX_SIGNATURE_POINTS = 4000;
+
+/** Checks the 2.7 parts of a call: objectives, slides shown, reaction and signature. */
+function checkCallExtras(c: Call, s: Snapshot) {
+  if ((c.objectives?.length ?? 0) > MAX_OBJECTIVES) fail(`A call can have up to ${MAX_OBJECTIVES} objectives.`);
+  for (const o of c.objectives ?? []) if (!o.text.trim() || o.text.length > 200) fail('Write each objective in 1 to 200 characters.');
+  if (c.status === 'Planned' && c.objectives?.some((o) => o.achieved !== undefined)) fail('Mark objectives when you record the call.');
+  for (const v of c.detailing ?? []) {
+    if (!Number.isInteger(v.slide) || v.slide < 1 || v.slide > 200) fail('Invalid slide number.');
+    if (!Number.isInteger(v.seconds) || v.seconds < 0 || v.seconds > 3 * 3600) fail('Invalid slide time.');
+    if (!s.products.some((p) => p.name === v.product)) fail(`${v.product} is not a product.`);
+  }
+  if (c.reaction && !REACTIONS.includes(c.reaction)) fail('Invalid reaction.');
+  if (c.signature) checkSignature(c.signature);
+}
+
+export function checkSignature(sig: Signature) {
+  if (!sig.name.trim() || sig.name.length > 120) fail('Write the name of the person signing.');
+  const points = sig.strokes.reduce((n, x) => n + x.length / 2, 0);
+  if (!sig.strokes.length || points < 2) fail('The signature is empty.');
+  if (sig.strokes.length > 60 || points > MAX_SIGNATURE_POINTS) fail('The signature is too detailed. Clear it and sign again.');
+  for (const st of sig.strokes) if (st.length % 2 || st.some((v) => !Number.isInteger(v) || v < 0 || v > 1000)) fail('Invalid signature.');
+}
+
+/** Removes accounts as account.delete does: they stay hidden for history; open calls and plan targets go. */
+function deleteAccounts(s: Snapshot, ids: Set<string>, nowIso: string, mergedInto?: string): Snapshot {
+  return {
+    ...s,
+    accounts: s.accounts.map((a) => (ids.has(a.id) ? { ...a, deletedAt: nowIso, pendingReview: undefined, ...(mergedInto ? { mergedInto } : {}) } : a)),
+    calls: s.calls.filter((c) => !ids.has(c.accountId) || c.status === 'Submitted'),
+    plans: s.plans.map((p) => (p.targets.some((t) => ids.has(t.accountId)) ? { ...p, targets: p.targets.filter((t) => !ids.has(t.accountId)), updatedAt: nowIso } : p)),
+    accountChanges: (s.accountChanges ?? []).map((x) => (ids.has(x.accountId) && x.status === 'Pending' ? { ...x, status: 'Rejected' as const, reviewedAt: nowIso, reviewNote: mergedInto ? 'Merged into another account' : 'Account deleted' } : x)),
+  };
+}
+
+/** Workplaces must be organizations (HCO accounts) that exist; up to 10, main one first. */
+function cleanWorkplaces(list: string[] | undefined, s: Snapshot, selfId: string): string[] | undefined {
+  if (!list) return undefined;
+  const out = [...new Set(list)].filter((id) => id !== selfId);
+  if (out.length > 10) fail('An account can list up to 10 workplaces.');
+  for (const id of out) {
+    const org = s.accounts.find((a) => a.id === id);
+    if (!org) fail('Workplace not found.');
+    if (org!.type !== 'HCO') fail(`${org!.name} is not an organization.`);
+  }
+  // Workplaces deleted since keep their id out of the list.
+  return out.filter((id) => !s.accounts.find((a) => a.id === id)?.deletedAt);
+}
+
+const sameValue = (x: unknown, y: unknown) => JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
+
+/** Applies proposed detail changes to an account, checking them as account.upsert would. */
+function withChanges(a: Account, changes: AccountChanges, s: Snapshot): Account {
+  const next: Account = { ...a };
+  for (const k of ACCOUNT_CHANGE_FIELDS) {
+    if (!(k in changes)) continue;
+    const v = changes[k];
+    if (k === 'workplaces') next.workplaces = cleanWorkplaces(v as string[] | undefined, s, a.id);
+    else if (k === 'type') next.type = v as Account['type'];
+    else (next as unknown as Record<string, unknown>)[k] = typeof v === 'string' ? v.trim() || undefined : v;
+  }
+  if (!next.name?.trim() || !next.specialty?.trim() || !next.city?.trim()) fail('Name, specialty and city are required.');
+  next.address = next.address ?? '';
+  if (next.type === 'HCO') {
+    delete next.workplaces;
+    delete next.affiliation;
+  }
+  return next;
+}
+
+const DECK_FILE_RE = /^ava-deck-[A-Za-z0-9_-]{1,80}\.json$/;
+export const MAX_DECK_SLIDES = 60;
+
+function checkDeck(d: NonNullable<Product['deck']>) {
+  if (!DECK_FILE_RE.test(d.file) || !/^[0-9a-f]{64}$/.test(d.hash)) fail('Invalid presentation.');
+  if (!Number.isInteger(d.slides) || d.slides < 1 || d.slides > MAX_DECK_SLIDES) fail(`A presentation can have 1 to ${MAX_DECK_SLIDES} slides.`);
 }
 
 /** Applies one mutation as `actor`. Throws RuleError when it is not allowed. */
@@ -199,7 +300,22 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (!owner) fail('The account owner was not found.');
       if (!isAdmin && a.ownerId !== actor.id && !manages(s.users, actor, a.ownerId)) fail('You can only add accounts to your own territory or team.');
       if (!a.name.trim() || !a.specialty.trim() || !a.city.trim()) fail('Name, specialty and city are required.');
-      return { ...s, accounts: replaceOrAdd(s.accounts, { ...withProfile(a, existing), createdAt: existing?.createdAt ?? a.createdAt ?? nowIso }) };
+      // 2.7: a rep changes an existing account's details by asking (account.change); here only the
+      // profile (KOL, potential, segment) and notes can change.
+      const repEdit = existing && actor.role === 'Rep' && !isAdmin;
+      const base: Account = repEdit ? { ...existing, kol: a.kol, potential: a.potential, segment: a.segment, notes: a.notes } : a;
+      const account = withProfile(base, existing);
+      if (repEdit) account.workplaces = existing.workplaces;
+      else if (a.workplaces === undefined) {
+        if (existing?.workplaces) account.workplaces = existing.workplaces;
+      } else account.workplaces = a.type === 'HCP' ? cleanWorkplaces(a.workplaces, s, a.id) : undefined;
+      if (!account.workplaces?.length) delete account.workplaces;
+      // New accounts from reps wait for review when the company asks for it.
+      const pending = existing ? existing.pendingReview : s.settings.reviewNewAccounts && actor.role === 'Rep' && !isAdmin ? true : undefined;
+      if (pending) account.pendingReview = true;
+      else delete account.pendingReview;
+      delete account.mergedInto;
+      return { ...s, accounts: replaceOrAdd(s.accounts, { ...account, createdAt: existing?.createdAt ?? a.createdAt ?? nowIso }) };
     }
 
     case 'account.pin': {
@@ -221,11 +337,14 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       const first = Object.values(problems)[0];
       if (first) fail(first);
       checkSamples(c, s);
+      checkCallExtras(c, s);
       if (c.coachId && !managersOf(s.users, c.ownerId).some((m) => m.id === c.coachId)) fail('The coach must be one of your managers.');
       const call: Call = {
         ...c,
         // The scorecard is the manager's, set with call.coach; the rep's save keeps it.
         coaching: existing?.coaching,
+        // A signature only means something with samples handed over.
+        signature: c.samples?.length ? c.signature : undefined,
         createdAt: existing?.createdAt ?? c.createdAt ?? nowIso,
         updatedAt: nowIso,
         submittedAt: c.status === 'Submitted' ? c.submittedAt ?? nowIso : undefined,
@@ -363,13 +482,8 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       adminOnly();
       const ids = new Set(m.ids.filter((id) => s.accounts.some((a) => a.id === id && !a.deletedAt)));
       if (!ids.size) return s;
-      return {
-        ...s,
-        // Deleted accounts stay in the data, hidden, so submitted calls keep the account's name.
-        accounts: s.accounts.map((a) => (ids.has(a.id) ? { ...a, deletedAt: nowIso } : a)),
-        calls: s.calls.filter((c) => !ids.has(c.accountId) || c.status === 'Submitted'),
-        plans: s.plans.map((p) => (p.targets.some((t) => ids.has(t.accountId)) ? { ...p, targets: p.targets.filter((t) => !ids.has(t.accountId)), updatedAt: nowIso } : p)),
-      };
+      // Deleted accounts stay in the data, hidden, so submitted calls keep the account's name.
+      return deleteAccounts(s, ids, nowIso);
     }
 
     case 'product.delete': {
@@ -383,6 +497,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       adminOnly();
       if (!m.product.name.trim()) fail('Product name is required.');
       if (m.product.brochureUrl && !/^https:\/\/\S+$/.test(m.product.brochureUrl)) fail('The brochure link must start with https://');
+      if (m.product.deck) checkDeck(m.product.deck);
       return { ...s, products: replaceOrAdd(s.products, m.product) };
     }
 
@@ -406,6 +521,16 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
         aiEnabled: m.settings.aiEnabled ?? s.settings.aiEnabled,
         cycleLength: m.settings.cycleLength ?? s.settings.cycleLength ?? 'quarter',
       };
+      if (m.settings.objectives !== undefined) {
+        const list = [...new Set(m.settings.objectives.map((o) => o.trim()).filter(Boolean))];
+        if (list.length > 20 || list.some((o) => o.length > 200)) fail('Keep up to 20 objectives of 200 characters or fewer.');
+        next.objectives = list;
+      }
+      if (m.settings.reviewNewAccounts !== undefined) next.reviewNewAccounts = m.settings.reviewNewAccounts || undefined;
+      if (m.settings.sampleSignature !== undefined) {
+        if (!['optional', 'required', 'off'].includes(m.settings.sampleSignature)) fail('Invalid signature setting.');
+        next.sampleSignature = m.settings.sampleSignature === 'optional' ? undefined : m.settings.sampleSignature;
+      }
       if (next.cycleLength !== 'quarter' && next.cycleLength !== 'month') fail('Choose quarterly or monthly cycles.');
       if (!(next.geofenceM >= 25 && next.geofenceM <= 5000)) fail('Geofence must be between 25 and 5000 metres.');
       if (m.settings.aiEnabled !== undefined) next.aiEnabled = m.settings.aiEnabled;
@@ -483,7 +608,9 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       let products = s.products;
       for (const p of m.products) {
         if (p.brochureUrl && !/^https:\/\/\S+$/.test(p.brochureUrl)) fail(`The brochure link for ${p.name} must start with https://`);
-        products = replaceOrAdd(products, p);
+        // CSV files carry no slides: a product keeps its presentation.
+        const deck = products.find((x) => x.id === p.id)?.deck;
+        products = replaceOrAdd(products, deck ? { ...p, deck } : p);
       }
       return { ...s, products };
     }
@@ -558,7 +685,8 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (!s.products.some((p) => p.name === x.product)) fail(`${x.product} is not a product.`);
       if (!Number.isInteger(x.qty) || x.qty === 0 || Math.abs(x.qty) > MAX_SAMPLE_QTY) fail(`Quantity must be a whole number up to ${MAX_SAMPLE_QTY}, not zero.`);
       if ((s.samples ?? []).some((y) => y.id === x.id)) return s;
-      const issue: SampleIssue = { id: x.id, repId: rep.id, product: x.product, qty: x.qty, batch: x.batch?.trim() || undefined, note: x.note?.trim() || undefined, byId: actor.id, at: nowIso };
+      if (x.expiry && !MONTH_RE.test(x.expiry)) fail('Use YYYY-MM for the expiry month.');
+      const issue: SampleIssue = { id: x.id, repId: rep.id, product: x.product, qty: x.qty, batch: x.batch?.trim() || undefined, expiry: x.expiry || undefined, note: x.note?.trim() || undefined, byId: actor.id, at: nowIso };
       return { ...s, samples: [...(s.samples ?? []), issue] };
     }
 
@@ -576,6 +704,138 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (!Object.keys(scores).length) fail('Score at least one skill.');
       const coaching: Coaching = { by: actor.id, at: nowIso, scores, strengths: m.coaching.strengths?.trim() || undefined, improve: m.coaching.improve?.trim() || undefined };
       return { ...s, calls: s.calls.map((x) => (x.id === c.id ? { ...x, coachId: x.coachId ?? actor.id, coaching } : x)) };
+    }
+
+
+    // ----- account data quality (2.7) -----
+    case 'account.change': {
+      const x = m.change;
+      const a = s.accounts.find((y) => y.id === x.accountId && !y.deletedAt) ?? fail('Account not found.');
+      if (!visible.has(a.ownerId)) fail('You cannot change this account.');
+      const existing = (s.accountChanges ?? []).find((y) => y.id === x.id);
+      if (existing && (existing.byId !== actor.id || existing.status !== 'Pending')) fail('Only a pending request can be changed.');
+      const changes: AccountChanges = {};
+      for (const k of ACCOUNT_CHANGE_FIELDS) if (k in x.changes && !sameValue(x.changes[k], a[k])) (changes as Record<string, unknown>)[k] = x.changes[k];
+      if (!Object.keys(changes).length) fail('Nothing has changed.');
+      withChanges(a, changes, s); // checks the result now, so a bad request fails on the rep's phone
+      const change: AccountChange = { id: x.id, accountId: a.id, byId: actor.id, at: existing?.at ?? nowIso, changes, note: x.note?.trim() || undefined, status: 'Pending' };
+      return { ...s, accountChanges: replaceOrAdd(s.accountChanges ?? [], change) };
+    }
+
+    case 'account.review': {
+      const x = (s.accountChanges ?? []).find((y) => y.id === m.id) ?? fail('Request not found.');
+      if (x.status !== 'Pending') fail('This request was already decided.');
+      const a = s.accounts.find((y) => y.id === x.accountId && !y.deletedAt) ?? fail('Account not found.');
+      if (!isAdmin && (x.byId === actor.id || !manages(s.users, actor, a.ownerId))) fail('Only the rep’s manager or an administrator can review this.');
+      if (!m.approve && !m.note?.trim()) fail('Say why when declining a change.');
+      const decided: AccountChange = { ...x, status: m.approve ? 'Approved' : 'Rejected', reviewerId: actor.id, reviewedAt: nowIso, reviewNote: m.note?.trim() || undefined };
+      const next = { ...s, accountChanges: replaceOrAdd(s.accountChanges ?? [], decided) };
+      if (!m.approve) return next;
+      return { ...next, accounts: replaceOrAdd(s.accounts, withChanges(a, x.changes, s)) };
+    }
+
+    case 'account.verify': {
+      const list = s.accounts.filter((a) => m.ids.includes(a.id) && a.pendingReview && !a.deletedAt);
+      if (!list.length) return s;
+      for (const a of list) if (!isAdmin && (a.ownerId === actor.id || !manages(s.users, actor, a.ownerId))) fail('Only the rep’s manager or an administrator can confirm new accounts.');
+      const ids = new Set(list.map((a) => a.id));
+      if (m.approve) return { ...s, accounts: s.accounts.map((a) => (ids.has(a.id) ? { ...a, pendingReview: undefined } : a)) };
+      return deleteAccounts(s, ids, nowIso);
+    }
+
+    case 'account.merge': {
+      adminOnly();
+      const keep = s.accounts.find((a) => a.id === m.keepId && !a.deletedAt) ?? fail('The account to keep was not found.');
+      const ids = new Set(m.ids.filter((id) => id !== keep.id && s.accounts.some((a) => a.id === id && !a.deletedAt)));
+      if (!ids.size) return s;
+      for (const id of ids) if (s.accounts.find((a) => a.id === id)!.type !== keep.type) fail('Only accounts of the same kind can be merged.');
+      const swap = (id: string) => (ids.has(id) ? keep.id : id);
+      // Plans: targets for the duplicates move to the kept account; one plan never lists it twice.
+      const plans = s.plans.map((p) => {
+        if (!p.targets.some((t) => ids.has(t.accountId))) return p;
+        const by = new Map<string, number>();
+        for (const t of p.targets) by.set(swap(t.accountId), Math.min(50, (by.get(swap(t.accountId)) ?? 0) + t.planned));
+        return { ...p, targets: [...by].map(([accountId, planned]) => ({ accountId, planned })), updatedAt: nowIso };
+      });
+      const events = (s.events ?? []).map((e) => {
+        if (!e.attendees.some((x) => ids.has(x.accountId))) return e;
+        const seen = new Set<string>();
+        return { ...e, attendees: e.attendees.map((x) => ({ ...x, accountId: swap(x.accountId) })).filter((x) => (seen.has(x.accountId) ? false : (seen.add(x.accountId), true))) };
+      });
+      const moved: Snapshot = {
+        ...s,
+        // Every call, submitted ones included, now belongs to the account that stays.
+        calls: s.calls.map((c) => (ids.has(c.accountId) ? { ...c, accountId: keep.id } : c)),
+        plans,
+        tasks: (s.tasks ?? []).map((t) => (t.accountId && ids.has(t.accountId) ? { ...t, accountId: keep.id } : t)),
+        events,
+        accounts: s.accounts.map((a) => {
+          if (!a.workplaces?.some((w) => ids.has(w))) return a;
+          return { ...a, workplaces: [...new Set(a.workplaces.map(swap))].filter((w) => w !== a.id) };
+        }),
+      };
+      return deleteAccounts(moved, ids, nowIso, keep.id);
+    }
+
+    // ----- events (2.7) -----
+    case 'event.save': {
+      const e = m.event;
+      const existing = (s.events ?? []).find((x) => x.id === e.id);
+      const ownerId = existing?.ownerId ?? e.ownerId;
+      if (ownerId !== actor.id && !manages(s.users, actor, ownerId)) fail('You can only manage your own or your team’s events.');
+      if (!s.users.some((u) => u.id === ownerId && !u.deletedAt)) fail('Organiser not found.');
+      const title = e.title.trim();
+      if (!title || title.length > 120) fail('Give the event a title of up to 120 characters.');
+      if (!EVENT_KINDS.includes(e.kind)) fail('Choose the kind of event.');
+      if (!EVENT_STATUSES.includes(e.status)) fail('Invalid event status.');
+      if (!DAY_RE.test(e.date)) fail('Use YYYY-MM-DD for the date.');
+      if (e.time && !TIME_RE.test(e.time)) fail('Use HH:MM for the time.');
+      for (const p of e.products) if (!s.products.some((x) => x.name === p)) fail(`${p} is not a product.`);
+      if (e.products.length > 10) fail('Choose up to 10 products.');
+      for (const v of [e.budget, e.spent]) if (v !== undefined && !(v >= 0 && v <= 1e12)) fail('Enter amounts of zero or more.');
+      if (e.attendees.length > 500) fail('An event can have up to 500 invited people.');
+      const seen = new Set<string>();
+      const attendees = e.attendees.filter((x) => {
+        if (seen.has(x.accountId)) return false;
+        seen.add(x.accountId);
+        const a = s.accounts.find((y) => y.id === x.accountId);
+        if (!a) fail('Invited account not found.');
+        if (!ATTENDEE_STATUSES.includes(x.status)) fail('Invalid attendance.');
+        // Already on the list (e.g. deleted since): kept for the record. New invitations must be visible accounts.
+        const before = existing?.attendees.some((y) => y.accountId === x.accountId);
+        if (!before && (a!.deletedAt || !visible.has(a!.ownerId))) fail(`You cannot invite ${a!.name}.`);
+        return true;
+      });
+      const event: MeetingEvent = {
+        id: e.id, title, kind: e.kind, date: e.date, time: e.time || undefined, venue: e.venue?.trim() || undefined, city: e.city?.trim() || undefined, ownerId,
+        products: [...new Set(e.products)], budget: e.budget, spent: e.spent, status: e.status, attendees, notes: e.notes?.trim() || undefined,
+        createdAt: existing?.createdAt ?? nowIso, updatedAt: nowIso,
+      };
+      return { ...s, events: replaceOrAdd(s.events ?? [], event) };
+    }
+
+    case 'event.delete': {
+      const e = (s.events ?? []).find((x) => x.id === m.id);
+      if (!e) return s;
+      if (e.ownerId !== actor.id && !manages(s.users, actor, e.ownerId)) fail('You can only delete your own or your team’s events.');
+      if (e.status === 'Done') fail('A held event stays on record. Edit it instead.');
+      return { ...s, events: (s.events ?? []).filter((x) => x.id !== e.id) };
+    }
+
+    // ----- sample reconciliation (2.7) -----
+    case 'sample.count': {
+      const x = m.count;
+      if (x.repId !== actor.id) fail('You can only count your own samples.');
+      if (!MONTH_RE.test(x.month)) fail('Use YYYY-MM for the month.');
+      const existing = (s.sampleCounts ?? []).find((y) => y.id === x.id);
+      if (existing && existing.repId !== actor.id) fail('You cannot change this count.');
+      if (x.counts.length > 200) fail('Too many products.');
+      for (const c of x.counts) {
+        if (!Number.isInteger(c.counted) || c.counted < 0 || c.counted > 100000) fail('Counts must be whole numbers of zero or more.');
+        if (!s.products.some((p) => p.name === c.product)) fail(`${c.product} is not a product.`);
+      }
+      const count: SampleCount = { id: x.id, repId: actor.id, month: x.month, counts: x.counts, note: x.note?.trim() || undefined, at: nowIso };
+      return { ...s, sampleCounts: replaceOrAdd(s.sampleCounts ?? [], count) };
     }
 
     // ----- reports (2.3) -----
@@ -638,6 +898,20 @@ export function describeMutation(m: Mutation): string {
       return `${m.issue.qty > 0 ? 'Issued' : 'Took back'} ${Math.abs(m.issue.qty)} ${m.issue.product} samples`;
     case 'call.coach':
       return 'Coached a call';
+    case 'account.change':
+      return 'Asked to change an account';
+    case 'account.review':
+      return m.approve ? 'Approved an account change' : 'Declined an account change';
+    case 'account.verify':
+      return `${m.approve ? 'Confirmed' : 'Turned down'} ${m.ids.length} new account${m.ids.length > 1 ? 's' : ''}`;
+    case 'account.merge':
+      return `Merged ${m.ids.length} duplicate account${m.ids.length > 1 ? 's' : ''}`;
+    case 'event.save':
+      return `Saved event “${m.event.title}”`;
+    case 'event.delete':
+      return 'Deleted an event';
+    case 'sample.count':
+      return `Counted samples for ${m.count.month}`;
     default:
       return m.type;
   }
