@@ -98,6 +98,9 @@ export default function AccountsScreen() {
               <Text style={[text.title, { flex: 1, fontSize: 14 }]}>
                 {visible.length} account{visible.length === 1 ? '' : 's'}
               </Text>
+              <Text onPress={() => router.push('/map')} accessibilityRole="button" style={styles.sort}>
+                <Ionicons name="earth-outline" size={12} /> Map
+              </Text>
               <Text style={text.small}>Sort</Text>
               {(['Name', 'Tier', 'Last call'] as Sort[]).map((x) => (
                 <Text key={x} onPress={() => setSort(x)} accessibilityRole="button" accessibilityState={{ selected: sort === x }} style={[styles.sort, sort === x && styles.sortOn]}>

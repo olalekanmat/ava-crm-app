@@ -7,6 +7,7 @@ import { useMe, useStore } from '@/data/store';
 import { ROLES, type Role } from '@/data/types';
 import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SectionTitle, Segmented, ToggleRow, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
+import { InviteButtons } from '@/ui/InviteButtons';
 import { PhotoEditor } from '@/ui/PhotoEditor';
 import { TrialBadge } from '@/ui/TrialBadge';
 import { Screen } from '@/ui/Screen';
@@ -58,11 +59,12 @@ export default function UserEditScreen() {
     );
 
   const save = () => {
+    const userId = existing?.id ?? newId('usr');
     try {
       run({
         type: 'user.upsert',
         user: {
-          id: existing?.id ?? newId('usr'),
+          id: userId,
           name,
           email,
           role,
@@ -76,7 +78,9 @@ export default function UserEditScreen() {
           createdAt: existing?.createdAt ?? new Date().toISOString(),
         },
       });
-      router.back();
+      // A new person: stay on their page so they can be invited straight away.
+      if (existing) router.back();
+      else router.replace({ pathname: '/admin/user', params: { id: userId } });
     } catch (e) {
       notify('Not saved', e instanceof Error ? e.message : String(e));
     }
@@ -85,6 +89,7 @@ export default function UserEditScreen() {
   // ----- deleting -----
   const owned = existing ? data.accounts.filter((a) => a.ownerId === existing.id).length : 0;
   const reports = existing ? data.users.filter((u) => u.managerId === existing.id) : [];
+  const openTasks = existing ? (data.tasks ?? []).filter((t) => t.ownerId === existing.id && !t.doneAt).length : 0;
   const openCalls = existing ? data.calls.filter((c) => c.ownerId === existing.id && c.status !== 'Submitted').length : 0;
   const successors = existing ? data.users.filter((u) => u.role === existing.role && u.active && u.id !== existing.id) : [];
   const needsSuccessor = owned > 0;
@@ -170,6 +175,15 @@ export default function UserEditScreen() {
         <Button title="Save" onPress={save} />
         {existing && existing.id !== me.id && <Button title={resetting ? 'Resetting…' : 'Reset password'} variant="secondary" icon="refresh-outline" onPress={resetPassword} disabled={resetting} />}
       </View>
+
+      {existing && existing.id !== me.id && existing.active && <InviteButtons user={existing} />}
+
+      {existing && existing.id !== me.id && (owned > 0 || openTasks > 0 || reports.length > 0) && (
+        <>
+          <SectionTitle>Leaving or changing territory?</SectionTitle>
+          <Button title="Hand over their work" icon="swap-horizontal-outline" variant="secondary" onPress={() => router.push({ pathname: '/admin/handover', params: { from: existing.id } })} />
+        </>
+      )}
 
       {existing && existing.id !== me.id && (
         <>

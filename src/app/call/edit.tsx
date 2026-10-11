@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { queueTidy } from '@/ai/tidyQueue';
 import { CallNoteAssist } from '@/ai/CallNoteAssist';
-import { addDays, parseLocal, timeKey, toDateKey } from '@/data/dates';
+import { addDays, formatDate, parseLocal, timeKey, toDateKey } from '@/data/dates';
 import { distanceM, formatDistance, hasLocation } from '@/data/geo';
 import { newId } from '@/data/ids';
 import { callProblems, managersOf } from '@/data/mutations';
@@ -23,24 +23,29 @@ import { Screen } from '@/ui/Screen';
 import { remindersSupported } from '@/ui/reminders';
 import { colors, radius, space } from '@/ui/theme';
 
+/** Objectives from an earlier call, without their results, for a repeated call. */
+const repeatObjectives = (list?: CallObjective[]): CallObjective[] => (list ?? []).map((o) => ({ text: o.text })).slice(0, 5);
+
 /** The time now (a planned call is one set in the future). */
 const clock = () => Date.now();
 
 /** Create a call (optionally for ?accountId=, or ?plan=1 to schedule one) or edit an unsubmitted one (?id=). */
 export default function EditCallScreen() {
-  const params = useLocalSearchParams<{ id?: string; accountId?: string; plan?: string }>();
+  const params = useLocalSearchParams<{ id?: string; accountId?: string; plan?: string; repeat?: string }>();
   const me = useMe();
   const { accounts, products, data, getAccount, getCall, run, callsForAccount } = useStore();
   const existing = params.id ? getCall(params.id) : undefined;
+  // 2.9: ?repeat=<callId> starts a new call from an earlier one (products, key messages, objectives).
+  const template = !existing && params.repeat ? getCall(params.repeat) : undefined;
   const start = existing ? new Date(existing.datetime) : params.plan ? new Date(addDays(new Date(), 1).setHours(9, 0, 0, 0)) : new Date();
 
-  const [accountId, setAccountId] = useState(existing?.accountId ?? params.accountId);
+  const [accountId, setAccountId] = useState(existing?.accountId ?? params.accountId ?? template?.accountId);
   const [accountQuery, setAccountQuery] = useState('');
   const [date, setDate] = useState(toDateKey(start));
   const [time, setTime] = useState(timeKey(start));
-  const [channel, setChannel] = useState<CallChannel>(existing?.channel ?? 'In person');
-  const [chosen, setChosen] = useState<string[]>(existing?.products.map((p) => p.product) ?? []);
-  const [messages, setMessages] = useState<string[]>(existing?.keyMessages ?? []);
+  const [channel, setChannel] = useState<CallChannel>(existing?.channel ?? template?.channel ?? 'In person');
+  const [chosen, setChosen] = useState<string[]>(() => (existing ?? template)?.products.map((p) => p.product).filter((p) => products.some((x) => x.name === p)) ?? []);
+  const [messages, setMessages] = useState<string[]>(existing?.keyMessages ?? template?.keyMessages ?? []);
   const [attendees, setAttendees] = useState(existing?.attendees ?? '');
   const [notes, setNotes] = useState(existing?.notes ?? '');
   const [nextStep, setNextStep] = useState(existing?.nextStep ?? '');
@@ -52,7 +57,8 @@ export default function EditCallScreen() {
   const [samples, setSamples] = useState<Record<string, string>>(() => Object.fromEntries((existing?.samples ?? []).map((x) => [x.product, String(x.qty)])));
   const [coachId, setCoachId] = useState(existing?.coachId);
   // 2.7
-  const [objectives, setObjectives] = useState<CallObjective[]>(existing?.objectives ?? []);
+  const [objectives, setObjectives] = useState<CallObjective[]>(existing?.objectives ?? repeatObjectives(template?.objectives));
+  const [repeated, setRepeated] = useState(!!template);
   const [detailing, setDetailing] = useState<SlideView[]>(existing?.detailing ?? []);
   const [reaction, setReaction] = useState<Reaction | undefined>(existing?.reaction);
   const [signature, setSignature] = useState<Signature | undefined>(existing?.signature);
@@ -95,6 +101,18 @@ export default function EditCallScreen() {
 
   // Products discussed, then any with stock or already entered.
   const sampleRows = [...new Set([...chosen, ...[...stock.keys()].filter((p) => (stock.get(p) ?? 0) > 0), ...Object.keys(samples)])].filter((p) => products.some((x) => x.name === p));
+
+  const lastVisit = account && !existing ? callsForAccount(account.id).find((c) => c.ownerId === me.id && c.status === 'Submitted') : undefined;
+  const repeatFrom = (c: NonNullable<typeof lastVisit>) => {
+    const names = c.products.map((p) => p.product).filter((p) => products.some((x) => x.name === p));
+    const allowed = new Set(names.flatMap(keyMessagesFor));
+    setChosen(names);
+    setMessages(c.keyMessages.filter((m) => allowed.has(m)));
+    setChannel(c.channel);
+    const have = new Set(objectives.map((o) => o.text.toLowerCase()));
+    setObjectives([...objectives, ...repeatObjectives(c.objectives).filter((o) => !have.has(o.text.toLowerCase()))].slice(0, 5));
+    setRepeated(true);
+  };
 
   const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   const toggleProduct = (p: string) => {
@@ -229,7 +247,24 @@ export default function EditCallScreen() {
             </Text>
           )}
         </Card>
-      ) : (
+      ) : null}
+      {account && lastVisit && !repeated && (
+        <Card style={{ borderColor: colors.primary }}>
+          <Row>
+            <Ionicons name="repeat-outline" size={22} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={text.title}>Start from the last visit</Text>
+              <Text style={text.muted} numberOfLines={2}>
+                {formatDate(lastVisit.datetime)} · {lastVisit.products.map((p) => p.product).join(', ') || 'no products'}
+                {lastVisit.keyMessages.length ? ` · ${lastVisit.keyMessages.length} key message${lastVisit.keyMessages.length > 1 ? 's' : ''}` : ''}
+                {lastVisit.objectives?.length ? ` · ${lastVisit.objectives.length} objective${lastVisit.objectives.length > 1 ? 's' : ''}` : ''}
+              </Text>
+            </View>
+            <Button small title="Use" onPress={() => repeatFrom(lastVisit)} />
+          </Row>
+        </Card>
+      )}
+      {account ? null : (
         <View style={{ marginBottom: space.sm }}>
           <SearchBox value={accountQuery} onChangeText={setAccountQuery} placeholder="Search your accounts" />
           {!!errors.account && <Text style={styles.error}>{errors.account}</Text>}

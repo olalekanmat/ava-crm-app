@@ -16,6 +16,7 @@ import { useLayout } from '@/ui/layout';
 import { colors, tone } from '@/ui/theme';
 import { SyncIcon } from '@/ui/SyncIcon';
 import { useAlerts } from '@/ui/useAlerts';
+import { WhatsNewCheck } from '@/ui/WhatsNewCheck';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -91,6 +92,7 @@ export default function TabsLayout() {
     <CalendarAutoSync />
     <NotificationTaps />
     <TidyQueueRunner />
+    <WhatsNewCheck />
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: colors.primary,

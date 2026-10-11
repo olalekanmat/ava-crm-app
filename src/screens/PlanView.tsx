@@ -9,7 +9,8 @@ import { newId } from '@/data/ids';
 import { approvedLeave, callsByAccount, cycleCalls, cycleElapsed, daysLeft, leaveDaysIn, pct, spanDays } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
 import { profileBoost } from '@/data/profile';
-import { lengthOfCycle, scaleFrequency } from '@/data/cycles';
+import { lengthOfCycle, previousCycle, scaleFrequency } from '@/data/cycles';
+import { nextCyclePlan } from '@/data/nextPlan';
 import { tierFrequency, tierRank, tiersFor } from '@/data/tiers';
 import type { Cycle, PlanTarget } from '@/data/types';
 import { Banner, Button, Card, Chip, Empty, Field, PlanBadge, ProgressBar, Row, SectionTitle, Stepper, TierBadge, UserAvatar, text } from '@/ui/components';
@@ -31,6 +32,7 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
   const { data, accounts, calls, getAccount, getUser, run } = useStore();
   const [note, setNote] = useState('');
   const [adding, setAdding] = useState(false);
+  const [showChanges, setShowChanges] = useState(false);
   const plan = data.plans.find((p) => p.ownerId === ownerId && p.cycleId === cycle.id);
   const owner = getUser(ownerId);
   const isOwner = ownerId === me.id;
@@ -73,8 +75,33 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
     };
     const suggested = territory.filter((a) => want(a) > 0).map((a) => ({ accountId: a.id, planned: want(a) }));
     const total = suggested.reduce((n, t) => n + t.planned, 0);
+    // 2.9: carry last cycle's plan forward, adjusted for tier changes, missed visits and new accounts.
+    const prev = previousCycle(data.cycles, cycle);
+    const prevPlan = prev && data.plans.find((p) => p.ownerId === ownerId && p.cycleId === prev.id && p.targets.length);
+    const carried = prev && prevPlan ? nextCyclePlan(prevPlan, territory, new Map([...callsByAccount(cycleCalls(calls.filter((c) => c.ownerId === ownerId), prev))].map(([k, v]) => [k, v.length])), want, prev.start) : undefined;
     return (
       <View>
+      {carried && prev && (
+        <Card style={{ borderColor: colors.primary }}>
+          <Text style={text.h2}>Start from {prev.name}</Text>
+          <Text style={[text.body, { marginVertical: space.sm }]}>
+            {carried.targets.length} accounts, {carried.targets.reduce((n, t) => n + t.planned, 0)} calls: last cycle’s plan with today’s tier frequencies, up to two missed visits carried over per account, and accounts added since.
+          </Text>
+          {carried.changes.slice(0, showChanges ? undefined : 4).map((c) => (
+            <Text key={c.accountId} style={text.small}>
+              {getAccount(c.accountId)?.name ?? 'Account'}: {c.from} → {c.to} · {c.reason}
+            </Text>
+          ))}
+          {carried.changes.length > 4 && (
+            <Text style={[text.link, { fontSize: 13, marginTop: 4 }]} onPress={() => setShowChanges(!showChanges)}>
+              {showChanges ? 'Show fewer' : `Show all ${carried.changes.length} changes`}
+            </Text>
+          )}
+          <View style={{ marginTop: space.md }}>
+            <Button title="Use this plan" icon="copy-outline" onPress={() => saveTargets(carried.targets)} disabled={!carried.targets.length} />
+          </View>
+        </Card>
+      )}
       <Card>
         <Text style={text.h2}>Plan {cycle.name}</Text>
         <Text style={[text.muted, { marginTop: 4 }]}>

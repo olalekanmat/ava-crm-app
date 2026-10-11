@@ -9,6 +9,7 @@ import { useMe, useStore } from '@/data/store';
 import type { SampleCount, User } from '@/data/types';
 import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SectionTitle, Segmented, text } from '@/ui/components';
 import { notify } from '@/ui/confirm';
+import { RestockChips, RestockRequests, RestockReview } from '@/ui/SampleRequests';
 import { Screen } from '@/ui/Screen';
 import { colors, radius, space, tone } from '@/ui/theme';
 
@@ -52,6 +53,12 @@ export default function SamplesScreen() {
         </>
       )}
 
+      {team.length > 0 && <RestockChips onPick={setRepId} />}
+      {rep.id !== me.id &&
+        (data.sampleRequests ?? [])
+          .filter((r) => r.repId === rep.id && r.status === 'Pending')
+          .map((r) => <RestockReview key={r.id} request={r} />)}
+
       <SectionTitle>{rep.id === me.id ? 'My stock' : `${rep.name}’s stock`}</SectionTitle>
       {stock.length ? (
         <Card style={{ padding: 0 }}>
@@ -92,6 +99,8 @@ export default function SamplesScreen() {
           </Card>
         </>
       )}
+
+      {rep.id === me.id && <RestockRequests rep={rep} />}
 
       <MonthlyCount mine={rep.id === me.id} repName={rep.name} counts={counts} products={stock.map((x) => x.product)} onSave={(count) => run({ type: 'sample.count', count })} />
 

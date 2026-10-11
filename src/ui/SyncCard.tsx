@@ -1,14 +1,18 @@
-import { SyncIcon } from './SyncIcon';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { SyncIcon } from './SyncIcon';
 import { providerLabel } from '@/cloud/drive';
 import { activeTrial } from '@/cloud/license';
 import { isAdmin } from '@/data/access';
 import { trialSummary } from '@/data/trial';
 import { formatDate, formatDateTime } from '@/data/dates';
 import { useStore } from '@/data/store';
-import { Banner, Button, text } from './components';
+import { Banner, Button, Card, Row, text } from './components';
 import { colors, radius, space } from './theme';
+
+/** Where phones get the latest app (the download page links the stores and the Android file). */
+export const UPDATE_URL = 'https://avahealthcareltd.com/AvaCRM/';
 
 const ago = (iso?: string) => {
   if (!iso) return 'not yet';
@@ -84,8 +88,9 @@ const styles = StyleSheet.create({
 
 /** Tells people when the company licence stops them from making changes. */
 export function LicenseBanner() {
-  const { session, license, me } = useStore();
+  const { session, license, me, sync } = useStore();
   if (session?.mode !== 'cloud' || !me) return null;
+  if (sync.updateRequired) return <UpdateBanner message={sync.updateRequired} />;
   if (session.demo) {
     return (
       <View>
@@ -128,5 +133,27 @@ export function LicenseBanner() {
       <Banner tone={msg.tone}>{msg.text}</Banner>
       {go && (license.state !== 'active' || ('trial' in msg && Platform.OS === 'web')) && <Button small variant="ghost" title="Company & approval" icon="chevron-forward" onPress={go} />}
     </View>
+  );
+}
+
+/** The company needs a newer app (2.9): the server stops older ones syncing until they update. */
+export function UpdateBanner({ message }: { message: string }) {
+  const update = () => {
+    if (Platform.OS === 'web') globalThis.location?.reload();
+    else Linking.openURL(UPDATE_URL);
+  };
+  return (
+    <Card style={{ borderColor: colors.danger }}>
+      <Row>
+        <Ionicons name="arrow-up-circle-outline" size={26} color={colors.danger} />
+        <View style={{ flex: 1 }}>
+          <Text style={text.title}>Update Ava CRM</Text>
+          <Text style={text.muted}>{message}</Text>
+        </View>
+      </Row>
+      <View style={{ marginTop: space.sm }}>
+        <Button title={Platform.OS === 'web' ? 'Reload the app' : 'Get the update'} icon="download-outline" onPress={update} />
+      </View>
+    </Card>
   );
 }

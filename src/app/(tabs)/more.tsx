@@ -53,6 +53,8 @@ export default function MoreScreen() {
       <Card style={{ padding: 0 }}>
         <ListRow icon="checkbox-outline" title="Tasks & reminders" subtitle="Follow-ups and to-dos, with phone reminders" onPress={() => router.push('/tasks')} />
         {me.role !== 'Admin' && <ListRow icon="map-outline" tone={colors.success} title="Today’s route" subtitle="Today’s visits in the best order" onPress={() => router.push('/route')} />}
+        <ListRow icon="earth-outline" tone={colors.sky} title="Accounts map" subtitle="Accounts by tier, with overdue ones ringed in red" onPress={() => router.push('/map')} />
+        {me.role !== 'Rep' && <ListRow icon="trending-up-outline" tone={colors.primary} title="Tier review" subtitle="Ava’s suggested tier changes for your team" onPress={() => router.push('/tier-review')} />}
         <ListRow icon="airplane-outline" tone={colors.orange} title="Leave" subtitle={me.role === 'Rep' ? 'Ask for leave; your plan adjusts' : 'Ask for leave and approve your team’s'} onPress={() => router.push('/leave')} />
         <ListRow icon="medkit-outline" tone={colors.crimson} title="Samples" subtitle={me.role === 'Rep' ? 'Your stock and what you handed out' : 'Issue samples and see team stock'} onPress={() => router.push('/samples')} />
         <ListRow icon="school-outline" tone={colors.primaryInk} title="Coaching" subtitle={me.role === 'Rep' ? 'Feedback from coached visits' : 'Score coached visits'} onPress={() => router.push('/coaching')} />
@@ -64,6 +66,7 @@ export default function MoreScreen() {
       <SectionTitle>Display & help</SectionTitle>
       <Card style={{ padding: 0 }}>
         <ListRow icon="contrast-outline" title="Display & calendar" subtitle="Dark mode, text size, phone calendar" onPress={() => router.push('/appearance')} />
+        <ListRow icon="sparkles-outline" tone={colors.orange} title="What’s new" subtitle="What changed in this version" onPress={() => router.push('/whats-new')} />
         <ListRow icon="compass-outline" tone={colors.primary} title="Take the tour" subtitle="A quick look at what Ava can do" onPress={() => router.push('/tour')} />
       </Card>
 
@@ -80,6 +83,9 @@ export default function MoreScreen() {
         {admin && <ListRow icon="cloud-upload-outline" tone={colors.orange} title="Import CSV" subtitle="Accounts, users, products" onPress={() => router.push('/admin/import')} />}
         {admin && <ListRow icon="business-outline" tone={colors.primaryInk} title="Company & approval" subtitle={`${company.name} · company code, logo, ${drive} folder, licence`} onPress={() => router.push('/admin/company')} />}
         {admin && <ListRow icon="people-outline" title="Users & roles" onPress={() => router.push('/admin/users')} />}
+        {admin && <ListRow icon="grid-outline" tone={colors.success} title="Edit in a grid" subtitle="Change many accounts or users at once, with undo" onPress={() => router.push('/admin/grid')} />}
+        {admin && <ListRow icon="swap-horizontal-outline" tone={colors.orange} title="Hand over work" subtitle="Move a leaver’s accounts, plans and stock to someone else" onPress={() => router.push('/admin/handover')} />}
+        {admin && <ListRow icon="shield-checkmark-outline" tone={colors.primaryInk} title="Sign-in & app versions" subtitle="Two-step sign-in, who runs which version" onPress={() => router.push('/admin/security')} />}
         {admin && <ListRow icon="layers-outline" tone={colors.orange} title="Tier names" subtitle="Tiering for each team (default ST, T1, T2, T3)" onPress={() => router.push('/admin/tiers')} />}
         {admin && <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, planning cycles" onPress={() => router.push('/admin/settings')} />}
         {admin && <ListRow icon="git-merge-outline" tone={colors.primaryInk} title="Duplicates" subtitle="Find and merge duplicate doctors and hospitals" onPress={() => router.push('/admin/duplicates')} />}

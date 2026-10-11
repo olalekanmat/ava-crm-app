@@ -38,6 +38,8 @@ export interface SyncState {
   rejected: string[];
   /** Files in the drive that were ignored (admin only). */
   warnings: string[];
+  /** The company needs a newer app than this one before it can sync (2.9); the server's message. */
+  updateRequired?: string;
 }
 
 /** Changes allowed while a company waits for approval: the admin setting things up. */
@@ -131,13 +133,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /** Shows the result of replaying every journal. */
   const applyReplay = useCallback(
-    (c: CloudCache) => {
-      const r = rebuild(c);
-      if (!r) return;
+    (c: CloudCache, ready?: ReturnType<typeof rebuild>) => {
+      const r = ready ?? rebuild(c);
+      if (!r) return r;
       setFull(r.snapshot);
       setActivity([...r.log].reverse());
       const mine = r.log.filter((l) => l.userId === c.own.userId && l.deviceId === c.own.deviceId && l.error);
       setSync((x) => ({ ...x, pending: pendingCount(c), rejected: mine.map((l) => `${l.what}: ${l.error}`), warnings: r.warnings }));
+      return r;
     },
     [setFull],
   );
@@ -191,7 +194,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           console.warn('Licence check failed', e);
         }
       }
-      let { cache: c } = await syncOnce(drive, start, { writeExports: isAdmin(me), forceExports: manual, readRoster: isAdmin(me) });
+      const synced = await syncOnce(drive, start, { writeExports: isAdmin(me), forceExports: manual, readRoster: isAdmin(me), writeCheckpoint: isAdmin(me) });
+      let c = synced.cache;
       // Keep any changes made while the sync was running.
       const latest = cacheRef.current;
       const extra = latest ? latest.own.entries.slice(c0.own.entries.length) : [];
@@ -216,7 +220,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // Deleted people are left out, so they cannot sign in. The server only knows the role
       // "Admin" as administrator, so a manager who is also an administrator is listed as Admin.
       if (isAdmin(me)) {
-        const users = (rebuild(c)?.snapshot.users ?? []).filter((u) => !u.deletedAt);
+        // Changes made during the sync rarely touch people; the next sync catches them if they do.
+        const users = ((extra.length ? undefined : synced.result) ?? rebuild(c))?.snapshot.users.filter((u) => !u.deletedAt) ?? [];
         const roster = users.map((u) => ({ id: u.id, name: u.name, email: u.email.toLowerCase(), role: isAdmin(u) ? 'Admin' : u.role, active: u.active })).sort((x, y) => x.id.localeCompare(y.id));
         const key = rosterKey(roster);
         // Compare with the list actually in the drive, not just what this device wrote last: an
@@ -233,21 +238,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
       await setCache(c);
-      applyReplay(c);
+      // Replayed once per sync: in a large company this is the slow part.
+      const r = applyReplay(c);
       // Phones download new product presentations so they work offline in calls.
-      const products = rebuild(c)?.snapshot.products ?? [];
+      const products = r?.snapshot.products ?? [];
       prefetchDecks(drive, products).catch((e) => console.warn('Presentations not downloaded', e));
-      const stillMember = rebuild(c)?.snapshot.users.find((u) => u.id === s.userId && u.active);
+      const stillMember = r?.snapshot.users.find((u) => u.id === s.userId && u.active);
       setSync((x) => ({
         ...x,
         syncing: false,
         lastSync: c.lastSync,
         needsSignIn: false,
+        updateRequired: undefined,
         error: stillMember ? undefined : 'Your account has been removed from this company by an administrator.',
       }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setSync((x) => ({ ...x, syncing: false, error: msg, needsSignIn: (e as { status?: number }).status === 401 }));
+      const code = (e as { code?: string }).code;
+      setSync((x) => ({ ...x, syncing: false, error: msg, needsSignIn: (e as { status?: number }).status === 401, updateRequired: code === 'update_required' ? msg : undefined }));
     } finally {
       syncing.current = false;
     }

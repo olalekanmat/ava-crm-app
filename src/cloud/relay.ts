@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -52,6 +53,28 @@ export async function loadToken(): Promise<string | null> {
   return Platform.OS === 'web' ? AsyncStorage.getItem(TOKEN_KEY) : SecureStore.getItemAsync(TOKEN_KEY);
 }
 
+/** This app's version, sent with each sync so administrators can see who needs to update (2.9). */
+export const APP_VERSION = Constants.expoConfig?.version ?? '0.0.0';
+
+// ----- "trust this device" for administrators' two-step sign-in (2.9) -----
+const TRUST_KEY = 'ava.trust';
+export async function saveTrust(t: string | null) {
+  if (Platform.OS === 'web') return t ? AsyncStorage.setItem(TRUST_KEY, t) : AsyncStorage.removeItem(TRUST_KEY);
+  return t ? SecureStore.setItemAsync(TRUST_KEY, t) : SecureStore.deleteItemAsync(TRUST_KEY);
+}
+export async function loadTrust(): Promise<string | null> {
+  return (Platform.OS === 'web' ? AsyncStorage.getItem(TRUST_KEY) : SecureStore.getItemAsync(TRUST_KEY)).catch(() => null);
+}
+
+/** An administrator's sign-in waiting for the code emailed to them. */
+export interface TwoStepPending {
+  twoStep: true;
+  ticket: string;
+  /** The email the code went to, partly hidden. */
+  sentTo: string;
+  companyCode: string;
+}
+
 export interface LoginResult {
   token: string;
   mustChange: boolean;
@@ -61,10 +84,36 @@ export interface LoginResult {
   companyName: string;
   /** Where the company keeps its data (newer servers). Missing means OneDrive. */
   provider?: string;
+  /** After a two-step sign-in with "trust this device": skips the code here for 30 days. */
+  trust?: string;
+}
+
+export interface DeviceSeen {
+  userId: string;
+  /** App version; absent for apps before 2.9. */
+  v?: string;
+  p?: 'ios' | 'android' | 'web';
+  at: string;
+}
+export interface SignInPolicy {
+  devices: DeviceSeen[];
+  twoStep: boolean;
+  minVersion: string | null;
+  /** The server can send email (needed for two-step sign-in and forgotten passwords). */
+  mail: boolean;
 }
 
 export const api = {
-  login: (code: string, email: string, password: string) => call<LoginResult>('POST', 'auth/login', { body: { code: code.trim().toUpperCase(), email: email.trim().toLowerCase(), password } }),
+  /** Administrators of a company with two-step sign-in get a TwoStepPending instead, unless `trust` is valid. */
+  login: (code: string, email: string, password: string, trust?: string | null) =>
+    call<LoginResult | TwoStepPending>('POST', 'auth/login', { body: { code: code.trim().toUpperCase(), email: email.trim().toLowerCase(), password, twoStep: true, ...(trust ? { trust } : {}) } }),
+  verifySignIn: (ticket: string, code: string, trust: boolean) => call<LoginResult>('POST', 'auth/verify', { body: { ticket, code: code.trim(), trust } }),
+  /** Emails a reset code when the address is in the company (the answer is the same either way). */
+  forgotPassword: (code: string, email: string) => call<{ ok: true; sentTo: string }>('POST', 'auth/forgot', { body: { code: code.trim().toUpperCase(), email: email.trim().toLowerCase() } }),
+  resetWithCode: (code: string, email: string, otp: string, newPassword: string) =>
+    call<{ ok: true }>('POST', 'auth/reset', { body: { code: code.trim().toUpperCase(), email: email.trim().toLowerCase(), otp: otp.trim(), newPassword } }),
+  devices: (token: string) => call<SignInPolicy>('GET', 'admin/devices', { token }),
+  setPolicy: (token: string, policy: { twoStep?: boolean; minVersion?: string | null }) => call<{ twoStep: boolean; minVersion: string | null }>('POST', 'admin/policy', { token, body: policy }),
   changePassword: (token: string, currentPassword: string, newPassword: string) => call<{ token: string }>('POST', 'auth/password', { token, body: { currentPassword, newPassword } }),
   resetPassword: (token: string, email: string) => call<{ ok: true; password: string }>('POST', 'admin/reset-password', { token, body: { email } }),
   /** `provider` picks where the company's data lives; servers without Google Drive support ignore it. */
@@ -121,14 +170,14 @@ export function relayDrive(getToken: () => Promise<string | null>, folder: Folde
     try {
       return await call<T>(method, path, { token, body });
     } catch (e) {
-      if (e instanceof ApiError) throw new DriveError(e.message, e.status);
+      if (e instanceof ApiError) throw new DriveError(e.message, e.status, e.code);
       throw e;
     }
   };
   return {
     folder,
     async list(): Promise<DriveFile[]> {
-      return (await authed<{ files: DriveFile[] }>('GET', 'drive/list')).files;
+      return (await authed<{ files: DriveFile[] }>('GET', `drive/list?v=${encodeURIComponent(APP_VERSION)}&p=${Platform.OS}`)).files;
     },
     async read(fileId: string): Promise<string> {
       return (await authed<{ content: string }>('GET', `drive/read?id=${encodeURIComponent(fileId)}`)).content;

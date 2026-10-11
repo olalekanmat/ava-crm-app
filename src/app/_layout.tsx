@@ -94,6 +94,12 @@ function RootNav() {
         <Stack.Screen name="admin/live-data" options={{ title: 'Live data for Excel & Power BI' }} />
         <Stack.Screen name="appearance" options={{ title: 'Display & calendar' }} />
         <Stack.Screen name="tour" options={{ headerShown: false, title: 'Tour', presentation: 'modal' }} />
+        <Stack.Screen name="whats-new" options={{ headerShown: false, title: 'What’s new', presentation: 'modal' }} />
+        <Stack.Screen name="admin/security" options={{ title: 'Sign-in & app versions' }} />
+        <Stack.Screen name="admin/handover" options={{ title: 'Hand over work' }} />
+        <Stack.Screen name="admin/grid" options={{ title: 'Edit in a grid' }} />
+        <Stack.Screen name="map" options={{ title: 'Accounts map' }} />
+        <Stack.Screen name="tier-review" options={{ title: 'Tier review' }} />
       </Stack.Protected>
       {/* Administrators subscribe here, also after a free trial has ended. */}
       <Stack.Protected guard={!!session}>

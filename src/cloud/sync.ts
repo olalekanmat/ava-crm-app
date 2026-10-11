@@ -7,7 +7,7 @@ import { activeCycleLength } from '../data/cycles';
 import { currentCycle } from '../data/metrics';
 import type { Snapshot } from '../data/types';
 import type { DriveAdapter, DriveFile } from './drive';
-import { COMPANY_FILE, JOURNAL_PREFIX, journalName, LICENSE_FILE, parseCompanyFile, parseJournal, replay, type CompanyFile, type JournalFile, type ReplayResult } from './journal';
+import { buildCheckpoint, CHECKPOINT_FILE, COMPANY_FILE, JOURNAL_PREFIX, journalName, LICENSE_FILE, parseCheckpoint, parseCompanyFile, parseJournal, replay, type Checkpoint, type CompanyFile, type JournalFile, type ReplayResult } from './journal';
 import { parseLicenseFile, type LicenseFile } from './license';
 
 /** Everything a device keeps between syncs, so it works offline. */
@@ -34,6 +34,11 @@ export interface CloudCache {
   /** Version of ava-roster.json now in the drive, and its sign-in list in the same form as rosterSent. */
   remoteRosterVersion?: string;
   remoteRoster?: string;
+  /** Condensed older history (2.9), and the drive version it came from. */
+  checkpoint?: Checkpoint;
+  checkpointVersion?: string;
+  /** When this device last tried to write a checkpoint (administrators). */
+  lastCheckpointTry?: string;
 }
 
 export function newCache(companyId: string, userId: string, email: string, deviceId: string): CloudCache {
@@ -45,9 +50,15 @@ export const pendingCount = (c: CloudCache) => c.own.entries.length - c.uploaded
 /** Rebuilds the company data from what this device has (works offline). */
 export function rebuild(c: CloudCache, now = new Date()): ReplayResult | undefined {
   if (!c.genesis) return undefined;
-  const sources = [...Object.values(c.journals).map((x) => ({ journal: x.journal, modifiedBy: x.modifiedBy })), { journal: c.own }];
-  return replay(c.genesis, sources, now);
+  return replay(c.genesis, sourcesOf(c), now, c.checkpoint);
 }
+
+const sourcesOf = (c: CloudCache) => [...Object.values(c.journals).map((x) => ({ journal: x.journal, modifiedBy: x.modifiedBy })), { journal: c.own }];
+
+/** Administrators' devices check this often whether older history is worth condensing. */
+const CHECKPOINT_EVERY_MS = 24 * 60 * 60 * 1000;
+/** The relay takes files up to about 5.5 MB; a bigger checkpoint is not written. */
+const CHECKPOINT_MAX_CHARS = 5_000_000;
 
 const EXPORT_EVERY_MS = 60 * 60 * 1000;
 export const ROSTER_FILE = 'ava-roster.json';
@@ -65,6 +76,8 @@ export interface SyncOptions {
   forceExports?: boolean;
   /** Read the sign-in list when it changed (administrators keep it in step). */
   readRoster?: boolean;
+  /** Condense history older than a month into ava-checkpoint.json when it is worth it (administrators, 2.9). */
+  writeCheckpoint?: boolean;
 }
 
 /**
@@ -149,6 +162,18 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
   if (!rosterFile) c.remoteRoster = undefined;
   c.remoteRosterVersion = rosterFile?.version;
 
+  // Condensed older history (2.9): start from it instead of replaying every journal from the start.
+  const cpFile = byName.get(CHECKPOINT_FILE);
+  if (cpFile && cpFile.version !== c.checkpointVersion) {
+    const cp = parseCheckpoint(await drive.read(cpFile.id), c.companyId);
+    if (cp) c.checkpoint = cp;
+    c.checkpointVersion = cpFile.version;
+  }
+  if (!cpFile) {
+    c.checkpoint = undefined;
+    c.checkpointVersion = undefined;
+  }
+
   c.lastSync = now.toISOString();
   const result = rebuild(c, now);
 
@@ -161,6 +186,21 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
       c.lastExport = now.toISOString();
     } catch (e) {
       console.warn('Could not write the CSV copies', e);
+    }
+  }
+  if (opts.writeCheckpoint && c.genesis && result && isAdmin(meNow) && (!c.lastCheckpointTry || now.getTime() - Date.parse(c.lastCheckpointTry) >= CHECKPOINT_EVERY_MS)) {
+    c.lastCheckpointTry = now.toISOString();
+    // A convenience like the CSV copies: a failure here must not lose the sync.
+    try {
+      const cp = buildCheckpoint(c.genesis, sourcesOf(c), now, c.checkpoint);
+      const text = cp && JSON.stringify(cp);
+      if (cp && text && text.length <= CHECKPOINT_MAX_CHARS) {
+        const f = await drive.write(CHECKPOINT_FILE, text, 'application/json', cpFile?.id);
+        c.checkpoint = cp;
+        c.checkpointVersion = f.version;
+      }
+    } catch (e) {
+      console.warn('Could not condense older history', e);
     }
   }
   return { cache: c, result };

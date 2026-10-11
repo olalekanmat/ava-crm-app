@@ -272,6 +272,21 @@ export interface SampleIssue {
   at: string;
 }
 
+export type SampleRequestStatus = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
+
+/** A rep asks their manager for more samples (2.8). Approving records the issue in the same step. */
+export interface SampleRequest {
+  id: string;
+  repId: string;
+  items: { product: string; qty: number }[];
+  note?: string;
+  status: SampleRequestStatus;
+  at: string;
+  reviewerId?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+}
+
 /** A rep's count of the samples physically in hand, for the monthly reconciliation (2.7). */
 export interface SampleCount {
   id: string;
@@ -484,6 +499,8 @@ export interface Snapshot {
   events?: MeetingEvent[];
   accountChanges?: AccountChange[];
   sampleCounts?: SampleCount[];
+  // 2.8
+  sampleRequests?: SampleRequest[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -510,4 +527,5 @@ export const emptySnapshot = (company: Company = { name: '' }): Snapshot => ({
   events: [],
   accountChanges: [],
   sampleCounts: [],
+  sampleRequests: [],
 });

@@ -85,6 +85,7 @@ export function scopeSnapshot(s: Snapshot, user: User): Snapshot {
     events: s.events?.filter((e) => owners.has(e.ownerId)),
     accountChanges: s.accountChanges?.filter((x) => owners.has(x.byId) || s.accounts.some((a) => a.id === x.accountId && owners.has(a.ownerId))),
     sampleCounts: s.sampleCounts?.filter((x) => owners.has(x.repId)),
+    sampleRequests: s.sampleRequests?.filter((x) => owners.has(x.repId)),
   };
 }
 
