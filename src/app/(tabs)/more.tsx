@@ -92,9 +92,7 @@ export default function MoreScreen() {
 
       <View style={{ alignItems: 'center', marginTop: space.xxl, gap: 4 }}>
         <BrandTitle size={22} />
-        <Text style={text.small}>
-          Version {Constants.expoConfig?.version ?? '1.0.0'} · {company.name} · data in your company’s {drive}
-        </Text>
+        <Text style={text.small}>Version {Constants.expoConfig?.version ?? '1.0.0'}</Text>
       </View>
     </Screen>
   );

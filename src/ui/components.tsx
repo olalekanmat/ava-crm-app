@@ -332,6 +332,18 @@ export function IconButton({ icon, label, onPress, color = colors.primary, bg = 
   );
 }
 
+/**
+ * An icon centred in a square box of its own size. Glyph fonts carry uneven ascent and padding
+ * (Android adds font padding), which can nudge a bare icon off-centre inside rings and bars.
+ */
+export function CenteredIcon({ name, size, color }: { name: IconName; size: number; color: string }) {
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <Ionicons name={name} size={size} color={color} style={{ width: size, height: size, lineHeight: size, textAlign: 'center', includeFontPadding: false, textAlignVertical: 'center' }} />
+    </View>
+  );
+}
+
 export function Row({ children, gap = space.sm, style }: { children: ReactNode; gap?: number; style?: ViewStyle }) {
   return <View style={[{ flexDirection: 'row', alignItems: 'center', gap }, style]}>{children}</View>;
 }
