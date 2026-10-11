@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -54,23 +55,46 @@ function lanes(calls: Call[]): { call: Call; lane: number; of: number }[] {
   return out;
 }
 
+/** Whether the week view shows Saturday and Sunday, remembered per person on this device (shown by default). */
+function useWeekends(userId?: string): [boolean, () => void] {
+  const key = `ava:weekWeekends:${userId ?? 'anon'}`;
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    let live = true;
+    AsyncStorage.getItem(key)
+      .then((v) => live && setOn(v !== 'off'))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [key]);
+  const toggle = () =>
+    setOn((was) => {
+      AsyncStorage.setItem(key, was ? 'off' : 'on').catch(() => {});
+      return !was;
+    });
+  return [on, toggle];
+}
+
 /**
- * Week schedule: 7 day columns with hourly slots, day headers with call counts, today tinted and a
+ * Week schedule: 7 day columns (5 with weekends turned off) with hourly slots, day headers with call counts, today tinted and a
  * line at the current time. Tapping a call opens its card. On wide screens `panel` shows the
  * rep's accounts beside the week, to start planning a visit.
  */
 export function WeekView({ calls, showRep, panel }: { calls: Call[]; showRep?: boolean; panel?: boolean }) {
-  const { getAccount, getUser } = useStore();
+  const { getAccount, getUser, me } = useStore();
   const now = useNow();
   const [monday, setMonday] = useState(() => weekStart(new Date()));
   const [open, setOpen] = useState<Call | null>(null);
   const [width, setWidth] = useState(0);
-  const keys = weekKeys(monday);
+  const [weekends, toggleWeekends] = useWeekends(me?.id);
+  const keys = weekKeys(monday).slice(0, weekends ? 7 : 5);
+  const last = keys[keys.length - 1];
   const today = toDateKey(now);
   const inWeek = useMemo(() => calls.filter((c) => {
     const k = toDateKey(new Date(c.datetime));
-    return k >= keys[0] && k <= keys[6];
-  }), [calls, keys[0]]); // eslint-disable-line react-hooks/exhaustive-deps
+    return k >= keys[0] && k <= last;
+  }), [calls, keys[0], last]); // eslint-disable-line react-hooks/exhaustive-deps
   const byDay = useMemo(() => {
     const m = new Map<string, Call[]>();
     for (const c of [...inWeek].sort((a, b) => a.datetime.localeCompare(b.datetime))) {
@@ -82,11 +106,11 @@ export function WeekView({ calls, showRep, panel }: { calls: Call[]; showRep?: b
   const [from, to] = hourRange(inWeek);
   const HOUR = width < 500 ? 48 : 56;
   const GUTTER = width < 500 ? 30 : 52;
-  const colW = width ? (width - GUTTER) / 7 : 0;
+  const colW = width ? (width - GUTTER) / keys.length : 0;
   const narrow = colW < 70;
-  const range = `${dayLabel(keys[0], { day: 'numeric', month: 'short' })} – ${dayLabel(keys[6], { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  const range = `${dayLabel(keys[0], { day: 'numeric', month: 'short' })} – ${dayLabel(last, { day: 'numeric', month: 'short', year: 'numeric' })}`;
   const nowH = now.getHours() + now.getMinutes() / 60;
-  const todayIdx = keys.indexOf(today);
+  const todayIdx = weekKeys(monday).indexOf(today);
 
   const grid = (
     <View style={[styles.weekCard, { flex: 1 }]} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
@@ -100,6 +124,16 @@ export function WeekView({ calls, showRep, panel }: { calls: Call[]; showRep?: b
             <Text style={styles.todayText}>Today</Text>
           </Pressable>
         )}
+        <Pressable
+          onPress={toggleWeekends}
+          style={[styles.todayBtn, styles.weekendBtn, !weekends && { backgroundColor: colors.sunken }]}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: weekends }}
+          accessibilityLabel="Show Saturday and Sunday"
+        >
+          <Ionicons name={weekends ? 'checkbox' : 'square-outline'} size={16} color={weekends ? colors.primary : colors.muted} />
+          <Text style={[styles.todayText, !weekends && { color: colors.muted }]}>{narrow ? 'Sat/Sun' : 'Weekends'}</Text>
+        </Pressable>
         <IconButton icon="chevron-forward" label="Next week" size={34} onPress={() => setMonday(addDays(monday, 7))} />
       </View>
       <View style={[styles.dayHeads, { paddingLeft: GUTTER }]}>
@@ -274,6 +308,7 @@ const styles = StyleSheet.create({
   weekCard: { backgroundColor: colors.card, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.hairline, padding: space.sm, ...shadow },
   weekBar: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.xs, paddingBottom: space.sm },
   todayBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.primarySoft },
+  weekendBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10 },
   todayText: { color: colors.primary, fontWeight: '700', fontSize: 13 },
   dayHeads: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: space.sm },
   dayHead: { flex: 1, alignItems: 'center', gap: 2 },
