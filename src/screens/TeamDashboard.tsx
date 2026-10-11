@@ -11,6 +11,7 @@ import { CallRow } from '@/ui/CallRow';
 import { Banner, Card, Empty, PlanBadge, ProgressBar, Row, SectionTitle, TierBadge, UserAvatar, text, tierColor } from '@/ui/components';
 import { Grid } from '@/ui/layout';
 import { Screen } from '@/ui/Screen';
+import { WeeklyTile } from '@/ui/WeeklyTile';
 import { LicenseBanner } from '@/ui/SyncCard';
 import { StatSplit, Tile } from '@/ui/Tiles';
 import { colors, paceColor, space, tone } from '@/ui/theme';
@@ -125,6 +126,7 @@ export function TeamDashboard({ manager }: { manager: User }) {
 
       <Grid min={290} max={3}>
         <AlertsTile key="alerts" />
+        <WeeklyTile key="weekly" />
         <CyclePlanTile key="plan" cycle={cycle} attainment={r.attainment} planned={r.planned} health={repHealth(r.reps, elapsed)} unit={`${r.reps.length} reps · ${r.calls} calls`} onPress={() => router.navigate('/plan')} empty="No rep has a plan for this cycle yet." />
         <Tile key="plans" title="Cycle plans" icon="document-text-outline" alert={r.plansPending > 0} onPress={() => router.navigate('/plan')}>
           <StatSplit

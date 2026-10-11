@@ -9,9 +9,10 @@ import { api, DEFAULT_PASSWORD, saveToken, type LoginResult } from '@/cloud/rela
 import { normalizeProvider, providerLabel } from '@/cloud/drive';
 import { openCompany } from '@/cloud/setup';
 import { loadJson, saveJson } from '@/data/storage';
+import { DEMO_ROLES } from '@/data/demo';
 import { useStore } from '@/data/store';
 import { mark } from '@/ui/Brand';
-import { Banner, Button, Field, text } from '@/ui/components';
+import { Banner, Button, Field, ListRow, text } from '@/ui/components';
 import { colors, radius, shadow, space } from '@/ui/theme';
 
 const REMEMBER = 'ava.signin';
@@ -19,7 +20,8 @@ const SETUP_URL = 'https://avahealthcareltd.com/AvaCRM/app/setup';
 
 /** Sign in with the company code, work email and password. First sign-in asks for a new password. */
 export default function SignInScreen() {
-  const { enterCloud } = useStore();
+  const { enterCloud, enterDemo } = useStore();
+  const [demo, setDemo] = useState(false);
   const params = useLocalSearchParams<{ company?: string; email?: string; setup?: string; provider?: string }>();
   const [code, setCode] = useState(params.company ?? '');
   const [email, setEmail] = useState(params.email ?? '');
@@ -141,6 +143,24 @@ export default function SignInScreen() {
             <Text style={text.title}>New to Ava CRM?</Text>
             <Text style={[text.muted, { marginBottom: space.sm }]}>Company administrators set up the company once and link the company’s OneDrive or Google Drive, where all of its data is kept. Everyone else just signs in.</Text>
             <Button title="Set up a new company" variant="secondary" icon="business-outline" onPress={setUp} disabled={!!busy} />
+            <Button title="Explore a demo company" variant="ghost" icon="sparkles-outline" onPress={() => setDemo((x) => !x)} disabled={!!busy} />
+            {demo && (
+              <View style={{ marginTop: space.sm }}>
+                <Text style={[text.muted, { marginBottom: space.xs }]}>Look around with made-up data. Nothing is saved. Choose whose view to see:</Text>
+                {DEMO_ROLES.map((r) => (
+                  <ListRow
+                    key={r.key}
+                    icon={r.key === 'rep' ? 'walk-outline' : r.key === 'admin' ? 'settings-outline' : 'people-outline'}
+                    title={r.label}
+                    subtitle={r.hint}
+                    onPress={() => {
+                      enterDemo(r.userId);
+                      setTimeout(() => router.push('/tour'), 400);
+                    }}
+                  />
+                ))}
+              </View>
+            )}
           </View>
           <Text style={styles.footer}>Ava CRM by Ava Healthcare Limited · avahealthcareltd.com</Text>
         </ScrollView>

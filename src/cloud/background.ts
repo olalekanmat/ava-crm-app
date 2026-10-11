@@ -6,7 +6,9 @@ import { KEYS, loadJson } from '../data/storage';
 import { loadToken } from './relay';
 import { adapterFor } from './connect';
 import type { FolderRef } from './drive';
-import { syncOnce, type CloudCache } from './sync';
+import { notifiableAlerts } from '../data/notifyAlerts';
+import { notifyNewAlerts } from '../ui/alertNotify';
+import { rebuild, syncOnce, type CloudCache } from './sync';
 
 /**
  * Background sync while the app is closed. Android and iOS decide when background work actually
@@ -34,6 +36,10 @@ if (Platform.OS !== 'web') {
       if (!(await loadToken())) return BackgroundTask.BackgroundTaskResult.Failed;
       const { cache: next } = await syncOnce(adapterFor(session.folder), cache);
       await saveBig(KEYS.cache, next);
+      // Approvals and decisions that arrived while the app was closed.
+      const snapshot = rebuild(next)?.snapshot;
+      const me = snapshot?.users.find((u) => u.id === next.own.userId);
+      if (snapshot && me) await notifyNewAlerts(me.id, notifiableAlerts(snapshot, me)).catch(() => {});
       return BackgroundTask.BackgroundTaskResult.Success;
     } catch {
       return BackgroundTask.BackgroundTaskResult.Failed;

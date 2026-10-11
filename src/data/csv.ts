@@ -346,10 +346,11 @@ const userOf = (s: Snapshot, id?: string) => (id ? s.users.find((u) => u.id === 
 const userName = (s: Snapshot, id?: string) => userOf(s, id)?.name ?? '';
 const userEmail = (s: Snapshot, id?: string) => userOf(s, id)?.email ?? '';
 
-export function exportCalls(s: Snapshot): string {
+/** `withIds` (the copies in the company folder) adds rep_id and account_id at the end, for joining the other tables. */
+export function exportCalls(s: Snapshot, withIds = false): string {
   const accounts = new Map(s.accounts.map((a) => [a.id, a]));
   return toCsv(
-    ['call_id', 'status', 'datetime', 'rep', 'rep_email', 'rep_user_id', 'territory_id', 'account', 'account_type', 'tier', 'city', 'channel', 'products', 'key_messages', 'attendees', 'notes', 'next_step', 'follow_up', 'checkin_lat', 'checkin_lng', 'checkin_accuracy_m', 'checkin_distance_m', 'geo_status', 'submitted_at'],
+    ['call_id', 'status', 'datetime', 'rep', 'rep_email', 'rep_user_id', 'territory_id', 'account', 'account_type', 'tier', 'city', 'channel', 'products', 'key_messages', 'attendees', 'notes', 'next_step', 'follow_up', 'checkin_lat', 'checkin_lng', 'checkin_accuracy_m', 'checkin_distance_m', 'geo_status', 'submitted_at', ...(withIds ? ['rep_id', 'account_id'] : [])],
     [...s.calls]
       .sort((a, b) => a.datetime.localeCompare(b.datetime))
       .map((c) => {
@@ -358,26 +359,29 @@ export function exportCalls(s: Snapshot): string {
           c.id, c.status, c.datetime, userName(s, c.ownerId), userEmail(s, c.ownerId), userOf(s, c.ownerId)?.employeeId, userOf(s, c.ownerId)?.territoryId, a?.name, a?.type, a?.tier, a?.city, c.channel,
           c.products.map((p) => p.product).join(' | '), c.keyMessages.join(' | '), c.attendees, c.notes, c.nextStep, c.followUpDate,
           c.checkIn?.lat, c.checkIn?.lng, c.checkIn?.accuracy, c.checkIn?.distanceM, geoStatus(c, s.settings.geofenceM), c.submittedAt,
+          ...(withIds ? [c.ownerId, c.accountId] : []),
         ];
       }),
   );
 }
 
-export function exportAccounts(s: Snapshot): string {
+/** `withIds` adds owner_id at the end (the copy in the company folder); the import ignores it. */
+export function exportAccounts(s: Snapshot, withIds = false): string {
   return toCsv(
-    ACCOUNT_COLUMNS,
+    [...ACCOUNT_COLUMNS, ...(withIds ? ['owner_id'] : [])],
     s.accounts
       .filter((a) => !a.deletedAt)
-      .map((a) => ['', a.id, a.type, a.name, a.specialty, a.affiliation, a.tier, a.address, a.city, a.phone, a.email, userEmail(s, a.ownerId), userOf(s, a.ownerId)?.territoryId, a.lat, a.lng, a.kol ? 'yes' : '', a.potential, a.segment]),
+      .map((a) => ['', a.id, a.type, a.name, a.specialty, a.affiliation, a.tier, a.address, a.city, a.phone, a.email, userEmail(s, a.ownerId), userOf(s, a.ownerId)?.territoryId, a.lat, a.lng, a.kol ? 'yes' : '', a.potential, a.segment, ...(withIds ? [a.ownerId] : [])]),
   );
 }
 
-export function exportUsers(s: Snapshot): string {
+/** `withIds` adds Ava's own id and the manager's id at the end (the copy in the company folder); the import ignores them. */
+export function exportUsers(s: Snapshot, withIds = false): string {
   return toCsv(
-    USER_COLUMNS,
+    [...USER_COLUMNS, ...(withIds ? ['id', 'manager_id'] : [])],
     s.users
       .filter((u) => !u.deletedAt)
-      .map((u) => ['', u.name, u.email, u.role, u.admin ? 'yes' : '', u.employeeId, userEmail(s, u.managerId), u.territory, u.territoryId, u.active ? 'yes' : 'no', '']),
+      .map((u) => ['', u.name, u.email, u.role, u.admin ? 'yes' : '', u.employeeId, userEmail(s, u.managerId), u.territory, u.territoryId, u.active ? 'yes' : 'no', '', ...(withIds ? [u.id, u.managerId] : [])]),
   );
 }
 
@@ -386,17 +390,18 @@ const CYCLE_COLUMNS = ['cycle_id', 'cycle_length', 'cycle_start', 'cycle_end'];
 const cycleCells = (cycle: Cycle) => [cycle.id, lengthOfCycle(cycle) === 'month' ? 'monthly' : 'quarterly', cycle.start, cycle.end];
 
 /** One row per rep and planned account: planned vs done in the cycle. */
-export function exportCyclePlans(s: Snapshot, cycle: Cycle): string {
+/** `withIds` adds rep_id and account_id at the end (the copy in the company folder). */
+export function exportCyclePlans(s: Snapshot, cycle: Cycle, withIds = false): string {
   const rows: unknown[][] = [];
   for (const plan of s.plans.filter((p) => p.cycleId === cycle.id)) {
     const done = callsByAccount(cycleCalls(s.calls.filter((c) => c.ownerId === plan.ownerId), cycle));
     for (const t of plan.targets) {
       const a = s.accounts.find((x) => x.id === t.accountId);
       const n = done.get(t.accountId)?.length ?? 0;
-      rows.push([cycle.name, userName(s, plan.ownerId), plan.status, a?.name, a?.tier, t.planned, n, Math.min(100, Math.round((n / t.planned) * 100)), ...cycleCells(cycle)]);
+      rows.push([cycle.name, userName(s, plan.ownerId), plan.status, a?.name, a?.tier, t.planned, n, Math.min(100, Math.round((n / t.planned) * 100)), ...cycleCells(cycle), ...(withIds ? [plan.ownerId, t.accountId] : [])]);
     }
   }
-  return toCsv(['cycle', 'rep', 'plan_status', 'account', 'tier', 'planned_calls', 'calls_done', 'attainment_pct', ...CYCLE_COLUMNS], rows);
+  return toCsv(['cycle', 'rep', 'plan_status', 'account', 'tier', 'planned_calls', 'calls_done', 'attainment_pct', ...CYCLE_COLUMNS, ...(withIds ? ['rep_id', 'account_id'] : [])], rows);
 }
 
 /** One row per rep: the KPIs managers look at. */
@@ -409,4 +414,228 @@ export function exportTeamSummary(s: Snapshot, cycle: Cycle): string {
       return [cycle.name, r.name, r.employeeId, userName(s, r.managerId), r.territory, r.territoryId, m.plan?.status ?? 'None', m.calls, m.planned, m.onPlan, Math.round(m.attainment * 100), Math.round(m.reach * 100), Math.round(m.geoVerified * 100), m.offSite, m.missingCheckIn, m.drafts, ...cycleCells(cycle)];
     }),
   );
+}
+
+// ---------- Live data for Excel and Power BI (copies in the company folder) ----------
+
+/**
+ * The readable copies an administrator's app keeps in the company folder: one file per table,
+ * a header row, ISO dates and ids for joining. Names must stay within the relay's pattern
+ * (letters, digits, spaces, dot, underscore, hyphen).
+ */
+export const DATA_MODEL_FILES = {
+  calls: 'Ava CRM - calls.csv',
+  accounts: 'Ava CRM - accounts.csv',
+  plans: 'Ava CRM - cycle plans.csv',
+  users: 'Ava CRM - users.csv',
+  callProducts: 'Ava CRM - call products.csv',
+  callObjectives: 'Ava CRM - call objectives.csv',
+  presentations: 'Ava CRM - presentations.csv',
+  samples: 'Ava CRM - samples.csv',
+  tasks: 'Ava CRM - tasks.csv',
+  leave: 'Ava CRM - leave.csv',
+  events: 'Ava CRM - events.csv',
+  eventAttendees: 'Ava CRM - event attendees.csv',
+  model: 'Ava CRM - data model.csv',
+} as const;
+export type DataModelFile = keyof typeof DATA_MODEL_FILES;
+
+const yesNo = (v: boolean | undefined) => (v === undefined ? '' : v ? 'yes' : 'no');
+/** The day of an ISO date-time, YYYY-MM-DD (UTC, so every device writes the same value). */
+const dayOf = (iso?: string) => (iso ? iso.slice(0, 10) : '');
+const callKeys = (c: { id: string; datetime: string; ownerId: string; accountId: string }) => [c.id, dayOf(c.datetime), c.datetime, c.ownerId, c.accountId];
+const CALL_KEY_COLUMNS = ['call_id', 'date', 'datetime', 'rep_id', 'account_id'];
+const byCallDate = <T extends { datetime: string }>(a: T, b: T) => a.datetime.localeCompare(b.datetime);
+
+/** One row per call and product presented, with its order in the call (1 = first). */
+export function exportCallProducts(s: Snapshot): string {
+  return toCsv(
+    [...CALL_KEY_COLUMNS, 'status', 'product', 'priority'],
+    [...s.calls].sort(byCallDate).flatMap((c) => c.products.map((p) => [...callKeys(c), c.status, p.product, p.priority])),
+  );
+}
+
+/** One row per call objective; achieved is yes or no once the call is recorded, blank while planned. */
+export function exportCallObjectives(s: Snapshot): string {
+  return toCsv(
+    [...CALL_KEY_COLUMNS, 'status', 'objective', 'achieved'],
+    [...s.calls].sort(byCallDate).flatMap((c) => (c.objectives ?? []).map((o) => [...callKeys(c), c.status, o.text, yesNo(o.achieved)])),
+  );
+}
+
+/** One row per presentation slide shown in a call, with the seconds on it and the doctor's reaction. */
+export function exportPresentations(s: Snapshot): string {
+  return toCsv(
+    [...CALL_KEY_COLUMNS, 'product', 'slide', 'seconds', 'reaction'],
+    [...s.calls]
+      .filter((c) => c.status !== 'Planned')
+      .sort(byCallDate)
+      .flatMap((c) => (c.detailing ?? []).map((d) => [...callKeys(c), d.product, d.slide, d.seconds, c.reaction])),
+  );
+}
+
+/**
+ * Sample movements: what managers issued to reps (type "issued"; a negative qty is a return or
+ * write-off) and what reps handed out in recorded calls (type "given", with the call and signature).
+ */
+export function exportSampleMovements(s: Snapshot): string {
+  const issued = (s.samples ?? []).map((x) => ({ at: x.at, row: [dayOf(x.at), x.at, x.repId, x.product, x.batch, x.expiry, x.qty, 'issued', '', '', x.byId] }));
+  const given = s.calls
+    .filter((c) => c.status !== 'Planned' && c.samples?.length)
+    .flatMap((c) => c.samples!.map((x) => ({ at: c.datetime, row: [dayOf(c.datetime), c.datetime, c.ownerId, x.product, x.batch, x.expiry, x.qty, 'given', c.id, c.signature ? 'yes' : 'no', ''] })));
+  return toCsv(
+    ['date', 'datetime', 'rep_id', 'product', 'batch', 'expiry', 'qty', 'type', 'call_id', 'signed', 'issued_by_id'],
+    [...issued, ...given].sort((a, b) => a.at.localeCompare(b.at)).map((x) => x.row),
+  );
+}
+
+/** One row per task. Tasks of deleted people are left out, as in the users file. */
+export function exportTasks(s: Snapshot): string {
+  const gone = new Set(s.users.filter((u) => u.deletedAt).map((u) => u.id));
+  return toCsv(
+    ['task_id', 'owner_id', 'title', 'due', 'remind_at', 'account_id', 'call_id', 'assigned_by_id', 'status', 'done_at', 'created_at'],
+    (s.tasks ?? [])
+      .filter((t) => !gone.has(t.ownerId))
+      .sort((a, b) => a.due.localeCompare(b.due))
+      .map((t) => [t.id, t.ownerId, t.title, t.due, t.remindAt, t.accountId, t.callId, t.assignedBy, t.doneAt ? 'done' : 'open', t.doneAt, t.createdAt]),
+  );
+}
+
+/** One row per leave request. Leave of deleted people is left out, as in the users file. */
+export function exportLeave(s: Snapshot): string {
+  const gone = new Set(s.users.filter((u) => u.deletedAt).map((u) => u.id));
+  const days = (a: string, b: string) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 864e5) + 1;
+  return toCsv(
+    ['leave_id', 'user_id', 'kind', 'start', 'end', 'days', 'status', 'reviewer_id', 'reviewed_at', 'created_at'],
+    (s.leaves ?? [])
+      .filter((l) => !gone.has(l.userId))
+      .sort((a, b) => a.start.localeCompare(b.start))
+      .map((l) => [l.id, l.userId, l.kind, l.start, l.end, days(l.start, l.end), l.status, l.reviewerId, l.reviewedAt, l.createdAt]),
+  );
+}
+
+/** One row per medical event, with invited and attended counts. */
+export function exportEvents(s: Snapshot): string {
+  return toCsv(
+    ['event_id', 'title', 'kind', 'date', 'time', 'venue', 'city', 'organiser_id', 'products', 'status', 'budget', 'spent', 'invited', 'attended', 'created_at', 'updated_at'],
+    [...(s.events ?? [])]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((e) => [e.id, e.title, e.kind, e.date, e.time, e.venue, e.city, e.ownerId, e.products.join(' | '), e.status, e.budget, e.spent, e.attendees.length, e.attendees.filter((a) => a.status === 'Attended').length, e.createdAt, e.updatedAt]),
+  );
+}
+
+/** One row per doctor or organisation invited to an event. */
+export function exportEventAttendees(s: Snapshot): string {
+  return toCsv(
+    ['event_id', 'account_id', 'status'],
+    [...(s.events ?? [])].sort((a, b) => a.date.localeCompare(b.date)).flatMap((e) => e.attendees.map((a) => [e.id, a.accountId, a.status])),
+  );
+}
+
+type ModelColumn = [column: string, meaning: string, joinsTo?: string];
+const CALL_KEYS_MODEL: ModelColumn[] = [
+  ['call_id', 'The call', 'calls.call_id'],
+  ['date', 'Day of the call (YYYY-MM-DD, UTC)'],
+  ['datetime', 'Date and time of the call (ISO 8601, UTC)'],
+  ['rep_id', 'The rep who owns the call', 'users.id'],
+  ['account_id', 'The doctor or organisation visited', 'accounts.id'],
+];
+
+/** What each file holds, column by column, and how the files join. */
+export const DATA_MODEL: { file: DataModelFile; about: string; columns: ModelColumn[] }[] = [
+  {
+    file: 'calls',
+    about: 'One row per call (planned, draft or submitted)',
+    columns: [
+      ['call_id', 'Unique id of the call'], ['status', 'Planned, Saved (draft) or Submitted'], ['datetime', 'Date and time of the call (ISO 8601, UTC)'], ['rep', 'Rep name'], ['rep_email', 'Rep email', 'users.email'],
+      ['rep_user_id', 'Company staff ID of the rep'], ['territory_id', 'Rep territory code'], ['account', 'Account name'], ['account_type', 'HCP or HCO'], ['tier', 'Account tier'], ['city', 'Account city'],
+      ['channel', 'In person, Phone, Video, Email or WhatsApp'], ['products', 'Products presented, separated by |'], ['key_messages', 'Key messages, separated by |'], ['attendees', 'Others at the call'], ['notes', 'Call notes'],
+      ['next_step', 'Agreed next step'], ['follow_up', 'Follow-up date (YYYY-MM-DD)'], ['checkin_lat', 'Check-in latitude'], ['checkin_lng', 'Check-in longitude'], ['checkin_accuracy_m', 'Check-in accuracy in metres'],
+      ['checkin_distance_m', 'Distance from the account at check-in, metres'], ['geo_status', 'Verified, Off-site, Unverified, Missing or Remote'], ['submitted_at', 'When the call was submitted (ISO 8601)'],
+      ['rep_id', 'The rep who owns the call', 'users.id'], ['account_id', 'The account visited', 'accounts.id'],
+    ],
+  },
+  {
+    file: 'accounts',
+    about: 'One row per doctor (HCP) or organisation (HCO); deleted accounts are left out',
+    columns: [
+      ['action', 'Blank (kept so the file can be re-imported)'], ['id', 'Unique id of the account'], ['type', 'HCP or HCO'], ['name', 'Name'], ['specialty', 'Specialty or kind of organisation'], ['affiliation', 'Main workplace'],
+      ['tier', 'Tier'], ['address', 'Address'], ['city', 'City'], ['phone', 'Phone'], ['email', 'Email'], ['owner_email', 'Email of the rep who owns it', 'users.email'], ['territory_id', 'Owner territory code'],
+      ['lat', 'Latitude'], ['lng', 'Longitude'], ['kol', 'yes for a key opinion leader'], ['potential', 'High, Medium or Low'], ['segment', 'Company segment'], ['owner_id', 'The rep who owns it', 'users.id'],
+    ],
+  },
+  {
+    file: 'plans',
+    about: 'Current cycle only: one row per rep and planned account, planned against done',
+    columns: [
+      ['cycle', 'Cycle name'], ['rep', 'Rep name'], ['plan_status', 'Draft, Submitted, Approved or Rejected'], ['account', 'Account name'], ['tier', 'Account tier'], ['planned_calls', 'Calls planned in the cycle'],
+      ['calls_done', 'Submitted calls so far'], ['attainment_pct', 'Done as % of planned (up to 100)'], ['cycle_id', 'Cycle id'], ['cycle_length', 'monthly or quarterly'], ['cycle_start', 'First day (YYYY-MM-DD)'],
+      ['cycle_end', 'Last day (YYYY-MM-DD)'], ['rep_id', 'The rep', 'users.id'], ['account_id', 'The account', 'accounts.id'],
+    ],
+  },
+  {
+    file: 'users',
+    about: 'One row per person; deleted people are left out',
+    columns: [
+      ['action', 'Blank (kept so the file can be re-imported)'], ['name', 'Name'], ['email', 'Work email'], ['role', 'Rep, FLM, SLM or Admin'], ['admin', 'yes when also an administrator'], ['user_id', 'Company staff ID'],
+      ['manager_email', 'Manager email', 'users.email'], ['territory', 'Territory, team or region'], ['territory_id', 'Territory code'], ['active', 'yes or no'], ['transfer_to_email', 'Blank (used only when importing)'],
+      ['id', 'Unique id of the person in Ava CRM'], ['manager_id', 'Their manager', 'users.id'],
+    ],
+  },
+  { file: 'callProducts', about: 'One row per call and product presented', columns: [...CALL_KEYS_MODEL, ['status', 'Call status'], ['product', 'Product name'], ['priority', 'Order presented (1 = first)']] },
+  { file: 'callObjectives', about: 'One row per call objective', columns: [...CALL_KEYS_MODEL, ['status', 'Call status'], ['objective', 'What the rep wanted from the visit'], ['achieved', 'yes, no, or blank when not recorded yet']] },
+  {
+    file: 'presentations',
+    about: 'One row per presentation slide shown in a recorded call',
+    columns: [...CALL_KEYS_MODEL, ['product', 'Product of the presentation'], ['slide', 'Slide number (from 1)'], ['seconds', 'Seconds on the slide'], ['reaction', 'Positive, Neutral or Negative (the whole call)']],
+  },
+  {
+    file: 'samples',
+    about: 'Sample movements: issued to reps by managers, and given to doctors in recorded calls',
+    columns: [
+      ['date', 'Day (YYYY-MM-DD, UTC)'], ['datetime', 'Date and time (ISO 8601, UTC)'], ['rep_id', 'The rep', 'users.id'], ['product', 'Product'], ['batch', 'Batch number'], ['expiry', 'Batch expiry month (YYYY-MM)'],
+      ['qty', 'Quantity (issued rows: negative means taken back or written off)'], ['type', 'issued or given'], ['call_id', 'Call the samples were given in', 'calls.call_id'], ['signed', 'given rows: yes when the doctor signed'],
+      ['issued_by_id', 'issued rows: the manager', 'users.id'],
+    ],
+  },
+  {
+    file: 'tasks',
+    about: 'One row per task',
+    columns: [
+      ['task_id', 'Unique id of the task'], ['owner_id', 'Who the task is for', 'users.id'], ['title', 'Task'], ['due', 'Due date (YYYY-MM-DD)'], ['remind_at', 'Reminder time (HH:MM)'], ['account_id', 'Related account', 'accounts.id'],
+      ['call_id', 'Related call', 'calls.call_id'], ['assigned_by_id', 'Manager who set it', 'users.id'], ['status', 'open or done'], ['done_at', 'When it was done (ISO 8601)'], ['created_at', 'When it was created (ISO 8601)'],
+    ],
+  },
+  {
+    file: 'leave',
+    about: 'One row per leave request',
+    columns: [
+      ['leave_id', 'Unique id'], ['user_id', 'The person', 'users.id'], ['kind', 'Annual, Sick, Training, Conference or Other'], ['start', 'First day (YYYY-MM-DD)'], ['end', 'Last day (YYYY-MM-DD)'], ['days', 'Calendar days'],
+      ['status', 'Pending, Approved, Rejected or Cancelled'], ['reviewer_id', 'Who decided', 'users.id'], ['reviewed_at', 'When (ISO 8601)'], ['created_at', 'When asked (ISO 8601)'],
+    ],
+  },
+  {
+    file: 'events',
+    about: 'One row per medical event (CME, round table and so on)',
+    columns: [
+      ['event_id', 'Unique id of the event'], ['title', 'Title'], ['kind', 'Kind of event'], ['date', 'Date (YYYY-MM-DD)'], ['time', 'Start time (HH:MM)'], ['venue', 'Venue'], ['city', 'City'], ['organiser_id', 'Organiser', 'users.id'],
+      ['products', 'Products, separated by |'], ['status', 'Planned, Done or Cancelled'], ['budget', 'Planned budget'], ['spent', 'Actual spend'], ['invited', 'Number of invitees'], ['attended', 'Number who attended'],
+      ['created_at', 'Created (ISO 8601)'], ['updated_at', 'Last changed (ISO 8601)'],
+    ],
+  },
+  { file: 'eventAttendees', about: 'One row per account invited to an event', columns: [['event_id', 'The event', 'events.event_id'], ['account_id', 'The doctor or organisation', 'accounts.id'], ['status', 'Invited, Confirmed, Attended or No-show']] },
+];
+
+/** The data model as a CSV (the relay only accepts .csv files): the refresh time, then one row per file and column. */
+export function exportDataModel(refreshedAt: Date): string {
+  const short = (k: DataModelFile) => DATA_MODEL_FILES[k].replace(/^Ava CRM - /, '').replace(/\.csv$/, '');
+  const rows: unknown[][] = [[DATA_MODEL_FILES.model, '', `Last refreshed ${refreshedAt.toISOString()} (UTC). Join tables on the ids in joins_to; table names there are the file names without "Ava CRM - " and ".csv".`, '']];
+  for (const m of DATA_MODEL) {
+    rows.push([DATA_MODEL_FILES[m.file], '', m.about, '']);
+    for (const [column, meaning, joins] of m.columns) {
+      const target = joins?.replace(/^(\w+)\./, (_, t: string) => `${DATA_MODEL.some((x) => x.file === t) ? short(t as DataModelFile) : t}.`);
+      rows.push([DATA_MODEL_FILES[m.file], column, meaning, target ?? '']);
+    }
+  }
+  return toCsv(['file', 'column', 'meaning', 'joins_to'], rows);
 }

@@ -2,14 +2,14 @@
   "expo": {
     "name": "Ava CRM",
     "slug": "ava",
-    "version": "2.6.0",
+    "version": "2.7.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.avacrm.app",
-      "buildNumber": "3",
+      "buildNumber": "5",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -30,12 +30,14 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.avacrm.app",
-      "versionCode": 10,
+      "versionCode": 12,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "CAMERA",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "READ_CALENDAR",
+        "WRITE_CALENDAR"
       ],
       "blockedPermissions": [
         "android.permission.ACCESS_BACKGROUND_LOCATION"
@@ -86,6 +88,13 @@
         {
           "microphonePermission": "Ava CRM uses the microphone when you dictate call notes, plan visits or ask Ava by voice.",
           "speechRecognitionPermission": "Ava CRM turns your speech into text when you dictate call notes, plan visits or ask Ava by voice."
+        }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Ava CRM adds your planned visits and events to the calendar you choose.",
+          "remindersPermission": "Ava CRM does not use your reminders."
         }
       ],
       [

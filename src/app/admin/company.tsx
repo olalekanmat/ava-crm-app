@@ -119,7 +119,7 @@ export default function CompanyScreen() {
           <SectionTitle>Team sign-in</SectionTitle>
           <Card>
             <Text style={text.muted}>Company code</Text>
-            <Text style={{ fontSize: 32, fontWeight: '800', letterSpacing: 4, color: colors.primaryDark, marginVertical: 4 }} selectable>
+            <Text style={{ fontSize: 32, fontWeight: '800', letterSpacing: 4, color: colors.primaryInk, marginVertical: 4 }} selectable>
               {code || '—'}
             </Text>
             <Text style={text.muted}>Everyone signs in with this code, their work email and a password. New users start with {DEFAULT_PASSWORD} and choose their own password at first sign-in. Add people under Users & roles.</Text>

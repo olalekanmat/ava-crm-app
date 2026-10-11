@@ -1,6 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
+import { TidyQueueRunner } from '@/ai/TidyQueueRunner';
+import { AlertNotifier } from '@/ui/AlertNotifier';
+import { CalendarAutoSync } from '@/ui/CalendarAutoSync';
+import { NotificationTaps } from '@/ui/NotificationTaps';
 import { ReminderSync } from '@/ui/ReminderSync';
 import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -80,6 +84,10 @@ export default function TabsLayout() {
   return (
     <>
     <ReminderSync />
+    <AlertNotifier />
+    <CalendarAutoSync />
+    <NotificationTaps />
+    <TidyQueueRunner />
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: colors.primary,

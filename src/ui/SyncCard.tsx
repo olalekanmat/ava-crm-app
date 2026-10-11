@@ -84,6 +84,15 @@ const styles = StyleSheet.create({
 export function LicenseBanner() {
   const { session, license, me } = useStore();
   if (session?.mode !== 'cloud' || !me) return null;
+  if (session.demo) {
+    return (
+      <View>
+        <Banner tone="info" icon="sparkles-outline">
+          Demo company: made-up data, nothing is saved. Sign out in More to leave, or take the tour there.
+        </Banner>
+      </View>
+    );
+  }
   const admin = isAdmin(me);
   const go = admin ? () => router.push('/admin/company') : undefined;
   const msg = (() => {

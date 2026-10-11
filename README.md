@@ -25,6 +25,22 @@ An FLM or SLM (or a rep) can also be an administrator: switch on **Also an admin
 - **Profile pictures**: everyone can add a photo from *More → My profile* (camera or gallery); admins can set one for any user.
 - **Landscape and large screens**: lists, dashboards and the call calendar use the full width and show cards in columns. Pull down on any list to sync.
 
+### New in 2.7
+
+- **Presentations in the call**: admins upload slides per product (*Products & rules*); reps present them full screen in a call. Ava times each slide and asks how the doctor responded. Slides are kept as `ava-deck-<product>-<hash>.json` in the company folder, checked against a hash, and saved on phones for offline use.
+- **Call objectives and outcomes**: pick objectives from the company list (editable in *Products & rules*), mark them achieved or not; missed ones are offered next time.
+- **Samples**: batch and expiry on every issue, expired batches blocked, the doctor's on-screen signature (optional, required or off), a monthly stock count with reconciliation, and a list of unsigned sample calls.
+- **Events**: CMEs, round tables and meetings with invitations, attendance, budget and follow-ups (*More → Events*, and on each account).
+- **Account data quality**: doctors linked to several hospitals; reps suggest corrections that their manager approves (*More → Approvals*); optional review of new accounts; duplicate warnings when adding, and *Duplicates* for admins to merge.
+- **Weekly summary** for managers with AI coaching tips, and an optional Monday reminder.
+- **Smarter Visit next**: open objectives, cool reactions, event invites and follow-ups, colleagues at a hospital already booked, presentations not yet shown.
+- **Offline voice notes**: on-device dictation when there is no signal; AI tidies the draft once the phone is back online.
+- **Notifications** for approvals and decisions, in the app and from background sync.
+- **Phone calendar sync** (Outlook or Google calendar on the phone; an .ics file on the web) in *More → Display & calendar*.
+- **Live data for Excel and Power BI**: admins' syncs keep 12 linked CSV tables and a data model in the company folder.
+- **Dark mode and larger text** (*More → Display & calendar*); the look is applied at start-up by `index.js`.
+- **Demo company and guided tour**: "Explore a demo company" on the sign-in screen (nothing is saved), and *More → Take the tour*.
+
 ## CSV formats
 
 Download the templates from *Admin → Import CSV*. The first row must hold the column names; column order does not matter.

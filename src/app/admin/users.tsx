@@ -83,7 +83,7 @@ export default function UsersScreen() {
                         <Text style={[text.title, { flexShrink: 1 }]} numberOfLines={1}>
                           {u.name}
                         </Text>
-                        {u.role !== 'Admin' && u.admin && <Badge label="Admin" icon="shield-checkmark-outline" fg={colors.primaryDark} bg={colors.primarySoft} />}
+                        {u.role !== 'Admin' && u.admin && <Badge label="Admin" icon="shield-checkmark-outline" fg={colors.primaryInk} bg={colors.primarySoft} />}
                         {!u.active && <Badge label={u.leftAt ? 'Deleted own account' : 'Inactive'} fg={u.leftAt ? colors.danger : colors.muted} bg={colors.bg} />}
                       </Row>
                       <Text style={text.muted} numberOfLines={1}>

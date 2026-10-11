@@ -1,5 +1,8 @@
 import { isAdmin } from '../data/access';
-import { exportAccounts, exportCalls, exportCyclePlans, exportUsers } from '../data/csv';
+import {
+  DATA_MODEL_FILES, exportAccounts, exportCallObjectives, exportCallProducts, exportCalls, exportCyclePlans, exportDataModel, exportEventAttendees, exportEvents,
+  exportLeave, exportPresentations, exportSampleMovements, exportTasks, exportUsers,
+} from '../data/csv';
 import { activeCycleLength } from '../data/cycles';
 import { currentCycle } from '../data/metrics';
 import type { Snapshot } from '../data/types';
@@ -154,7 +157,7 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
   if (opts.writeExports && result && isAdmin(meNow) && (opts.forceExports || !c.lastExport || now.getTime() - Date.parse(c.lastExport) >= EXPORT_EVERY_MS)) {
     // The readable CSV copies are a convenience: a failure here must not lose the sync.
     try {
-      await writeExports(drive, result.snapshot, byName);
+      await writeExports(drive, result.snapshot, byName, now);
       c.lastExport = now.toISOString();
     } catch (e) {
       console.warn('Could not write the CSV copies', e);
@@ -163,23 +166,29 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
   return { cache: c, result };
 }
 
-export const EXPORT_FILES = {
-  calls: 'Ava CRM - calls.csv',
-  accounts: 'Ava CRM - accounts.csv',
-  plans: 'Ava CRM - cycle plans.csv',
-  users: 'Ava CRM - users.csv',
-};
+/** The readable copies in the company folder: one file per table, for Excel and Power BI (see DATA_MODEL in data/csv). */
+export const EXPORT_FILES = DATA_MODEL_FILES;
 
-/** Readable copies for the company: open them in Excel or Sheets straight from the drive. */
-async function writeExports(drive: DriveAdapter, s: Snapshot, byName: Map<string, DriveFile>) {
-  const cycle = currentCycle(s.cycles, new Date(), activeCycleLength(s.settings));
+/** Readable copies for the company: open them in Excel, Sheets or Power BI straight from the drive. */
+async function writeExports(drive: DriveAdapter, s: Snapshot, byName: Map<string, DriveFile>, now: Date) {
+  const cycle = currentCycle(s.cycles, now, activeCycleLength(s.settings));
   const files: [string, string][] = [
-    [EXPORT_FILES.calls, exportCalls(s)],
-    [EXPORT_FILES.accounts, exportAccounts(s)],
-    [EXPORT_FILES.plans, cycle ? exportCyclePlans(s, cycle) : ''],
-    [EXPORT_FILES.users, exportUsers(s)],
+    [EXPORT_FILES.calls, exportCalls(s, true)],
+    [EXPORT_FILES.accounts, exportAccounts(s, true)],
+    [EXPORT_FILES.plans, cycle ? exportCyclePlans(s, cycle, true) : ''],
+    [EXPORT_FILES.users, exportUsers(s, true)],
+    [EXPORT_FILES.callProducts, exportCallProducts(s)],
+    [EXPORT_FILES.callObjectives, exportCallObjectives(s)],
+    [EXPORT_FILES.presentations, exportPresentations(s)],
+    [EXPORT_FILES.samples, exportSampleMovements(s)],
+    [EXPORT_FILES.tasks, exportTasks(s)],
+    [EXPORT_FILES.leave, exportLeave(s)],
+    [EXPORT_FILES.events, exportEvents(s)],
+    [EXPORT_FILES.eventAttendees, exportEventAttendees(s)],
+    // Last, so its refresh time is only written once every table above is.
+    [EXPORT_FILES.model, exportDataModel(now)],
   ];
-  for (const [name, csv] of files) await drive.write(name, '﻿' + csv, 'text/csv', byName.get(name)?.id);
+  for (const [name, csv] of files) await drive.write(name, '\ufeff' + csv, 'text/csv', byName.get(name)?.id);
 }
 
 /** Writes the licence file so every device in the company sees the latest licence. */

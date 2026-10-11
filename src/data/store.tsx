@@ -3,7 +3,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState, Platform } from 'react-native';
 import { registerBackgroundSync, setForegroundSync, unregisterBackgroundSync } from '@/cloud/background';
 import { adapterFor } from '@/cloud/connect';
-import type { FolderRef } from '@/cloud/drive';
+import { prefetchDecks } from '@/cloud/decks';
+import type { DriveAdapter, FolderRef } from '@/cloud/drive';
 import type { ReplayLogEntry } from '@/cloud/journal';
 import { licenseState, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
 import { saveToken } from '@/cloud/relay';
@@ -16,10 +17,11 @@ import { currentCycle } from './metrics';
 import { applyMutation, RuleError, type Mutation } from './mutations';
 import { KEYS, loadJson, removeKeys, saveJson } from './storage';
 import { previewState, UI_PREVIEW } from '@/dev/preview';
+import { buildDemo } from './demo';
 import { emptySnapshot, type Account, type Call, type Company, type Cycle, type Product, type Snapshot, type User } from './types';
 
 /** A signed-in person in a company whose data lives in its administrator's OneDrive or Google Drive folder (`folder.provider`). */
-export type Session = { mode: 'cloud'; userId: string; email: string; companyId: string; companyCode?: string; folder: FolderRef; deviceId: string };
+export type Session = { mode: 'cloud'; userId: string; email: string; companyId: string; companyCode?: string; folder: FolderRef; deviceId: string; /** The demo company: in memory only, never synced. */ demo?: boolean };
 
 export type CloudSession = Session;
 
@@ -43,6 +45,8 @@ const SETUP_TYPES = new Set<Mutation['type']>([
   'cycle.upsert', 'settings.update', 'tiers.update', 'account.upsert', 'account.pin', 'account.delete',
   // Reports (2.3): administrators can prepare report definitions while waiting for approval.
   'report.save', 'report.delete',
+  // 2.7: tidying the account list.
+  'account.merge',
 ]);
 
 interface Store {
@@ -77,6 +81,8 @@ interface Store {
   /** Applies a change. Throws RuleError with a readable message when it is not allowed. */
   run(m: Mutation): void;
   enterCloud(session: CloudSession, cache: CloudCache): Promise<void>;
+  /** Opens the demo company as one of its people (see DEMO_ROLES). Nothing is saved or uploaded. */
+  enterDemo(userId: string): void;
   signOut(): Promise<void>;
   /** `manual`: the person pressed Sync (admins then also refresh the CSV copies in the drive). */
   syncNow(manual?: boolean): Promise<void>;
@@ -84,6 +90,8 @@ interface Store {
   uploadNow(): Promise<boolean>;
   saveLicense(file: LicenseFile): Promise<void>;
   clearRejected(): void;
+  /** The company folder, for uploads such as presentations; null when not signed in to a company. */
+  drive(): DriveAdapter | null;
 }
 
 const EMPTY = emptySnapshot();
@@ -160,7 +168,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const syncNow = useCallback(async (manual = false) => {
     const s = sessionRef.current;
     const c0 = cacheRef.current;
-    if (!s || s.mode !== 'cloud' || !c0 || syncing.current) return;
+    if (!s || s.mode !== 'cloud' || s.demo || !c0 || syncing.current) return;
     syncing.current = true;
     setSync((x) => ({ ...x, syncing: true }));
     try {
@@ -211,6 +219,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       await setCache(c);
       applyReplay(c);
+      // Phones download new product presentations so they work offline in calls.
+      const products = rebuild(c)?.snapshot.products ?? [];
+      prefetchDecks(drive, products).catch((e) => console.warn('Presentations not downloaded', e));
       const stillMember = rebuild(c)?.snapshot.users.find((u) => u.id === s.userId && u.active);
       setSync((x) => ({
         ...x,
@@ -232,7 +243,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // upload on the next successful sync, or from the Sync button. The phone may also sync in the
   // background (best effort).
   useEffect(() => {
-    if (session?.mode !== 'cloud') return;
+    if (session?.mode !== 'cloud' || session.demo) return;
     syncNow();
     const timer = setInterval(() => syncNow(), POLL_MS);
     const sub = AppState.addEventListener('change', (st) => {
@@ -249,7 +260,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [session, syncNow]);
 
   const me = useMemo(() => full.users.find((u) => u.id === session?.userId), [full.users, session]);
-  const license = useMemo<Store['license']>(() => UI_PREVIEW ? previewState().license : licenseState(cache?.license, session?.companyId ?? ''), [session, cache?.license]);
+  const license = useMemo<Store['license']>(() => UI_PREVIEW || session?.demo ? previewState().license : licenseState(cache?.license, session?.companyId ?? ''), [session, cache?.license]);
   const licensed = license.state === 'active';
   const autosave = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -310,6 +321,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [setCache, applyReplay],
   );
 
+  const enterDemo = useCallback(
+    (userId: string) => {
+      const snapshot = buildDemo();
+      const user = snapshot.users.find((u) => u.id === userId) ?? snapshot.users[0];
+      setCache(null, false);
+      setFull(snapshot);
+      setSession({ mode: 'cloud', demo: true, userId: user.id, email: user.email, companyId: 'demo', folder: { provider: 'google', id: 'demo' }, deviceId: 'demo' });
+    },
+    [setFull, setCache],
+  );
+
   const uploadNow = useCallback(async () => {
     // Wait for a sync that is already running, then run one that includes the latest changes.
     for (let i = 0; i < 40 && syncing.current; i++) await new Promise((r) => setTimeout(r, 250));
@@ -320,7 +342,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     const s = sessionRef.current;
-    if (s?.mode === 'cloud') {
+    if (s?.mode === 'cloud' && !s.demo) {
       await unregisterBackgroundSync().catch(() => {});
       await saveToken(null);
       await removeBig(KEYS.cache);
@@ -375,13 +397,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       lastCallFor: (accountId) => calls.find((c) => c.accountId === accountId && c.status === 'Submitted'),
       run,
       enterCloud,
+      enterDemo,
       signOut,
       uploadNow,
       syncNow,
       saveLicense,
       clearRejected: () => setSync((x) => ({ ...x, rejected: [] })),
+      drive: () => (session?.mode === 'cloud' && !UI_PREVIEW && !session.demo ? adapterFor(session.folder) : null),
     };
-  }, [full, me, ready, session, sync, license, licensed, cache?.license, activity, run, enterCloud, signOut, syncNow, uploadNow, saveLicense]);
+  }, [full, me, ready, session, sync, license, licensed, cache?.license, activity, run, enterCloud, enterDemo, signOut, syncNow, uploadNow, saveLicense]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

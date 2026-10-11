@@ -274,7 +274,7 @@ function withChanges(a: Account, changes: AccountChanges, s: Snapshot): Account 
 }
 
 const DECK_FILE_RE = /^ava-deck-[A-Za-z0-9_-]{1,80}\.json$/;
-export const MAX_DECK_SLIDES = 60;
+export const MAX_DECK_SLIDES = 40;
 
 function checkDeck(d: NonNullable<Product['deck']>) {
   if (!DECK_FILE_RE.test(d.file) || !/^[0-9a-f]{64}$/.test(d.hash)) fail('Invalid presentation.');
