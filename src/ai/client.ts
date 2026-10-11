@@ -18,16 +18,16 @@ export class AiError extends Error {
 }
 
 const MESSAGES: Record<AiErrorCode, string> = {
-  declined: 'Nothing was sent to AI. You can allow AI the next time you use an AI feature.',
-  not_configured: 'AI is not set up yet for Ava CRM. Everything else works as usual; please try again later.',
-  disabled: 'Your administrator has turned AI features off.',
-  offline: 'No connection. AI needs the internet; your typing and dictation still work offline.',
-  timeout: 'AI took too long to answer. Please try again.',
-  auth: 'Your sign-in has expired. Sign out and in again to use AI.',
-  busy: 'AI is busy right now. Please try again in a minute.',
-  too_large: 'That is too much text for AI at once. Try a shorter request.',
-  server: 'AI could not answer just now. Please try again.',
-  bad_reply: 'AI gave an answer Ava CRM could not read. Please try again.',
+  declined: 'Nothing was sent to Ava AI. You can allow Ava AI the next time you use an Ava AI feature.',
+  not_configured: 'Ava AI is not set up yet for Ava CRM. Everything else works as usual; please try again later.',
+  disabled: 'Your administrator has turned Ava AI features off.',
+  offline: 'No connection. Ava AI needs the internet; your typing and dictation still work offline.',
+  timeout: 'Ava AI took too long to answer. Please try again.',
+  auth: 'Your sign-in has expired. Sign out and in again to use Ava AI.',
+  busy: 'Ava AI is busy right now. Please try again in a minute.',
+  too_large: 'That is too much text for Ava AI at once. Try a shorter request.',
+  server: 'Ava AI could not answer just now. Please try again.',
+  bad_reply: 'Ava AI gave an answer Ava CRM could not read. Please try again.',
 };
 
 export const aiErrorMessage = (e: unknown): string => (e instanceof AiError ? e.message : e instanceof Error ? e.message : String(e));

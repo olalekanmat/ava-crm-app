@@ -66,7 +66,7 @@ export default function AskScreen() {
   if (!ai) {
     return (
       <Screen>
-        <Empty icon="sparkles-outline">AI features are turned off for your company.</Empty>
+        <Empty icon="sparkles-outline">Ava AI features are turned off for your company.</Empty>
       </Screen>
     );
   }
@@ -129,7 +129,7 @@ export default function AskScreen() {
           <Ionicons name="arrow-up" size={20} color="#fff" />
         </Pressable>
       </View>
-      <Text style={[text.small, { marginTop: space.sm }]}>Answers are made by AI and can be wrong. Check important details in the app.</Text>
+      <Text style={[text.small, { marginTop: space.sm }]}>Answers are made by Ava AI and can be wrong. Check important details in the app.</Text>
     </Screen>
   );
 }

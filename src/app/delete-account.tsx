@@ -11,7 +11,7 @@ import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
 
 /**
- * Delete your own account. Everyone can: the sign-in and profile photo go at once, and the work
+ * Delete your own account (administrators only since 2.6; others ask an administrator): the sign-in and profile photo go at once, and the work
  * the person recorded stays with the company for an administrator to reassign. The company's only
  * administrator closes the whole company instead (the server forgets it; the folder stays theirs).
  */
@@ -22,6 +22,13 @@ export default function DeleteAccountScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const lastAdmin = isAdmin(me) && !data.users.some((u) => u.id !== me.id && u.active && isAdmin(u));
+  if (!isAdmin(me)) {
+    return (
+      <Screen>
+        <Banner tone="info">Your administrator manages your Ava CRM account. To have it deleted, ask them to remove you in Users &amp; roles.</Banner>
+      </Screen>
+    );
+  }
 
   const finish = async (title: string, message: string, folderUrl?: string) => {
     await signOut();

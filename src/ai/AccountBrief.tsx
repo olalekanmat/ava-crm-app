@@ -39,7 +39,7 @@ export function AccountBrief({ accountId }: { accountId: string }) {
           <Text style={text.title}>Pre-call brief</Text>
           {!brief && <Text style={text.muted}>A short summary of past calls, with talking points for your next visit.</Text>}
         </View>
-        {busy ? <ActivityIndicator color={colors.primary} /> : <Button small variant={brief ? 'ghost' : 'secondary'} title={brief ? 'Refresh' : 'AI brief'} icon={brief ? 'refresh' : 'sparkles-outline'} onPress={make} />}
+        {busy ? <ActivityIndicator color={colors.primary} /> : <Button small variant={brief ? 'ghost' : 'secondary'} title={brief ? 'Refresh' : 'Ava AI brief'} icon={brief ? 'refresh' : 'sparkles-outline'} onPress={make} />}
       </Row>
       {!!error && <View style={{ marginTop: space.sm }}><Banner tone="warn">{error}</Banner></View>}
       {brief && (
@@ -47,7 +47,7 @@ export function AccountBrief({ accountId }: { accountId: string }) {
           {!!brief.summary && <Text style={text.body}>{brief.summary}</Text>}
           <List title="Talking points" items={brief.talkingPoints} icon="chatbubble-ellipses-outline" color={colors.primary} />
           <List title="Watch out for" items={brief.watchOuts} icon="alert-circle-outline" color={colors.warn} />
-          <Text style={[text.small, { marginTop: space.sm }]}>Made by AI from your call history. Check before relying on it.</Text>
+          <Text style={[text.small, { marginTop: space.sm }]}>Made by Ava AI from your call history. Check before relying on it.</Text>
         </View>
       )}
     </Card>

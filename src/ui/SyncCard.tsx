@@ -1,10 +1,11 @@
+import { SyncIcon } from './SyncIcon';
 import { router } from 'expo-router';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { providerLabel } from '@/cloud/drive';
 import { isAdmin } from '@/data/access';
 import { formatDate, formatDateTime } from '@/data/dates';
 import { useStore } from '@/data/store';
-import { Banner, Button, CenteredIcon, text } from './components';
+import { Banner, Button, text } from './components';
 import { colors, radius, space } from './theme';
 
 const ago = (iso?: string) => {
@@ -37,7 +38,7 @@ export function SyncBar() {
         : 'All changes saved';
   return (
     <View style={[styles.bar, { borderColor: `${tone}55`, backgroundColor: `${tone}12` }]}>
-      <CenteredIcon name={icon} size={20} color={tone} />
+      <SyncIcon spinning={sync.syncing} name={icon} size={20} color={tone} />
       <View style={{ flex: 1 }}>
         <Text style={[text.title, { fontSize: 14 }]} numberOfLines={1}>
           {title}

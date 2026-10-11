@@ -52,13 +52,13 @@ export default function ProfileScreen() {
       </Card>
       {ai && (
         <>
-          <SectionTitle>AI</SectionTitle>
+          <SectionTitle>Ava AI</SectionTitle>
           <Card>
             <ToggleRow
-              label="Allow AI features on this device"
+              label="Allow Ava AI on this device"
               value={aiOk}
               onChange={(on) => setAiConsent(on).then(() => setAiOk(on))}
-              hint={aiOk ? 'Turn off to stop sending anything to AI. You will be asked again the next time you use an AI feature.' : 'You will be asked before anything is sent to AI.'}
+              hint={aiOk ? 'Turn off to stop sending anything to Ava AI. You will be asked again the next time you use an Ava AI feature.' : 'You will be asked before anything is sent to Ava AI.'}
             />
             <Text style={[text.small, { marginTop: space.sm }]}>{AI_CONSENT_TEXT}</Text>
           </Card>
@@ -67,7 +67,11 @@ export default function ProfileScreen() {
       <SectionTitle>Security</SectionTitle>
       <Card style={{ padding: 0 }}>
         <ListRow icon="key-outline" title="Change password" onPress={() => router.push('/password')} />
-        <ListRow icon="trash-outline" title="Delete my account" subtitle="Remove your sign-in from Ava CRM" tone={colors.danger} onPress={() => router.push('/delete-account')} />
+        {admin ? (
+          <ListRow icon="trash-outline" title="Delete my account" subtitle="Remove your sign-in from Ava CRM" tone={colors.danger} onPress={() => router.push('/delete-account')} />
+        ) : (
+          <ListRow icon="person-remove-outline" title="Delete my account" subtitle="Your administrator manages your account. Ask them to remove you." tone={colors.muted} />
+        )}
       </Card>
       <View style={{ height: space.xl }} />
     </Screen>

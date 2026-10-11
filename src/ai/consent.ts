@@ -8,7 +8,7 @@ import { Alert, Platform } from 'react-native';
 const KEY = 'ava:aiConsent:v1';
 
 export const AI_CONSENT_TEXT =
-  'Ava sends the text of your request, and the account and call details it needs to answer, to Anthropic, the company that runs the Claude AI model. Anthropic processes it to produce the answer and does not use it to train its models. Ava CRM does not keep a copy. Nothing is sent unless you use an AI feature.';
+  'Ava AI sends the text of your request, and the account and call details it needs to answer, to our AI service provider, which processes it to produce the answer and does not use it to train its models. Ava CRM does not keep a copy. Nothing is sent unless you use an Ava AI feature. Our privacy policy at avahealthcareltd.com/AvaCRM/privacy names the provider.';
 
 export async function hasAiConsent(): Promise<boolean> {
   return (await AsyncStorage.getItem(KEY).catch(() => null)) === 'yes';
@@ -36,7 +36,7 @@ export function ensureAiConsent(): Promise<boolean> {
 }
 
 function ask(): Promise<boolean> {
-  const title = 'Use AI with Ava?';
+  const title = 'Use Ava AI?';
   if (Platform.OS === 'web') return Promise.resolve(window.confirm(`${title}\n\n${AI_CONSENT_TEXT}\n\nPress OK to allow.`));
   return new Promise((resolve) =>
     Alert.alert(title, AI_CONSENT_TEXT, [

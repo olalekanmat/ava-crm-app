@@ -100,7 +100,7 @@ export default function SignInScreen() {
               <Image source={mark} style={{ width: 38, height: 76 }} contentFit="contain" />
             </View>
             <Text style={styles.name}>Ava CRM</Text>
-            <Text style={styles.tagline}>Field CRM for pharma sales teams</Text>
+            <Text style={styles.tagline}>by Ava Healthcare Limited</Text>
           </View>
 
           <View style={styles.card}>
@@ -112,7 +112,7 @@ export default function SignInScreen() {
                 <Text style={[text.h2, { marginBottom: space.md }]}>Sign in</Text>
                 <Field label="Company code" value={code} onChangeText={(v) => setCode(v.toUpperCase())} autoCapitalize="characters" autoCorrect={false} placeholder="e.g. 7KQ2MD" maxLength={6} hint="The 6-character code from your administrator." />
                 <Field label="Work email" value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" placeholder="name@company.com" />
-                <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoComplete="password" onSubmitEditing={signIn} returnKeyType="go" hint="First time? Use 12345678, then choose your own password." />
+                <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoComplete="password" onSubmitEditing={signIn} returnKeyType="go" />
                 <Button title="Sign in" icon="log-in-outline" onPress={signIn} disabled={!!busy} />
               </>
             ) : (
@@ -162,7 +162,6 @@ export default function SignInScreen() {
               </View>
             )}
           </View>
-          <Text style={styles.footer}>Ava CRM by Ava Healthcare Limited · avahealthcareltd.com</Text>
         </ScrollView>
       </LinearGradient>
     </KeyboardAvoidingView>
@@ -178,5 +177,4 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: radius.lg + 4, padding: space.lg, marginBottom: space.md, ...shadow },
   pwHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: 4 },
   busy: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.md },
-  footer: { color: 'rgba(255,255,255,0.75)', fontSize: 12, textAlign: 'center', marginTop: space.sm },
 });
