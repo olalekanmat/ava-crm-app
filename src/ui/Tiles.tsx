@@ -78,7 +78,7 @@ export function StatSplit({ items, small }: { items: { value: string | number; l
 
 /**
  * Progress ring drawn with plain views (no SVG): two clipped half-rings rotated into place.
- * `value` is 0..1; `children` sit in the middle.
+ * `value` is 0..1 (a full ring is one plain circle, so it never shows the halves' seams); `children` sit in the middle.
  */
 export function Ring({ value, size = 96, stroke = 10, color = colors.primary, track = colors.sunken, children }: { value: number; size?: number; stroke?: number; color?: string; track?: string; children?: ReactNode }) {
   const deg = Math.max(0, Math.min(1, value)) * 360;
@@ -87,13 +87,13 @@ export function Ring({ value, size = 96, stroke = 10, color = colors.primary, tr
   const ring = { position: 'absolute' as const, top: 0, width: size, height: size, borderRadius: size / 2, borderWidth: stroke };
   return (
     <View style={{ width: size, height: size }} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(value * 100) }}>
-      <View style={[ring, { left: 0, borderColor: track }]} />
-      {right > 0 && (
+      <View style={[ring, { left: 0, borderColor: deg >= 360 ? color : track }]} />
+      {right > 0 && deg < 360 && (
         <View style={{ position: 'absolute', left: size / 2, top: 0, width: size / 2, height: size, overflow: 'hidden' }}>
           <View style={[ring, { left: -size / 2, borderColor: 'transparent', borderTopColor: color, borderRightColor: color, transform: [{ rotate: `${45 + right - 180}deg` }] }]} />
         </View>
       )}
-      {left > 0 && (
+      {left > 0 && deg < 360 && (
         <View style={{ position: 'absolute', left: 0, top: 0, width: size / 2, height: size, overflow: 'hidden' }}>
           <View style={[ring, { left: 0, borderColor: 'transparent', borderBottomColor: color, borderLeftColor: color, transform: [{ rotate: `${45 + left - 180}deg` }] }]} />
         </View>
