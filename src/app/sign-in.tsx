@@ -22,7 +22,7 @@ const SETUP_URL = 'https://avahealthcareltd.com/AvaCRM/app/setup';
 export default function SignInScreen() {
   const { enterCloud, enterDemo } = useStore();
   const [demo, setDemo] = useState(false);
-  const params = useLocalSearchParams<{ company?: string; email?: string; setup?: string; provider?: string }>();
+  const params = useLocalSearchParams<{ company?: string; email?: string; setup?: string; provider?: string; trial?: string }>();
   const [code, setCode] = useState(params.company ?? '');
   const [email, setEmail] = useState(params.email ?? '');
   const [password, setPassword] = useState('');
@@ -105,6 +105,8 @@ export default function SignInScreen() {
 
           <View style={styles.card}>
             {params.setup === 'done' && !pending && <Banner tone="success">Your company is set up and {providerLabel(normalizeProvider(params.provider))} is linked. Sign in with the password you chose. Your company code is {params.company}.</Banner>}
+            {params.setup === 'done' && !pending && params.trial === 'started' && <Banner tone="info" icon="hourglass-outline">Your free trial has started. Sign in and add your team.</Banner>}
+            {params.setup === 'done' && !pending && params.trial === 'used' && <Banner tone="warn">This email has already had a free trial, so your company is waiting for Ava Healthcare’s approval. You can subscribe online in Company & approval after signing in.</Banner>}
             {!!error && <Banner tone="danger">{error}</Banner>}
 
             {!pending ? (

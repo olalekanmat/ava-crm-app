@@ -6,7 +6,8 @@ import { adapterFor } from '@/cloud/connect';
 import { prefetchDecks } from '@/cloud/decks';
 import type { DriveAdapter, FolderRef } from '@/cloud/drive';
 import type { ReplayLogEntry } from '@/cloud/journal';
-import { licenseState, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
+import { activeTrial, licenseState, trialEnded, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
+import { trialLimitError } from '@/data/trial';
 import { saveToken } from '@/cloud/relay';
 import { pendingCount, rebuild, ROSTER_FILE, rosterKey, syncOnce, writeLicense, type CloudCache } from '@/cloud/sync';
 import { activeUserCount, isAdmin, scopeSnapshot, withoutDeleted } from './access';
@@ -176,7 +177,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (net && net.isInternetReachable === false) throw new Error('No internet connection. Your changes are saved on this device and will upload when you are back online.');
       const drive = adapterFor(s.folder);
       const me = fullRef.current.users.find((u) => u.id === s.userId);
-      let { cache: c } = await syncOnce(drive, c0, { writeExports: isAdmin(me), forceExports: manual, readRoster: isAdmin(me) });
+      // After a free trial ends the server turns away everyone but administrators, so ask about the
+      // licence first: the company may have subscribed since.
+      let start = c0;
+      if (c0.license && trialEnded(licenseState(c0.license, c0.companyId))) {
+        try {
+          const next = await refreshLicense(c0.license);
+          if (next.status !== c0.license.status || next.token !== c0.license.token) {
+            start = { ...c0, license: next };
+            await setCache(start);
+          }
+        } catch (e) {
+          console.warn('Licence check failed', e);
+        }
+      }
+      let { cache: c } = await syncOnce(drive, start, { writeExports: isAdmin(me), forceExports: manual, readRoster: isAdmin(me) });
       // Keep any changes made while the sync was running.
       const latest = cacheRef.current;
       const extra = latest ? latest.own.entries.slice(c0.own.entries.length) : [];
@@ -292,6 +307,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           );
         }
       }
+      // A free trial caps HCPs, HCOs and products too.
+      const trial = activeTrial(license);
+      const overTrial = trial && trialLimitError(fullRef.current, next, trial);
+      if (overTrial) throw new RuleError(overTrial);
       setFull(next);
       if (s.mode === 'cloud' && cacheRef.current) {
         const c = cacheRef.current;

@@ -23,6 +23,23 @@ export interface LicensePayload {
   subscriptionEnd: string;
   /** Active users the company has paid for; absent means no limit. */
   seats?: number;
+  /** Set while the company is on a free trial (2.8); `limits` says what the trial allows. */
+  trial?: boolean;
+  limits?: TrialLimits;
+}
+
+/** What a free trial allows. The server sets these when the trial starts. */
+export interface TrialLimits {
+  days: number;
+  users: number;
+  /** Healthcare professionals in the account list. */
+  hcps: number;
+  /** Healthcare organisations in the account list. */
+  hcos: number;
+  /** Active products. */
+  products: number;
+  /** Ava AI requests per company per day (counted by the server). */
+  aiPerDay: number;
 }
 
 /** Stored in the company folder as ava-license.json, so every device sees the latest licence. */
@@ -33,6 +50,8 @@ export interface LicenseFile {
   statusKey: string;
   status: LicenseStatus;
   token?: string;
+  /** The server said the company is (or was, when expired) on a free trial. */
+  trial?: boolean;
   requestedAt: string;
   updatedAt: string;
 }
@@ -93,17 +112,18 @@ export function verifyToken(token: string, publicKey = LICENSE_PUBLIC_KEY): Lice
 
 export type LicenseState =
   | { state: 'active'; payload: LicensePayload; daysLeft: number }
-  | { state: 'none' | 'pending' | 'expired' | 'revoked' | 'invalid'; payload?: LicensePayload };
+  | { state: 'none' | 'pending' | 'expired' | 'revoked' | 'invalid'; payload?: LicensePayload; trial?: boolean };
 
 /** What the company may do right now, from the licence file alone (works offline). */
 export function licenseState(file: LicenseFile | undefined, companyId: string, now = new Date(), publicKey = LICENSE_PUBLIC_KEY): LicenseState {
   if (!file) return { state: 'none' };
   if (file.status === 'revoked') return { state: 'revoked' };
-  if (!file.token) return { state: file.status === 'expired' ? 'expired' : 'pending' };
+  if (!file.token) return file.status === 'expired' ? { state: 'expired', trial: !!file.trial } : { state: 'pending' };
   const payload = verifyToken(file.token, publicKey);
   if (!payload || payload.companyId !== companyId) return { state: 'invalid' };
   const left = Date.parse(payload.expiresAt) - now.getTime();
-  if (left <= 0) return { state: 'expired', payload };
+  // A trial counts as ended when its end date has passed, not just because this device could not renew for 14 days.
+  if (left <= 0) return { state: 'expired', payload, trial: (!!payload.trial && Date.parse(payload.subscriptionEnd) <= now.getTime()) || (file.status === 'expired' && !!file.trial) };
   // Show days to the end of the subscription, not to the token's 14-day renewal.
   const subLeft = Date.parse(payload.subscriptionEnd) - now.getTime();
   return { state: 'active', payload, daysLeft: Math.max(0, Math.ceil(subLeft / 86400000)) };
@@ -131,11 +151,29 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 export const licenseApi = {
   register: (server: string, req: RegisterRequest) => post<{ status: LicenseStatus }>(`${base(server)}/api/register`, req),
   status: (server: string, companyId: string, statusKey: string) =>
-    post<{ status: LicenseStatus; expiresAt?: string; token?: string }>(`${base(server)}/api/status`, { companyId, statusKey }),
+    post<{ status: LicenseStatus; expiresAt?: string; token?: string; trial?: boolean }>(`${base(server)}/api/status`, { companyId, statusKey }),
+  /** The free trial new companies get (length and limits); older servers have none. */
+  trial: async (server = DEFAULT_LICENSE_SERVER) => {
+    const res = await fetch(`${base(server)}/api/trial`);
+    if (!res.ok) throw new Error(`The server answered ${res.status}.`);
+    return ((await res.json()) as { trial: TrialLimits }).trial;
+  },
 };
 
 /** Asks the approval server for the current licence and returns the updated file. */
 export async function refreshLicense(file: LicenseFile, now = new Date()): Promise<LicenseFile> {
   const r = await licenseApi.status(file.server, file.companyId, file.statusKey);
-  return { ...file, status: r.status, token: r.token ?? (r.status === 'active' ? file.token : undefined), updatedAt: now.toISOString() };
+  return { ...file, status: r.status, token: r.token ?? (r.status === 'active' ? file.token : undefined), trial: r.trial || undefined, updatedAt: now.toISOString() };
 }
+
+/** The limits of a free trial that is running now, or undefined (paid, pending, ended…). */
+export function activeTrial(license: LicenseState): TrialLimits | undefined {
+  return license.state === 'active' && license.payload.trial ? license.payload.limits ?? DEFAULT_TRIAL : undefined;
+}
+
+/** True once a free trial has run out without the company subscribing: the app is closed to everyone. */
+export function trialEnded(license: LicenseState): boolean {
+  return license.state === 'expired' && !!license.trial;
+}
+
+export const DEFAULT_TRIAL: TrialLimits = { days: 30, users: 5, hcps: 20, hcos: 20, products: 3, aiPerDay: 10 };

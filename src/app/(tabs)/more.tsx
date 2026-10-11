@@ -8,6 +8,7 @@ import { canViewReports } from '@/data/reports';
 import { useMe, useStore } from '@/data/store';
 import { BrandTitle } from '@/ui/Brand';
 import { Button, Card, ListRow, Row, SectionTitle, UserAvatar, text } from '@/ui/components';
+import { TrialBadge } from '@/ui/TrialBadge';
 import { confirm } from '@/ui/confirm';
 import { Screen } from '@/ui/Screen';
 import { SyncCard } from '@/ui/SyncCard';
@@ -30,6 +31,7 @@ export default function MoreScreen() {
               {roleLabel(me)}
               {me.territory ? ` · ${me.territory}` : ''}
             </Text>
+            <TrialBadge />
             <Text style={text.small}>
               {me.email}
               {manager ? ` · reports to ${manager.name}` : ''}

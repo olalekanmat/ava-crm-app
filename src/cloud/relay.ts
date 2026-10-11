@@ -68,8 +68,8 @@ export const api = {
   changePassword: (token: string, currentPassword: string, newPassword: string) => call<{ token: string }>('POST', 'auth/password', { token, body: { currentPassword, newPassword } }),
   resetPassword: (token: string, email: string) => call<{ ok: true; password: string }>('POST', 'admin/reset-password', { token, body: { email } }),
   /** `provider` picks where the company's data lives; servers without Google Drive support ignore it. */
-  startSetup: (company: Company, admin: { name: string; email: string; password: string }, provider: SetupProvider = 'onedrive') =>
-    call<{ authorizeUrl: string; provider?: string }>('POST', 'setup/start', { body: { company, admin, provider } }),
+  startSetup: (company: Company, admin: { name: string; email: string; password: string }, provider: SetupProvider = 'onedrive', trial = false) =>
+    call<{ authorizeUrl: string; provider?: string }>('POST', 'setup/start', { body: { company, admin, provider, ...(trial ? { trial: true } : {}) } }),
   /**
    * Deletes the signed-in person's account after checking their password. The company's only
    * administrator must pass `closeCompany`: the server then forgets the whole company.
@@ -110,7 +110,7 @@ export interface BillingQuote {
   promotion: { label: string; percent: number; until?: string } | null;
   activeUsers: number;
   quote: PriceQuote;
-  licence?: { status: string; subscriptionEnd?: string; seats?: number | null; payments?: { at: string; kind?: string; amount: number; currency: string; months: number; seats: number; reference: string }[] };
+  licence?: { status: string; subscriptionEnd?: string; seats?: number | null; trial?: { startedAt: string; endsAt: string } | null; payments?: { at: string; kind?: string; amount: number; currency: string; months: number; seats: number; reference: string }[] };
 }
 
 /** The company folder, reached through the server with this person's sign-in. */

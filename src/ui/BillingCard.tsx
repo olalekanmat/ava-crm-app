@@ -3,7 +3,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { refreshLicense } from '@/cloud/license';
+import { activeTrial, refreshLicense, trialEnded } from '@/cloud/license';
 import { ApiError, api, loadToken, type BillingPick, type BillingQuote } from '@/cloud/relay';
 import { activeUserCount } from '@/data/access';
 import { formatDate } from '@/data/dates';
@@ -126,7 +126,9 @@ export function BillingCard() {
   const seats = lic?.seats ?? (license.state === 'active' ? license.payload.seats : undefined);
   const used = activeUserCount(data.users);
   const active = license.state === 'active';
-  const canAdd = active && !!seats;
+  // Trial users are not paid licences: a company on trial subscribes instead of adding to them.
+  const onTrial = !!activeTrial(license) || trialEnded(license) || !!lic?.trial;
+  const canAdd = active && !!seats && !onTrial;
   const q = info?.quote;
   const minUsers = info ? Math.max(info.minSeats, used) : 1;
   const presets = PRESETS.filter((m) => !info || m <= info.maxMonths);
@@ -142,7 +144,7 @@ export function BillingCard() {
           <View style={{ flex: 1, minWidth: 220, gap: 6 }}>
             <Text style={styles.heroKicker}>YOUR PLAN</Text>
             <Text style={styles.heroTitle}>
-              {active ? `Active until ${formatDate(license.payload.subscriptionEnd.slice(0, 10))}` : license.state === 'expired' ? 'Expired' : 'Not active yet'}
+              {active ? `${onTrial ? 'Free trial until' : 'Active until'} ${formatDate(license.payload.subscriptionEnd.slice(0, 10))}` : trialEnded(license) ? 'Free trial ended' : license.state === 'expired' ? 'Expired' : 'Not active yet'}
             </Text>
             <Text style={styles.heroSub}>
               {info ? `${money(info.perUserMonth * 100, info.currency)} per user per month · minimum ${info.minSeats} users` : 'Loading prices…'}
@@ -227,7 +229,7 @@ export function BillingCard() {
                   <Text style={[text.small, { textAlign: 'right' }]}>
                     {q.kind === 'add'
                       ? `You will have ${(seats ?? 0) + q.seats} user licences`
-                      : `${months(q.months)} added ${active ? 'after your current end date' : 'from today'} · about ${money(Math.round(q.amount / Math.max(1, q.seats * q.months)), q.currency)} per user per month`}
+                      : `${months(q.months)} added ${active ? (onTrial ? 'after your free trial ends' : 'after your current end date') : 'from today'} · about ${money(Math.round(q.amount / Math.max(1, q.seats * q.months)), q.currency)} per user per month`}
                   </Text>
                 </View>
               )}

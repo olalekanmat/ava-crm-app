@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
+import { trialEnded } from '@/cloud/license';
 import { StoreProvider, useStore } from '@/data/store';
 import '@/cloud/background';
 import { active } from '@/ui/appearance';
@@ -25,7 +26,9 @@ function WebBack({ canGoBack }: { canGoBack?: boolean }) {
 }
 
 function RootNav() {
-  const { ready, session } = useStore();
+  const { ready, session, license } = useStore();
+  // Once a free trial ends the app closes: only the notice and, for administrators, Company & approval (to subscribe).
+  const ended = !!session && !session.demo && trialEnded(license);
   if (!ready) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
@@ -50,7 +53,10 @@ function RootNav() {
         <Stack.Screen name="sign-in" options={{ headerShown: false, title: 'Sign in' }} />
         <Stack.Screen name="setup" options={{ headerShown: false, title: 'Set up your company' }} />
       </Stack.Protected>
-      <Stack.Protected guard={!!session}>
+      <Stack.Protected guard={!!session && ended}>
+        <Stack.Screen name="trial-ended" options={{ headerShown: false, title: 'Free trial ended' }} />
+      </Stack.Protected>
+      <Stack.Protected guard={!!session && !ended}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Home' }} />
         <Stack.Screen name="account/[id]" options={{ title: 'Account' }} />
         <Stack.Screen name="account/new" options={{ title: 'New account', presentation: 'modal' }} />
@@ -68,7 +74,6 @@ function RootNav() {
         <Stack.Screen name="admin/import" options={{ title: 'Import CSV' }} />
         <Stack.Screen name="admin/settings" options={{ title: 'Products & rules' }} />
         <Stack.Screen name="admin/audit" options={{ title: 'Audit log' }} />
-        <Stack.Screen name="admin/company" options={{ title: 'Company & approval' }} />
         <Stack.Screen name="admin/tiers" options={{ title: 'Tier names' }} />
         <Stack.Screen name="ai/ask" options={{ title: 'Ask Ava' }} />
         <Stack.Screen name="ai/schedule" options={{ title: 'Plan visits by voice' }} />
@@ -89,6 +94,10 @@ function RootNav() {
         <Stack.Screen name="admin/live-data" options={{ title: 'Live data for Excel & Power BI' }} />
         <Stack.Screen name="appearance" options={{ title: 'Display & calendar' }} />
         <Stack.Screen name="tour" options={{ headerShown: false, title: 'Tour', presentation: 'modal' }} />
+      </Stack.Protected>
+      {/* Administrators subscribe here, also after a free trial has ended. */}
+      <Stack.Protected guard={!!session}>
+        <Stack.Screen name="admin/company" options={{ title: 'Company & approval' }} />
       </Stack.Protected>
     </Stack>
   );

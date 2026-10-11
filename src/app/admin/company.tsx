@@ -2,7 +2,8 @@ import * as Linking from 'expo-linking';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Share, Text, View } from 'react-native';
 import { normalizeProvider, providerLabel } from '@/cloud/drive';
-import { refreshLicense } from '@/cloud/license';
+import { activeTrial, refreshLicense, trialEnded } from '@/cloud/license';
+import { trialSummary } from '@/data/trial';
 import { DEFAULT_PASSWORD, folderInfo, loadToken } from '@/cloud/relay';
 import { requestApproval } from '@/cloud/setup';
 import { formatDate, formatDateTime } from '@/data/dates';
@@ -83,6 +84,7 @@ export default function CompanyScreen() {
   };
 
   const lic = license.state;
+  const trial = activeTrial(license);
   const tone = lic === 'active' ? colors.success : lic === 'pending' || lic === 'none' ? colors.warn : colors.danger;
 
   return (
@@ -96,9 +98,15 @@ export default function CompanyScreen() {
       <Card>
         <Row>
           <Text style={[text.title, { flex: 1 }]}>Ava CRM licence</Text>
-          <Badge label={STATE_LABEL[lic]} fg={tone} bg={colors.bg} />
+          <Badge label={trial ? 'Free trial' : trialEnded(license) ? 'Trial ended' : STATE_LABEL[lic]} fg={tone} bg={colors.bg} />
         </Row>
-        {license.state === 'active' && <Text style={text.muted}>Subscription until {formatDate(license.payload.subscriptionEnd.slice(0, 10))} ({license.daysLeft} days)</Text>}
+        {license.state === 'active' && (
+          <Text style={text.muted}>
+            {trial ? 'Free trial' : 'Subscription'} until {formatDate(license.payload.subscriptionEnd.slice(0, 10))} ({license.daysLeft} days)
+          </Text>
+        )}
+        {trial && <Text style={[text.small, { marginTop: space.xs }]}>The trial includes {trialSummary(trial)}. Subscribing removes these limits and keeps everything your team has recorded. When the trial ends, only administrators can sign in until the company subscribes.</Text>}
+        {trialEnded(license) && <Text style={[text.small, { marginTop: space.xs }]}>The free trial has ended, so only administrators can sign in. Subscribe below and your team carries on where they left off.</Text>}
         {licenseFile && (
           <Text style={text.small}>
             Server {licenseFile.server} · requested {formatDate(licenseFile.requestedAt.slice(0, 10))} · last checked {formatDateTime(licenseFile.updatedAt)}
@@ -107,7 +115,7 @@ export default function CompanyScreen() {
         {cloud && (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md }}>
             <Button small icon="refresh-outline" title="Check now" onPress={checkNow} disabled={!!busy} />
-            {lic !== 'active' && <Button small variant="secondary" icon="send-outline" title="Send request again" onPress={resend} disabled={!!busy} />}
+            {lic !== 'active' && !trialEnded(license) && <Button small variant="secondary" icon="send-outline" title="Send request again" onPress={resend} disabled={!!busy} />}
           </View>
         )}
       </Card>
