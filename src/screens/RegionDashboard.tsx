@@ -8,6 +8,7 @@ import { Card, Empty, ProgressBar, Row, SectionTitle, UserAvatar, text } from '@
 import { Grid } from '@/ui/layout';
 import { StatSplit, Tile } from '@/ui/Tiles';
 import { Screen } from '@/ui/Screen';
+import { WeeklyTile } from '@/ui/WeeklyTile';
 import { LicenseBanner } from '@/ui/SyncCard';
 import { colors, paceColor, space, tone } from '@/ui/theme';
 import { AlertsTile, CompanyTile, CyclePlanTile, HeroButton, HomeHeader, SyncTile } from './HomeTiles';
@@ -44,6 +45,7 @@ export function RegionDashboard({ leader }: { leader: User }) {
       <Grid min={290} max={3}>
         <CompanyTile key="company" cycle={cycle} />
         <AlertsTile key="alerts" />
+        <WeeklyTile key="weekly" />
         <CyclePlanTile key="plan" cycle={cycle} attainment={all.attainment} planned={all.planned} health={repHealth(all.reps, elapsed)} unit={`${all.reps.length} reps · ${all.calls} calls`} onPress={() => router.navigate('/plan')} empty="No rep has a plan for this cycle yet." />
         <Tile key="kpi" title="This cycle" icon="stats-chart-outline">
           <StatSplit

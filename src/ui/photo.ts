@@ -36,3 +36,25 @@ export async function pickPhoto(source: 'camera' | 'library'): Promise<string | 
   if (photo.length > Math.min(MAX_CHARS, MAX_PHOTO_CHARS)) throw new Error('That photo is too large. Try another one.');
   return photo;
 }
+
+/** Slides keep their shape; the long side is at most this many pixels, which reads well on tablets. */
+const SLIDE_MAX = 1600;
+
+/**
+ * Picks presentation slides (images exported from PowerPoint or PDF, in order) and returns them as
+ * JPEG data URIs of about 100–250 KB each. Returns [] when the person cancels.
+ */
+export async function pickSlides(limit = 40): Promise<string[]> {
+  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, orderedSelection: true, selectionLimit: limit, quality: 1 });
+  if (res.canceled || !res.assets?.length) return [];
+  const out: string[] = [];
+  for (const a of res.assets.slice(0, limit)) {
+    const ctx = ImageManipulator.manipulate(a.uri);
+    if (a.width && a.height && Math.max(a.width, a.height) > SLIDE_MAX) ctx.resize(a.width >= a.height ? { width: SLIDE_MAX } : { height: SLIDE_MAX });
+    const img = await ctx.renderAsync();
+    const saved = await img.saveAsync({ format: SaveFormat.JPEG, compress: 0.62, base64: true });
+    if (!saved.base64) throw new Error('Could not read one of the images.');
+    out.push(`data:image/jpeg;base64,${saved.base64}`);
+  }
+  return out;
+}

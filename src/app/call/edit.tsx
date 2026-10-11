@@ -1,27 +1,36 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { queueTidy } from '@/ai/tidyQueue';
 import { CallNoteAssist } from '@/ai/CallNoteAssist';
 import { addDays, parseLocal, timeKey, toDateKey } from '@/data/dates';
 import { distanceM, formatDistance, hasLocation } from '@/data/geo';
 import { newId } from '@/data/ids';
 import { callProblems, managersOf } from '@/data/mutations';
-import { sampleStock } from '@/data/samples';
+import { batchStock, sampleStock } from '@/data/samples';
 import { useMe, useStore } from '@/data/store';
-import { CHANNELS, type CallChannel, type CallStatus, type GeoTag, type SampleGiven } from '@/data/types';
+import { CHANNELS, type CallChannel, type CallObjective, type CallStatus, type GeoTag, type Reaction, type SampleGiven, type Signature, type SlideView } from '@/data/types';
+import { formatSeconds, mergeViews, productsWithDecks } from '@/data/detailing';
+import { cleanObjectives, objectiveChoices, openObjectives } from '@/data/objectives';
 import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SearchBox, ToggleRow, text, type IconName } from '@/ui/components';
+import { ObjectivesEditor } from '@/ui/Objectives';
+import { Presenter } from '@/ui/Presenter';
+import { SignaturePad, SignatureView } from '@/ui/SignaturePad';
 import { confirm, notify } from '@/ui/confirm';
 import { currentFix } from '@/ui/location';
 import { Screen } from '@/ui/Screen';
 import { remindersSupported } from '@/ui/reminders';
 import { colors, radius, space } from '@/ui/theme';
 
+/** The time now (a planned call is one set in the future). */
+const clock = () => Date.now();
+
 /** Create a call (optionally for ?accountId=, or ?plan=1 to schedule one) or edit an unsubmitted one (?id=). */
 export default function EditCallScreen() {
   const params = useLocalSearchParams<{ id?: string; accountId?: string; plan?: string }>();
   const me = useMe();
-  const { accounts, products, data, getAccount, getCall, run } = useStore();
+  const { accounts, products, data, getAccount, getCall, run, callsForAccount } = useStore();
   const existing = params.id ? getCall(params.id) : undefined;
   const start = existing ? new Date(existing.datetime) : params.plan ? new Date(addDays(new Date(), 1).setHours(9, 0, 0, 0)) : new Date();
 
@@ -42,16 +51,34 @@ export default function EditCallScreen() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [samples, setSamples] = useState<Record<string, string>>(() => Object.fromEntries((existing?.samples ?? []).map((x) => [x.product, String(x.qty)])));
   const [coachId, setCoachId] = useState(existing?.coachId);
+  // 2.7
+  const [objectives, setObjectives] = useState<CallObjective[]>(existing?.objectives ?? []);
+  const [detailing, setDetailing] = useState<SlideView[]>(existing?.detailing ?? []);
+  const [reaction, setReaction] = useState<Reaction | undefined>(existing?.reaction);
+  const [signature, setSignature] = useState<Signature | undefined>(existing?.signature);
+  const [signing, setSigning] = useState(false);
+  const [presenting, setPresenting] = useState(false);
+  const [tidyLater, setTidyLater] = useState(false);
+  const [batchFor, setBatchFor] = useState<Record<string, string>>(() => Object.fromEntries((existing?.samples ?? []).filter((x) => x.batch).map((x) => [x.product, x.batch!])));
   const followTask = existing ? (data.tasks ?? []).find((t) => t.callId === existing.id && !t.doneAt) : undefined;
   const [remind, setRemind] = useState(followTask ? !!followTask.remindAt : true);
   const [remindAt, setRemindAt] = useState(followTask?.remindAt ?? '09:00');
   const managers = useMemo(() => managersOf(data.users, existing?.ownerId ?? me.id), [data.users, existing?.ownerId, me.id]);
   const stock = useMemo(() => new Map(sampleStock(data, me.id, existing?.id).map((x) => [x.product, x.balance])), [data, me.id, existing?.id]);
+  const batches = useMemo(() => batchStock(data, me.id, existing?.id), [data, me.id, existing?.id]);
 
   const account = accountId ? getAccount(accountId) : undefined;
   const when = parseLocal(date, time);
-  const isFuture = !!when && when.getTime() > Date.now();
+  const isFuture = !!when && when.getTime() > clock();
   const keyMessagesFor = (name: string) => data.products.find((p) => p.name === name)?.keyMessages ?? [];
+  const thisMonth = toDateKey(when ?? new Date()).slice(0, 7);
+  // Batches of a product still in stock and not expired, soonest expiry first.
+  const usableBatches = (p: string) => batches.filter((b) => b.product === p && b.balance > 0 && b.batch && (!b.expiry || b.expiry >= thisMonth));
+  const expiredBatches = (p: string) => batches.filter((b) => b.product === p && b.balance > 0 && b.expiry && b.expiry < thisMonth);
+  const decks = productsWithDecks(products);
+  const deckOrder = [...decks].sort((a, b) => (chosen.indexOf(a.name) + 1 || 99) - (chosen.indexOf(b.name) + 1 || 99));
+  const carried = account && !existing ? openObjectives(callsForAccount(account.id).filter((c) => c.ownerId === me.id)).map((o) => o.text) : [];
+  const signRule = data.settings.sampleSignature ?? 'optional';
 
   const accountMatches = useMemo(() => {
     const q = accountQuery.trim().toLowerCase();
@@ -98,7 +125,17 @@ export default function EditCallScreen() {
     if (!accountId) errs.account = 'Choose an account.';
     if (followUp && !/^\d{4}-\d{2}-\d{2}$/.test(followUp)) errs.followUp = 'Use YYYY-MM-DD.';
     if (followUp && remind && !/^([01]\d|2[0-3]):[0-5]\d$/.test(remindAt)) errs.followUp = 'Use HH:MM for the reminder time.';
-    const given: SampleGiven[] = isFuture ? [] : Object.entries(samples).filter(([, q]) => +q > 0).map(([product, q]) => ({ product, qty: Math.min(1000, Math.floor(+q)) }));
+    const given: SampleGiven[] = isFuture
+      ? []
+      : Object.entries(samples)
+          .filter(([, q]) => +q > 0)
+          .map(([product, q]) => {
+            const batch = batchFor[product] ?? usableBatches(product)[0]?.batch;
+            const b = batches.find((x) => x.product === product && x.batch === batch);
+            return { product, qty: Math.min(1000, Math.floor(+q)), ...(batch ? { batch } : {}), ...(b?.expiry ? { expiry: b.expiry } : {}) };
+          });
+    const keepSignature = given.length && signRule !== 'off' ? signature : undefined;
+    if (status === 'Submitted' && signRule === 'required' && given.length && !keepSignature) errs.signature = 'Ask the doctor to sign for the samples before submitting.';
     setErrors(errs);
     if (Object.keys(errs).length || !accountId || !when) return;
 
@@ -124,6 +161,10 @@ export default function EditCallScreen() {
             checkIn: channel === 'In person' ? checkIn : undefined,
             samples: given.length ? given : undefined,
             coachId: coachId && channel === 'In person' ? coachId : undefined,
+            objectives: cleanObjectives(objectives, status === 'Planned'),
+            detailing: !isFuture && detailing.length ? detailing : undefined,
+            reaction: !isFuture && detailing.length ? reaction : undefined,
+            signature: keepSignature,
             createdAt: existing?.createdAt ?? now,
             updatedAt: now,
           },
@@ -148,6 +189,7 @@ export default function EditCallScreen() {
         if (checkIn && pinAccount && account && !hasLocation(account) && account.ownerId === me.id) {
           run({ type: 'account.pin', id: account.id, lat: checkIn.lat, lng: checkIn.lng });
         }
+        if (tidyLater && status === 'Saved' && notes.trim()) queueTidy(me.id, id).catch(() => {});
         router.dismissTo({ pathname: '/call/[id]', params: { id } });
       } catch (e) {
         notify('Not saved', e instanceof Error ? e.message : String(e));
@@ -215,6 +257,8 @@ export default function EditCallScreen() {
       </View>
       {!!errors.when && <Text style={styles.error}>{errors.when}</Text>}
 
+      <ObjectivesEditor value={objectives} onChange={setObjectives} choices={objectiveChoices(data.settings)} record={!isFuture} carried={carried} />
+
       <Label>Channel</Label>
       <View style={styles.wrap}>
         {CHANNELS.map((c) => (
@@ -264,6 +308,43 @@ export default function EditCallScreen() {
         </>
       )}
 
+      {!isFuture && decks.length > 0 && (
+        <Card>
+          <Row>
+            <Ionicons name="easel-outline" size={22} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={text.title}>Presentation</Text>
+              <Text style={text.muted}>
+                {detailing.length
+                  ? `${[...new Set(detailing.map((v) => v.product))].map((p) => `${p}: ${detailing.filter((v) => v.product === p).length} slides`).join(' · ')} · ${formatSeconds(detailing.reduce((n, v) => n + v.seconds, 0))}${reaction ? ` · ${reaction.toLowerCase()} reaction` : ''}`
+                  : 'Show the approved slides; Ava records which ones and for how long.'}
+              </Text>
+            </View>
+            <Button small title={detailing.length ? 'Present again' : 'Present'} icon="play-outline" variant={detailing.length ? 'ghost' : 'primary'} onPress={() => setPresenting(true)} />
+          </Row>
+          {detailing.length > 0 && (
+            <Text style={[text.link, { marginTop: space.sm, fontSize: 13 }]} onPress={() => { setDetailing([]); setReaction(undefined); }}>
+              Clear presentation record
+            </Text>
+          )}
+        </Card>
+      )}
+      {presenting && (
+      <Presenter
+        visible
+        products={deckOrder}
+        onClose={() => setPresenting(false)}
+        onDone={(views, r) => {
+          setPresenting(false);
+          setDetailing((d) => mergeViews([...d, ...views]));
+          if (r) setReaction(r);
+          // Products presented count as discussed, in the order shown.
+          const shown = [...new Set(views.map((v) => v.product))].filter((p) => !chosen.includes(p));
+          if (shown.length) setChosen((c) => [...c, ...shown]);
+        }}
+      />
+      )}
+
       {!isFuture && sampleRows.length > 0 && (
         <>
           <Label>Samples given</Label>
@@ -276,6 +357,15 @@ export default function EditCallScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={text.body}>{p}</Text>
                     {left !== undefined && <Text style={[text.small, left - q < 0 && { color: colors.danger }]}>{left - q} left in your stock</Text>}
+                    {usableBatches(p).length > 1 && (
+                      <View style={[styles.wrap, { marginBottom: 0, marginTop: 4 }]}>
+                        {usableBatches(p).map((b) => (
+                          <Chip key={b.batch} label={`${b.batch}${b.expiry ? ` · exp ${b.expiry}` : ''}`} selected={(batchFor[p] ?? usableBatches(p)[0]?.batch) === b.batch} onPress={() => setBatchFor({ ...batchFor, [p]: b.batch! })} />
+                        ))}
+                      </View>
+                    )}
+                    {usableBatches(p).length === 1 && <Text style={text.small}>Batch {usableBatches(p)[0].batch}{usableBatches(p)[0].expiry ? ` · expires ${usableBatches(p)[0].expiry}` : ''}</Text>}
+                    {expiredBatches(p).length > 0 && <Text style={[text.small, { color: colors.danger }]}>Expired: {expiredBatches(p).map((b) => b.batch).join(', ')}. Do not hand these out; tell your manager.</Text>}
                   </View>
                   <TextInput
                     value={samples[p] ?? ''}
@@ -290,6 +380,41 @@ export default function EditCallScreen() {
               );
             })}
           </Card>
+          {signRule !== 'off' && Object.values(samples).some((q) => +q > 0) && (
+            <Card style={!!errors.signature && !signature ? { borderColor: colors.danger } : undefined}>
+              <Row>
+                <Ionicons name="create-outline" size={22} color={signature ? colors.success : colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={text.title}>Doctor’s signature{signRule === 'required' ? ' *' : ''}</Text>
+                  {!signature && <Text style={text.muted}>Ask the doctor to sign for the samples on your screen.</Text>}
+                </View>
+                <Button small title={signature ? 'Sign again' : 'Ask to sign'} variant={signature ? 'ghost' : 'primary'} onPress={() => setSigning(true)} />
+              </Row>
+              {signature && (
+                <View style={{ marginTop: space.sm }}>
+                  <SignatureView signature={signature} />
+                </View>
+              )}
+              {!!errors.signature && !signature && <Text style={styles.error}>{errors.signature}</Text>}
+            </Card>
+          )}
+          <Modal visible={signing} animationType="slide" onRequestClose={() => setSigning(false)} supportedOrientations={['portrait', 'landscape']}>
+            <ScrollView contentContainerStyle={styles.signSheet} scrollEnabled={false} keyboardShouldPersistTaps="handled">
+              <Text style={[text.h2, { marginBottom: space.sm }]}>Signature for samples</Text>
+              <Text style={[text.muted, { marginBottom: space.md }]}>
+                {Object.entries(samples).filter(([, q]) => +q > 0).map(([p, q]) => `${q} × ${p}`).join(', ')}
+                {account ? ` for ${account.name}` : ''}
+              </Text>
+              <SignaturePad
+                initialName={signature?.name ?? (account?.type === 'HCP' ? account.name : '')}
+                onCancel={() => setSigning(false)}
+                onDone={(sig) => {
+                  setSignature(sig);
+                  setSigning(false);
+                }}
+              />
+            </ScrollView>
+          </Modal>
         </>
       )}
 
@@ -310,10 +435,12 @@ export default function EditCallScreen() {
       <CallNoteAssist
         accountName={account?.name}
         tidy={!isFuture}
+        tidyLater={tidyLater}
+        onTidyLater={setTidyLater}
         fields={{ notes, chosen, messages, nextStep, followUp, attendees }}
         onChange={(f) => { setNotes(f.notes); setChosen(f.chosen); setMessages(f.messages); setNextStep(f.nextStep); setFollowUp(f.followUp); setAttendees(f.attendees); }}
       />
-      <Field label={isFuture ? 'Objective' : 'Call notes'} value={notes} onChangeText={setNotes} multiline placeholder={isFuture ? 'What you want to achieve in this visit' : 'What was discussed, objections, requests'} />
+      <Field label={isFuture ? 'Notes for the visit' : 'Call notes'} value={notes} onChangeText={setNotes} multiline placeholder={isFuture ? 'Anything to remember or prepare' : 'What was discussed, objections, requests'} />
       {!isFuture && (
         <>
           <Field label="Next step" value={nextStep} onChangeText={setNextStep} placeholder="e.g. Bring study reprint" />
@@ -350,4 +477,5 @@ const styles = StyleSheet.create({
   error: { color: colors.danger, fontSize: 12, marginBottom: space.sm },
   qty: { width: 64, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 6, paddingHorizontal: space.sm, textAlign: 'center', color: colors.text, backgroundColor: colors.card, fontVariant: ['tabular-nums'] },
   change: { color: colors.primary, marginTop: space.sm, fontWeight: '600' },
+  signSheet: { padding: space.lg, paddingTop: space.xxl, maxWidth: 640, width: '100%', alignSelf: 'center', flexGrow: 1, backgroundColor: colors.bg },
 });

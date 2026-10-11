@@ -12,7 +12,7 @@ export function BrandTitle({ size = 26, light = false }: { size?: number; light?
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: size * 0.25 }}>
       <Image source={mark} style={{ width: size * 0.5, height: size * 1.05 }} contentFit="contain" />
-      <Text style={{ fontSize: size * 0.82, fontWeight: '800', letterSpacing: -0.5, color: light ? '#fff' : colors.primaryDark }}>
+      <Text style={{ fontSize: size * 0.82, fontWeight: '800', letterSpacing: -0.5, color: light ? '#fff' : colors.primaryInk }}>
         Ava <Text style={{ fontWeight: '600', color: light ? 'rgba(255,255,255,0.85)' : colors.primary }}>CRM</Text>
       </Text>
     </View>

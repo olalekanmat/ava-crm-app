@@ -14,6 +14,8 @@ export const colors = {
   /** Deepest brand navy, for premium headers. */
   ink: '#081A44',
   primarySoft: '#EAF0FD',
+  /** Brand blue for text and badges on soft fills (lighter in dark mode, unlike primaryDark). */
+  primaryInk: '#0F2E8A',
   sky: '#12A5EC',
   orange: '#F26B1D',
   crimson: '#C8114B',
@@ -68,3 +70,26 @@ export const calendarColors = {
   planned: '#1846C8',
   overdue: '#D92D20',
 } as const;
+
+/** Dark mode palette: replaces `colors` at start-up (see appearance.ts), before any style is made. */
+export const darkColors: Partial<typeof colors> = {
+  bg: '#0B1120',
+  card: '#151D2E',
+  sunken: '#1C2639',
+  text: '#E7ECF5',
+  muted: '#A1ACBF',
+  faint: '#737E93',
+  border: '#2A3550',
+  hairline: '#1F2940',
+  primary: '#4F7DF5',
+  primarySoft: '#1B2A4D',
+  primaryInk: '#A9BFFF',
+  orange: '#FF8A4C',
+  crimson: '#F0517D',
+  danger: '#FF6B7F',
+  dangerSoft: '#3A1820',
+  success: '#3CCB7F',
+  successSoft: '#13301F',
+  warn: '#F5B451',
+  warnSoft: '#3A2A10',
+};

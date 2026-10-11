@@ -9,9 +9,10 @@ import { api, DEFAULT_PASSWORD, saveToken, type LoginResult } from '@/cloud/rela
 import { normalizeProvider, providerLabel } from '@/cloud/drive';
 import { openCompany } from '@/cloud/setup';
 import { loadJson, saveJson } from '@/data/storage';
+import { DEMO_ROLES } from '@/data/demo';
 import { useStore } from '@/data/store';
 import { mark } from '@/ui/Brand';
-import { Banner, Button, Field, text } from '@/ui/components';
+import { Banner, Button, Field, ListRow, text } from '@/ui/components';
 import { colors, radius, shadow, space } from '@/ui/theme';
 
 const REMEMBER = 'ava.signin';
@@ -19,7 +20,8 @@ const SETUP_URL = 'https://avahealthcareltd.com/AvaCRM/app/setup';
 
 /** Sign in with the company code, work email and password. First sign-in asks for a new password. */
 export default function SignInScreen() {
-  const { enterCloud } = useStore();
+  const { enterCloud, enterDemo } = useStore();
+  const [demo, setDemo] = useState(false);
   const params = useLocalSearchParams<{ company?: string; email?: string; setup?: string; provider?: string }>();
   const [code, setCode] = useState(params.company ?? '');
   const [email, setEmail] = useState(params.email ?? '');
@@ -98,7 +100,7 @@ export default function SignInScreen() {
               <Image source={mark} style={{ width: 38, height: 76 }} contentFit="contain" />
             </View>
             <Text style={styles.name}>Ava CRM</Text>
-            <Text style={styles.tagline}>Field CRM for pharma sales teams</Text>
+            <Text style={styles.tagline}>by Ava Healthcare Limited</Text>
           </View>
 
           <View style={styles.card}>
@@ -110,7 +112,7 @@ export default function SignInScreen() {
                 <Text style={[text.h2, { marginBottom: space.md }]}>Sign in</Text>
                 <Field label="Company code" value={code} onChangeText={(v) => setCode(v.toUpperCase())} autoCapitalize="characters" autoCorrect={false} placeholder="e.g. 7KQ2MD" maxLength={6} hint="The 6-character code from your administrator." />
                 <Field label="Work email" value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" placeholder="name@company.com" />
-                <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoComplete="password" onSubmitEditing={signIn} returnKeyType="go" hint="First time? Use 12345678, then choose your own password." />
+                <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoComplete="password" onSubmitEditing={signIn} returnKeyType="go" />
                 <Button title="Sign in" icon="log-in-outline" onPress={signIn} disabled={!!busy} />
               </>
             ) : (
@@ -141,8 +143,25 @@ export default function SignInScreen() {
             <Text style={text.title}>New to Ava CRM?</Text>
             <Text style={[text.muted, { marginBottom: space.sm }]}>Company administrators set up the company once and link the company’s OneDrive or Google Drive, where all of its data is kept. Everyone else just signs in.</Text>
             <Button title="Set up a new company" variant="secondary" icon="business-outline" onPress={setUp} disabled={!!busy} />
+            <Button title="Explore a demo company" variant="ghost" icon="sparkles-outline" onPress={() => setDemo((x) => !x)} disabled={!!busy} />
+            {demo && (
+              <View style={{ marginTop: space.sm }}>
+                <Text style={[text.muted, { marginBottom: space.xs }]}>Look around with made-up data. Nothing is saved. Choose whose view to see:</Text>
+                {DEMO_ROLES.map((r) => (
+                  <ListRow
+                    key={r.key}
+                    icon={r.key === 'rep' ? 'walk-outline' : r.key === 'admin' ? 'settings-outline' : 'people-outline'}
+                    title={r.label}
+                    subtitle={r.hint}
+                    onPress={() => {
+                      enterDemo(r.userId);
+                      setTimeout(() => router.push('/tour'), 400);
+                    }}
+                  />
+                ))}
+              </View>
+            )}
           </View>
-          <Text style={styles.footer}>Ava CRM by Ava Healthcare Limited · avahealthcareltd.com</Text>
         </ScrollView>
       </LinearGradient>
     </KeyboardAvoidingView>
@@ -158,5 +177,4 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: radius.lg + 4, padding: space.lg, marginBottom: space.md, ...shadow },
   pwHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: 4 },
   busy: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.md },
-  footer: { color: 'rgba(255,255,255,0.75)', fontSize: 12, textAlign: 'center', marginTop: space.sm },
 });

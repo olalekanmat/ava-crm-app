@@ -10,6 +10,8 @@ import { Badge, Button, Card, Empty, Field, ListRow, Row, SectionTitle, ToggleRo
 import { confirm, notify } from '@/ui/confirm';
 import { CycleLengthSettings } from '@/ui/CycleLengthSettings';
 import { Grid } from '@/ui/layout';
+import { DeckEditor } from '@/ui/DeckEditor';
+import { FieldRulesCard } from '@/ui/FieldRulesCard';
 import { Screen } from '@/ui/Screen';
 import { colors, space } from '@/ui/theme';
 
@@ -53,6 +55,8 @@ export default function SettingsScreen() {
         />
       </Card>
 
+      <FieldRulesCard attempt={(m) => attempt(m)} />
+
       <AiSettingsCard />
 
       <SectionTitle>Tiers</SectionTitle>
@@ -76,6 +80,7 @@ export default function SettingsScreen() {
               </Row>
               <Text style={text.muted}>{p.keyMessages.join(' · ') || 'No key messages'}</Text>
               <BrochureLink url={p.brochureUrl} onSave={(brochureUrl) => attempt({ type: 'product.upsert', product: { ...p, brochureUrl: brochureUrl || undefined } })} />
+              <DeckEditor product={p} onSave={(deck) => attempt({ type: 'product.upsert', product: { ...p, deck } })} />
               <Row style={{ marginTop: space.sm, justifyContent: 'flex-end' }}>
                 <Button small variant="ghost" title={p.active ? 'Deactivate' : 'Activate'} onPress={() => attempt({ type: 'product.upsert', product: { ...p, active: !p.active } })} />
                 <Button

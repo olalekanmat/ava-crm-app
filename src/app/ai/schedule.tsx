@@ -71,7 +71,7 @@ export default function ScheduleByVoiceScreen() {
     return (
       <Screen>
         <Stack.Screen options={{ title: 'Plan visits' }} />
-        <Empty icon="sparkles-outline">AI features are turned off for your company.</Empty>
+        <Empty icon="sparkles-outline">Ava AI features are turned off for your company.</Empty>
         <Button title="Plan a visit" icon="calendar-outline" onPress={() => router.replace({ pathname: '/call/edit', params: { plan: '1' } })} />
       </Screen>
     );
@@ -87,7 +87,7 @@ export default function ScheduleByVoiceScreen() {
         <Field label="Your visits" value={transcript} onChangeText={setTranscript} multiline placeholder="Say or type the visits" />
         <Row style={{ flexWrap: 'wrap' }}>
           <MicButton label="Speak" size={34} onText={(t) => setTranscript((x) => appendText(x, t))} />
-          {busy ? <ActivityIndicator color={colors.primary} /> : <Button small title="Plan with AI" icon="sparkles-outline" onPress={plan} disabled={!transcript.trim() || !mine.length} />}
+          {busy ? <ActivityIndicator color={colors.primary} /> : <Button small title="Plan with Ava AI" icon="sparkles-outline" onPress={plan} disabled={!transcript.trim() || !mine.length} />}
         </Row>
         {!mine.length && <Text style={[text.small, { marginTop: space.sm }]}>You have no accounts to plan visits to yet.</Text>}
       </Card>

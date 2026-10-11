@@ -118,8 +118,8 @@ test('doctor profile: kept when a change leaves it out, cleared when empty, more
   s = run(s, { type: 'account.upsert', account: { ...acc, kol: true, potential: 'High', segment: ' Early adopter ' } }, 'usr_rep1');
   let a = s.accounts.find((x) => x.id === acc.id)!;
   assert.deepEqual([a.kol, a.potential, a.segment], [true, 'High', 'Early adopter']);
-  // An older app sends the account without the profile fields: they stay.
-  s = run(s, { type: 'account.upsert', account: { ...acc, name: 'Renamed' } }, 'usr_rep1');
+  // An older app (here a manager's) sends the account without the profile fields: they stay.
+  s = run(s, { type: 'account.upsert', account: { ...acc, name: 'Renamed' } }, 'usr_flm1');
   a = s.accounts.find((x) => x.id === acc.id)!;
   assert.deepEqual([a.name, a.kol, a.potential], ['Renamed', true, 'High']);
   s = run(s, { type: 'account.upsert', account: { ...a, kol: false, potential: '' as never, segment: '' } }, 'usr_rep1');

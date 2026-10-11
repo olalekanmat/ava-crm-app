@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 import { StoreProvider, useStore } from '@/data/store';
 import '@/cloud/background';
+import { active } from '@/ui/appearance';
 import { HeaderTitle } from '@/ui/Brand';
 import { colors } from '@/ui/theme';
 
@@ -79,6 +80,15 @@ function RootNav() {
         <Stack.Screen name="samples" options={{ title: 'Samples' }} />
         <Stack.Screen name="route" options={{ title: "Today's route" }} />
         <Stack.Screen name="coaching" options={{ title: 'Coaching' }} />
+        <Stack.Screen name="events/index" options={{ title: 'Events' }} />
+        <Stack.Screen name="events/[id]" options={{ title: 'Event' }} />
+        <Stack.Screen name="events/edit" options={{ title: 'Event', presentation: 'modal' }} />
+        <Stack.Screen name="weekly" options={{ title: 'Weekly summary' }} />
+        <Stack.Screen name="approvals" options={{ title: 'Approvals' }} />
+        <Stack.Screen name="admin/duplicates" options={{ title: 'Duplicates' }} />
+        <Stack.Screen name="admin/live-data" options={{ title: 'Live data for Excel & Power BI' }} />
+        <Stack.Screen name="appearance" options={{ title: 'Display & calendar' }} />
+        <Stack.Screen name="tour" options={{ headerShown: false, title: 'Tour', presentation: 'modal' }} />
       </Stack.Protected>
     </Stack>
   );
@@ -87,7 +97,7 @@ function RootNav() {
 export default function RootLayout() {
   return (
     <StoreProvider>
-      <StatusBar style="dark" />
+      <StatusBar style={active.scheme === 'dark' ? 'light' : 'dark'} />
       <RootNav />
     </StoreProvider>
   );

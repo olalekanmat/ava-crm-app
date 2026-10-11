@@ -4,6 +4,8 @@ import { AccountBrief } from '@/ai/AccountBrief';
 import { useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
 import { manages } from '@/data/access';
+import { openObjectives } from '@/data/objectives';
+import { AccountEvents } from '@/ui/AccountEvents';
 import { hasLocation, mapsUrl } from '@/data/geo';
 import { approvedLeave, callsByAccount, cycleCalls, cycleElapsed } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
@@ -38,7 +40,13 @@ export default function AccountScreen() {
   }
 
   const calls = callsForAccount(account.id);
-  const people = account.type === 'HCO' ? accounts.filter((a) => a.affiliation === account.name) : [];
+  const people = account.type === 'HCO' ? accounts.filter((a) => !a.deletedAt && (a.affiliation === account.name || a.workplaces?.includes(account.id))) : [];
+  const workplaces = (account.workplaces ?? []).map((w) => getAccount(w)).filter((w) => !!w && !w.deletedAt);
+  const mergedInto = account.mergedInto ? getAccount(account.mergedInto) : undefined;
+  const toPickUp = openObjectives(calls);
+  const canEditDirect = admin || (me.role !== 'Rep' && manages(data.users, me, account.ownerId));
+  const myPending = (data.accountChanges ?? []).filter((c) => c.accountId === account.id && c.status === 'Pending');
+  const canReview = admin || manages(data.users, me, account.ownerId);
   const plan = cycle && data.plans.find((p) => p.cycleId === cycle.id && p.ownerId === account.ownerId);
   const target = plan?.targets.find((t) => t.accountId === account.id);
   const doneInCycle = cycle ? callsByAccount(cycleCalls(calls.filter((c) => c.ownerId === account.ownerId), cycle)).get(account.id)?.length ?? 0 : 0;
@@ -90,7 +98,30 @@ export default function AccountScreen() {
   return (
     <Screen>
       <Stack.Screen options={{ title: account.type === 'HCP' ? 'Healthcare professional' : 'Organization' }} />
-      {deleted && <Banner tone="warn" icon="trash-outline">This account was deleted by an administrator. Its submitted calls are kept below.</Banner>}
+      {deleted && !mergedInto && <Banner tone="warn" icon="trash-outline">This account was deleted by an administrator. Its submitted calls are kept below.</Banner>}
+      {deleted && mergedInto && (
+        <Card onPress={() => router.replace({ pathname: '/account/[id]', params: { id: mergedInto.id } })}>
+          <Text style={text.body}>
+            This was a duplicate and was merged into <Text style={text.link}>{mergedInto.name}</Text>. Its history is there now.
+          </Text>
+        </Card>
+      )}
+      {account.pendingReview && !deleted && (
+        <Banner tone="warn" icon="hourglass-outline">
+          {canReview ? 'New account waiting for your check. Confirm it under Approvals.' : 'New account: your manager will confirm it.'}
+        </Banner>
+      )}
+      {myPending.length > 0 && !deleted && (
+        <Card onPress={() => router.push('/approvals')}>
+          <Row>
+            <Ionicons name="time-outline" size={18} color={colors.warn} />
+            <Text style={[text.body, { flex: 1 }]}>
+              {myPending.length === 1 ? 'A correction to these details is' : `${myPending.length} corrections are`} waiting for approval.
+            </Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.faint} />
+          </Row>
+        </Card>
+      )}
       <Card>
         <Row gap={space.md}>
           {account.type === 'HCP' ? (
@@ -118,6 +149,19 @@ export default function AccountScreen() {
             Works at <Text style={text.link}>{account.affiliation}</Text>
           </Text>
         )}
+        {workplaces.length > 0 && (
+          <Text style={[text.body, { marginTop: account.affiliation ? 4 : space.md }]}>
+            {account.affiliation ? 'Also at ' : 'Works at '}
+            {workplaces.map((w, i) => (
+              <Text key={w!.id}>
+                {i > 0 ? ', ' : ''}
+                <Text style={text.link} onPress={() => router.push({ pathname: '/account/[id]', params: { id: w!.id } })}>
+                  {w!.name}
+                </Text>
+              </Text>
+            ))}
+          </Text>
+        )}
         <Text style={[text.body, { marginTop: space.sm }]}>
           {[account.address, account.city].filter(Boolean).join(', ')}
         </Text>
@@ -133,6 +177,11 @@ export default function AccountScreen() {
         )}
         {me.role !== 'Rep' && <Text style={[text.small, { marginTop: space.sm }]}>Territory of {owner?.name}</Text>}
         {!!account.notes && <Text style={[text.muted, { marginTop: space.sm }]}>{account.notes}</Text>}
+        {!deleted && (
+          <Text style={[text.link, { marginTop: space.md, fontSize: 13 }]} onPress={() => router.push({ pathname: '/account/new', params: { id: account.id } })}>
+            {canEditDirect ? 'Edit details' : 'Suggest a correction'}
+          </Text>
+        )}
       </Card>
 
       {!deleted && (
@@ -207,7 +256,23 @@ export default function AccountScreen() {
         </Empty>
       )}
 
+      {tab === 'Detail' && toPickUp.length > 0 && (
+        <Card>
+          <Row>
+            <Ionicons name="flag-outline" size={18} color={colors.orange} />
+            <Text style={[text.title, { flex: 1 }]}>Pick up next time</Text>
+          </Row>
+          {toPickUp.map((o) => (
+            <Text key={o.text} style={[text.body, { marginTop: space.xs }]}>
+              • {o.text} <Text style={text.small}>(not achieved {formatDate(o.from.datetime)})</Text>
+            </Text>
+          ))}
+        </Card>
+      )}
+
       {tab === 'Detail' && <AccountBrief accountId={account.id} />}
+
+      {tab === 'Detail' && <AccountEvents accountId={account.id} />}
 
       {tab === 'Detail' && people.length > 0 && (
         <>

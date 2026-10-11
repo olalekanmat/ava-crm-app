@@ -396,14 +396,16 @@ test('CSV: blank id makes a new account; deletes are checked after adds; limits 
   assert.match(importUsers('action,email\ndelete,admin@ava.demo\n', s, admin.id).rows[0].errors.join(), /yourself/);
 });
 
-test('user.leave: a person deletes their own account; work stays, reactivation clears the mark', () => {
+test('user.leave: an administrator deletes their own account; work stays, reactivation clears the mark', () => {
   const s = seed();
   const rep = user(s, 'usr_rep1');
   const owned = s.accounts.filter((a) => a.ownerId === rep.id).length;
   const m = sanitizeMutation(JSON.parse(JSON.stringify({ type: 'user.leave', extra: 'ignored' })), now);
   assert.deepEqual(m, { type: 'user.leave' });
-  const withPhoto = { ...s, users: s.users.map((u) => (u.id === rep.id ? { ...u, photo: 'data:image/jpeg;base64,AAAA' } : u)) };
-  const next = applyMutation(withPhoto, m, rep, now);
+  assert.throws(() => applyMutation(s, m, rep, now), /administrator/, 'other people ask an administrator');
+  // A rep who is also an administrator can.
+  const withPhoto = { ...s, users: s.users.map((u) => (u.id === rep.id ? { ...u, admin: true, photo: 'data:image/jpeg;base64,AAAA' } : u)) };
+  const next = applyMutation(withPhoto, m, user(withPhoto, rep.id), now);
   const left = user(next, rep.id);
   assert.equal(left.active, false);
   assert.equal(left.photo, undefined);

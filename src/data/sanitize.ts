@@ -1,6 +1,6 @@
-import { RuleError, type Mutation } from './mutations';
+import { RuleError, type Mutation, type SettingsKey } from './mutations';
 import { REPORT_COLUMNS } from './reports';
-import { CHANNELS, COACHING_SKILLS, LEAVE_KINDS, POTENTIALS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, type Account, type ReportDef, type ReportFilters, type Call, type Company, type Cycle, type CyclePlan, type GeoTag, type Product, type Settings, type TierDef, type User, type Coaching, type Leave, type SampleIssue, type Task } from './types';
+import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, CHANNELS, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, type Account, type AccountChange, type AccountChanges, type Call, type CallObjective, type Coaching, type Company, type Cycle, type CyclePlan, type DeckRef, type GeoTag, type Leave, type MeetingEvent, type Product, type ReportDef, type ReportFilters, type SampleCount, type SampleIssue, type Settings, type Signature, type SlideView, type Task, type TierDef, type User } from './types';
 
 /**
  * Rebuilds a mutation from untrusted JSON (a journal file in the company drive), keeping only
@@ -37,6 +37,86 @@ function account(v: unknown, now: string): Account {
     kol: a.kol === undefined ? undefined : a.kol === null ? false : bool(a.kol, 'KOL flag'),
     potential: a.potential === undefined ? undefined : a.potential === null || a.potential === '' ? ('' as never) : oneOf(a.potential, POTENTIALS, 'potential'),
     segment: a.segment === undefined ? undefined : a.segment === null ? '' : str(a.segment, 'segment', 40),
+    // 2.7: absent keeps the current workplaces; an empty list clears them. Review and merge marks are set by the rules only.
+    workplaces: a.workplaces === undefined ? undefined : a.workplaces === null ? [] : ids(a.workplaces, 'workplaces', 10),
+  };
+}
+
+const ids = (v: unknown, what: string, max: number): string[] => arr(v, what, max).map((x) => str(x, what, 80));
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+const month = (v: unknown, what: string): string | undefined => {
+  const m = optStr(v, what, 7);
+  return m === undefined ? undefined : MONTH.test(m) ? m : bad(what);
+};
+
+function objectives(v: unknown): CallObjective[] | undefined {
+  if (v === undefined || v === null) return undefined;
+  return arr(v, 'objectives', 10).map((x) => {
+    const o = obj(x, 'objective');
+    const text = str(o.text, 'objective', 200);
+    return o.achieved === undefined || o.achieved === null ? { text } : { text, achieved: bool(o.achieved, 'objective result') };
+  });
+}
+
+function detailing(v: unknown): SlideView[] | undefined {
+  if (v === undefined || v === null) return undefined;
+  return arr(v, 'slides shown', 600).map((x) => {
+    const o = obj(x, 'slide');
+    return { product: str(o.product, 'product', 120), slide: numb(o.slide, 'slide'), seconds: numb(o.seconds, 'slide time') };
+  });
+}
+
+function signature(v: unknown, now: string): Signature | undefined {
+  if (v === undefined || v === null) return undefined;
+  const o = obj(v, 'signature');
+  return { name: str(o.name, 'signer name', 120), strokes: arr(o.strokes, 'signature', 60).map((st) => arr(st, 'signature', 8000).map((n) => numb(n, 'signature'))), at: o.at ? iso(o.at, 'signature time') : now };
+}
+
+function deck(v: unknown): DeckRef | undefined {
+  if (v === undefined || v === null) return undefined;
+  const d = obj(v, 'presentation');
+  return { file: str(d.file, 'presentation file', 120), hash: str(d.hash, 'presentation hash', 64), slides: numb(d.slides, 'slide count'), updatedAt: d.updatedAt ? iso(d.updatedAt, 'date') : new Date(0).toISOString() };
+}
+
+function accountChange(v: unknown, now: string): AccountChange {
+  const x = obj(v, 'account change');
+  const c = obj(x.changes, 'changes');
+  const changes: AccountChanges = {};
+  for (const k of ACCOUNT_CHANGE_FIELDS) {
+    if (!(k in c) || c[k] === undefined) continue;
+    if (k === 'workplaces') changes.workplaces = c[k] === null ? [] : ids(c[k], 'workplaces', 10);
+    else if (k === 'type') changes.type = oneOf(c[k], ['HCP', 'HCO'] as const, 'account type');
+    else changes[k] = c[k] === null ? '' : str(c[k], k, k === 'address' ? 300 : 200);
+  }
+  return { id: str(x.id, 'id', 80), accountId: str(x.accountId, 'account', 80), byId: '', at: now, changes, note: optStr(x.note, 'note', 500), status: 'Pending' };
+}
+
+function meetingEvent(v: unknown, now: string): MeetingEvent {
+  const e = obj(v, 'event');
+  const time = optStr(e.time, 'time', 5);
+  if (time && !TIME.test(time)) bad('time');
+  return {
+    id: str(e.id, 'event id', 80), title: str(e.title, 'title', 120), kind: oneOf(e.kind, EVENT_KINDS, 'event kind'), date: day(e.date, 'date'), time,
+    venue: optStr(e.venue, 'venue', 200), city: optStr(e.city, 'city', 120), ownerId: str(e.ownerId, 'organiser', 80),
+    products: arr(e.products ?? [], 'products', 10).map((p) => str(p, 'product', 120)), budget: optNum(e.budget, 'budget'), spent: optNum(e.spent, 'spend'),
+    status: oneOf(e.status, EVENT_STATUSES, 'event status'),
+    attendees: arr(e.attendees ?? [], 'invited people', 500).map((x) => {
+      const o = obj(x, 'invitation');
+      return { accountId: str(o.accountId, 'account', 80), status: oneOf(o.status, ATTENDEE_STATUSES, 'attendance') };
+    }),
+    notes: optStr(e.notes, 'notes', 2000), createdAt: now, updatedAt: now,
+  };
+}
+
+function sampleCount(v: unknown, now: string): SampleCount {
+  const x = obj(v, 'sample count');
+  return {
+    id: str(x.id, 'id', 80), repId: str(x.repId, 'person', 80), month: month(x.month, 'month') ?? bad('month'),
+    counts: arr(x.counts, 'counts', 200).map((c) => {
+      const o = obj(c, 'count');
+      return { product: str(o.product, 'product', 120), counted: numb(o.counted, 'count') };
+    }),
+    note: optStr(x.note, 'note', 500), at: now,
   };
 }
 
@@ -60,9 +140,12 @@ function call(v: unknown, now: string): Call {
     followUpDate: c.followUpDate ? day(c.followUpDate, 'follow-up date') : undefined, checkIn: geo(c.checkIn),
     samples: c.samples === undefined || c.samples === null ? undefined : arr(c.samples, 'samples', 20).map((x) => {
       const o = obj(x, 'sample');
-      return { product: str(o.product, 'product', 120), qty: numb(o.qty, 'sample quantity'), batch: optStr(o.batch, 'batch', 60) };
+      return { product: str(o.product, 'product', 120), qty: numb(o.qty, 'sample quantity'), batch: optStr(o.batch, 'batch', 60), expiry: month(o.expiry, 'expiry month') };
     }),
     coachId: optStr(c.coachId, 'coach', 80),
+    // 2.7
+    objectives: objectives(c.objectives), detailing: detailing(c.detailing),
+    reaction: c.reaction === undefined || c.reaction === null ? undefined : oneOf(c.reaction, REACTIONS, 'reaction'), signature: signature(c.signature, now),
     createdAt: c.createdAt ? iso(c.createdAt, 'date') : now, updatedAt: now,
     // applyMutation stamps the submit time from the journal entry.
     submittedAt: undefined,
@@ -99,7 +182,7 @@ function product(v: unknown): Product {
   const p = obj(v, 'product');
   return {
     id: str(p.id, 'product id', 80), name: str(p.name, 'product name', 120), keyMessages: arr(p.keyMessages, 'key messages', 50).map((k) => str(k, 'key message', 300)), active: bool(p.active, 'active flag'),
-    brochureUrl: optStr(p.brochureUrl, 'brochure link', 1000),
+    brochureUrl: optStr(p.brochureUrl, 'brochure link', 1000), deck: deck(p.deck),
   };
 }
 
@@ -108,14 +191,18 @@ function cycle(v: unknown): Cycle {
   return { id: str(c.id, 'cycle id', 80), name: str(c.name, 'cycle name', 120), start: day(c.start, 'start date'), end: day(c.end, 'end date') };
 }
 
-function settings(v: unknown): Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled' | 'cycleLength'>> {
+function settings(v: unknown): Partial<Pick<Settings, SettingsKey>> {
   const s = obj(v, 'settings');
-  const out: Partial<Pick<Settings, 'geofenceM' | 'requireCheckIn' | 'aiEnabled' | 'cycleLength'>> = {};
+  const out: Partial<Pick<Settings, SettingsKey>> = {};
   if ('geofenceM' in s) out.geofenceM = numb(s.geofenceM, 'geofence');
   if ('requireCheckIn' in s) out.requireCheckIn = bool(s.requireCheckIn, 'check-in setting');
-  if ('aiEnabled' in s && s.aiEnabled !== undefined) out.aiEnabled = bool(s.aiEnabled, 'AI setting');
+  if ('aiEnabled' in s && s.aiEnabled !== undefined) out.aiEnabled = bool(s.aiEnabled, 'Ava AI setting');
   // 2.3: cycle length. Older versions drop this field and keep planning by quarter.
   if ('cycleLength' in s) out.cycleLength = oneOf(s.cycleLength, ['quarter', 'month'] as const, 'cycle length');
+  // 2.7
+  if ('objectives' in s && s.objectives !== undefined) out.objectives = arr(s.objectives, 'objectives', 20).map((o) => str(o, 'objective', 200));
+  if ('reviewNewAccounts' in s && s.reviewNewAccounts !== undefined) out.reviewNewAccounts = bool(s.reviewNewAccounts, 'review setting');
+  if ('sampleSignature' in s && s.sampleSignature !== undefined) out.sampleSignature = oneOf(s.sampleSignature, ['optional', 'required', 'off'] as const, 'signature setting');
   return out;
 }
 
@@ -211,7 +298,7 @@ function task(v: unknown, now: string): Task {
 
 function sampleIssue(v: unknown, now: string): SampleIssue {
   const x = obj(v, 'samples');
-  return { id: str(x.id, 'id', 80), repId: str(x.repId, 'person', 80), product: str(x.product, 'product', 120), qty: numb(x.qty, 'quantity'), batch: optStr(x.batch, 'batch', 60), note: optStr(x.note, 'note', 300), byId: '', at: now };
+  return { id: str(x.id, 'id', 80), repId: str(x.repId, 'person', 80), product: str(x.product, 'product', 120), qty: numb(x.qty, 'quantity'), batch: optStr(x.batch, 'batch', 60), expiry: month(x.expiry, 'expiry month'), note: optStr(x.note, 'note', 300), byId: '', at: now };
 }
 
 function coaching(v: unknown, now: string): Coaching {
@@ -294,6 +381,21 @@ export function sanitizeMutation(raw: unknown, at: Date): Mutation {
       return { type: m.type, issue: sampleIssue(m.issue, now) };
     case 'call.coach':
       return { type: m.type, id: str(m.id, 'id', 80), coaching: coaching(m.coaching, now) };
+    // ----- 2.7 -----
+    case 'account.change':
+      return { type: m.type, change: accountChange(m.change, now) };
+    case 'account.review':
+      return { type: m.type, id: str(m.id, 'id', 80), approve: bool(m.approve, 'decision'), note: optStr(m.note, 'note', 1000) };
+    case 'account.verify':
+      return { type: m.type, ids: ids(m.ids, 'ids', 5000), approve: bool(m.approve, 'decision'), note: optStr(m.note, 'note', 1000) };
+    case 'account.merge':
+      return { type: m.type, keepId: str(m.keepId, 'account', 80), ids: ids(m.ids, 'ids', 50) };
+    case 'event.save':
+      return { type: m.type, event: meetingEvent(m.event, now) };
+    case 'event.delete':
+      return { type: m.type, id: str(m.id, 'id', 80) };
+    case 'sample.count':
+      return { type: m.type, count: sampleCount(m.count, now) };
     default:
       return bad('change type');
   }

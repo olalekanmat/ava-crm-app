@@ -62,7 +62,7 @@ export function AskAvaBar() {
 
 const styles = StyleSheet.create({
   wrap: {},
-  bar: { flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: '#fff', borderRadius: radius.pill, paddingLeft: space.lg, paddingRight: 6, paddingVertical: 6, minHeight: 50 },
+  bar: { flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: colors.card, borderRadius: radius.pill, paddingLeft: space.lg, paddingRight: 6, paddingVertical: 6, minHeight: 50 },
   input: { flex: 1, fontSize: 16, color: colors.text, paddingVertical: 8, minWidth: 0, outlineStyle: 'none' } as never,
   send: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   ideas: { gap: space.sm, paddingTop: space.sm },

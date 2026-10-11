@@ -1,8 +1,9 @@
 import { lengthOfCycle, scaleFrequency } from './cycles';
 import { toDateKey } from './dates';
 import { approvedLeave, callsByAccount, cycleCalls, cycleElapsed, spanDays } from './metrics';
+import { openObjectives } from './objectives';
 import { profileBoost } from './profile';
-import { tierFrequency, tiersFor } from './tiers';
+import { tierFrequency, tierRank, tiersFor } from './tiers';
 import type { Account, Cycle, Snapshot } from './types';
 
 export interface NextVisit {
@@ -18,6 +19,10 @@ export interface NextVisit {
  * planned account is behind the plan's pace, how long since the last visit against the tier's
  * frequency, follow-ups and tasks that are due, and key opinion leaders or high potential. Accounts
  * already booked in the next week are left out.
+ *
+ * 2.7 adds: objectives the last visit did not achieve, event invitations to confirm and follow-ups
+ * after an event, doctors who work where a visit is already booked (one trip, two calls), product
+ * presentations a key doctor has not seen yet this cycle, and a poor reaction last time.
  */
 export function nextVisits(s: Snapshot, repId: string, cycle: Cycle | undefined, now = new Date(), limit = 5): NextVisit[] {
   const today = toDateKey(now);
@@ -35,6 +40,22 @@ export function nextVisits(s: Snapshot, repId: string, cycle: Cycle | undefined,
   const due = new Map<string, string>();
   for (const c of own) if (c.status === 'Submitted' && c.followUpDate && c.followUpDate <= weekAhead && (last.get(c.accountId) ?? '') <= c.datetime) due.set(c.accountId, c.followUpDate);
   for (const t of s.tasks ?? []) if (t.ownerId === repId && !t.doneAt && t.accountId && t.due <= weekAhead) due.set(t.accountId, (due.get(t.accountId) ?? t.due) < t.due ? due.get(t.accountId)! : t.due);
+
+  // Organizations with a visit booked in the next week, and when (for "works at" suggestions).
+  const bookedAt = new Map<string, string>();
+  for (const c of own) {
+    if (c.status !== 'Planned') continue;
+    const d = toDateKey(new Date(c.datetime));
+    if (d < today || d > weekAhead) continue;
+    const acc = s.accounts.find((x) => x.id === c.accountId);
+    for (const org of acc?.type === 'HCO' ? [acc.id] : acc?.workplaces ?? []) if (!bookedAt.has(org) || bookedAt.get(org)! > d) bookedAt.set(org, d);
+  }
+  const fortnight = toDateKey(new Date(now.getTime() + 14 * 864e5));
+  const fortnightAgo = toDateKey(new Date(now.getTime() - 14 * 864e5));
+  const decks = s.products.filter((p) => p.active && p.deck).map((p) => p.name);
+  const shown = new Set<string>();
+  if (cycle) for (const c of cycleCalls(own, cycle)) for (const v of c.detailing ?? []) shown.add(`${c.accountId}|${v.product}`);
+  const weekday = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long' });
 
   const out: NextVisit[] = [];
   for (const a of s.accounts) {
@@ -76,6 +97,41 @@ export function nextVisits(s: Snapshot, repId: string, cycle: Cycle | undefined,
     if (a.potential === 'High') {
       score += 1;
       reasons.push('High potential');
+    }
+    const mine = own.filter((c) => c.accountId === a.id);
+    const open = openObjectives(mine);
+    if (open.length) {
+      score += 2;
+      reasons.push(`Objective to pick up: ${open[0].text}`);
+    }
+    const lastCall = mine.filter((c) => c.status === 'Submitted').sort((x, y) => y.datetime.localeCompare(x.datetime))[0];
+    if (lastCall?.reaction === 'Negative') {
+      score += 1;
+      reasons.push('Cool reaction last time: try a different approach');
+    }
+    for (const e of s.events ?? []) {
+      if (e.ownerId !== repId) continue;
+      const inv = e.attendees.find((x) => x.accountId === a.id);
+      if (!inv) continue;
+      if (e.status === 'Planned' && inv.status === 'Invited' && e.date >= today && e.date <= fortnight) {
+        score += 2;
+        reasons.push(`Confirm for ${e.title} on ${e.date}`);
+      } else if (e.status === 'Done' && inv.status === 'Attended' && e.date >= fortnightAgo && (!lastAt || lastAt.slice(0, 10) < e.date)) {
+        score += 3;
+        reasons.push(`Attended ${e.title}: follow up while it is fresh`);
+      }
+    }
+    const nearby = (a.workplaces ?? []).find((w) => bookedAt.has(w));
+    if (nearby && score > 0) {
+      const org = s.accounts.find((x) => x.id === nearby);
+      score += 2;
+      reasons.push(`Works at ${org?.name ?? 'an organization'}, where you visit on ${weekday(bookedAt.get(nearby)!)}`);
+    }
+    const key = a.kol || tierRank(scheme, a.tier) === 0;
+    const unseen = key && cycle ? decks.filter((p) => !shown.has(`${a.id}|${p}`)) : [];
+    if (unseen.length && (n > 0 || target)) {
+      score += 1;
+      reasons.push(`Has not seen the ${unseen[0]} presentation this cycle`);
     }
     if (score > 0 && reasons.length) out.push({ account: a, score, reasons, lastCall: lastAt });
   }

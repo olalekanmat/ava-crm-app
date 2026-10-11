@@ -264,7 +264,7 @@ export function ListRow({ icon, title, subtitle, onPress, right, tone = colors.p
 
 export function Banner({ children, tone = 'info', icon }: { children: ReactNode; tone?: 'info' | 'warn' | 'danger' | 'success'; icon?: IconName }) {
   const map = {
-    info: { bg: colors.primarySoft, fg: colors.primaryDark, icon: 'information-circle' as IconName },
+    info: { bg: colors.primarySoft, fg: colors.primaryInk, icon: 'information-circle' as IconName },
     warn: { bg: colors.warnSoft, fg: colors.warn, icon: 'alert-circle' as IconName },
     danger: { bg: colors.dangerSoft, fg: colors.danger, icon: 'close-circle' as IconName },
     success: { bg: colors.successSoft, fg: colors.success, icon: 'checkmark-circle' as IconName },

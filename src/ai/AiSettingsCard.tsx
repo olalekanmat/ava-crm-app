@@ -18,16 +18,16 @@ export function AiSettingsCard() {
   };
   return (
     <>
-      <SectionTitle>AI assistant</SectionTitle>
+      <SectionTitle>Ava AI</SectionTitle>
       <Card>
         <ToggleRow
-          label="AI features"
+          label="Ava AI features"
           value={on}
           onChange={set}
           hint="Tidy dictated call notes, plan visits by voice, suggest cycle plans, pre-call briefs and Ask Ava. Voice dictation into text fields works either way."
         />
         <Text style={[text.small, { marginTop: space.sm }]}>
-          Text you send to AI is processed by Anthropic to produce the answer and is not stored by Ava CRM. Only data the person can already see in the app is sent, and only when they use an AI feature.
+          Text sent to Ava AI is processed by our AI service provider to produce the answer and is not stored by Ava CRM. Only data the person can already see in the app is sent, and only when they use an Ava AI feature.
         </Text>
       </Card>
     </>

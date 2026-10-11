@@ -8,7 +8,10 @@ import { useMe, useStore } from '@/data/store';
 import { Button, Card, Empty, GeoBadge, Row, SectionTitle, StatusBadge, UserAvatar, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
 import { CoachingCard } from '@/ui/CoachingCard';
+import { formatSeconds } from '@/data/detailing';
+import { ObjectivesView } from '@/ui/Objectives';
 import { Screen } from '@/ui/Screen';
+import { SignatureView } from '@/ui/SignaturePad';
 import { colors, space } from '@/ui/theme';
 
 export default function CallScreen() {
@@ -74,6 +77,15 @@ export default function CallScreen() {
         </Card>
       )}
 
+      {!!call.objectives?.length && (
+        <>
+          <SectionTitle>Objectives</SectionTitle>
+          <Card>
+            <ObjectivesView objectives={call.objectives} />
+          </Card>
+        </>
+      )}
+
       <SectionTitle>Products</SectionTitle>
       <Card>
         {call.products.length ? (
@@ -96,8 +108,38 @@ export default function CallScreen() {
               <Text key={i} style={text.body}>
                 {x.qty} × {x.product}
                 {x.batch ? <Text style={text.muted}> · batch {x.batch}</Text> : null}
+                {x.expiry ? <Text style={text.muted}> · expires {x.expiry}</Text> : null}
               </Text>
             ))}
+            {call.signature ? (
+              <View style={{ marginTop: space.md }}>
+                <SignatureView signature={call.signature} />
+              </View>
+            ) : (
+              locked && data.settings.sampleSignature !== 'off' && <Text style={[text.small, { marginTop: space.sm }]}>Not signed for.</Text>
+            )}
+          </Card>
+        </>
+      )}
+
+      {!!call.detailing?.length && (
+        <>
+          <SectionTitle>Presentation</SectionTitle>
+          <Card>
+            {[...new Set(call.detailing.map((v) => v.product))].map((p) => {
+              const views = call.detailing!.filter((v) => v.product === p);
+              return (
+                <View key={p} style={{ marginBottom: space.sm }}>
+                  <Text style={text.title}>
+                    {p} · {views.length} slide{views.length > 1 ? 's' : ''} · {formatSeconds(views.reduce((n, v) => n + v.seconds, 0))}
+                  </Text>
+                  <Text style={text.small}>{views.map((v) => `Slide ${v.slide}: ${formatSeconds(v.seconds)}`).join(' · ')}</Text>
+                </View>
+              );
+            })}
+            {!!call.reaction && (
+              <Text style={[text.body, { color: call.reaction === 'Positive' ? colors.success : call.reaction === 'Negative' ? colors.danger : colors.muted }]}>Doctor’s reaction: {call.reaction}</Text>
+            )}
           </Card>
         </>
       )}
