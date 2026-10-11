@@ -6,6 +6,7 @@ import { trialEnded } from '@/cloud/license';
 import { StoreProvider, useStore } from '@/data/store';
 import '@/cloud/background';
 import { active } from '@/ui/appearance';
+import { ActingAsFrame } from '@/ui/ActingAsBanner';
 import { HeaderTitle } from '@/ui/Brand';
 import { colors } from '@/ui/theme';
 
@@ -37,6 +38,7 @@ function RootNav() {
     );
   }
   return (
+    <ActingAsFrame>
     <Stack
       screenOptions={{
         headerStyle: { backgroundColor: colors.card },
@@ -106,6 +108,7 @@ function RootNav() {
         <Stack.Screen name="admin/company" options={{ title: 'Company & approval' }} />
       </Stack.Protected>
     </Stack>
+    </ActingAsFrame>
   );
 }
 

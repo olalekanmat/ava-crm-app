@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Text, View } from 'react-native';
-import { api, APP_VERSION, loadToken, type SignInPolicy } from '@/cloud/relay';
+import { api, APP_VERSION, loadToken, type ActAsRecord, type SignInPolicy } from '@/cloud/relay';
 import { formatDateTime } from '@/data/dates';
 import { useStore } from '@/data/store';
 import { compareVersions, versionGroups } from '@/data/versions';
@@ -16,6 +16,8 @@ const PLATFORM: Record<string, string> = { ios: 'iPhone', android: 'Android', we
 export default function SecurityScreen() {
   const { data, admin, session } = useStore();
   const [policy, setPolicy] = useState<SignInPolicy>();
+  /** Times an administrator signed in as someone (2.10); undefined on servers before it. */
+  const [actAs, setActAs] = useState<ActAsRecord[]>();
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
 
@@ -30,6 +32,10 @@ export default function SecurityScreen() {
       })
       .then((p) => live && (setPolicy(p), setError(undefined)))
       .catch((e) => live && setError(e instanceof Error ? e.message : String(e)));
+    loadToken()
+      .then((token) => (token ? api.actAsLog(token) : undefined))
+      .then((r) => live && setActAs(r?.entries))
+      .catch(() => live && setActAs(undefined));
     return () => {
       live = false;
     };
@@ -86,6 +92,28 @@ export default function SecurityScreen() {
             />
             {!policy.mail && <Text style={[text.small, { color: colors.warn }]}>The server cannot send email yet, so two-step sign-in and “Forgot password” are not available. Ava Healthcare is setting this up.</Text>}
             {saving && <ActivityIndicator color={colors.primary} />}
+          </Card>
+
+          <SectionTitle>Signed in as someone</SectionTitle>
+          <Card>
+            <Text style={text.small}>
+              Administrators can open the app as one of their people from Users & roles (Sign in as), for up to an hour at a time. Every time is listed here for all administrators to see.
+            </Text>
+            {actAs?.length ? (
+              actAs.slice(0, 30).map((r) => (
+                <View key={r.id} style={{ marginTop: space.sm }}>
+                  <Text style={text.body}>
+                    {r.admin.name} as {r.user.name}
+                    <Text style={text.muted}> ({r.user.role === 'Admin' ? 'Administrator' : r.user.role})</Text>
+                  </Text>
+                  <Text style={text.small}>
+                    {formatDateTime(r.at)} · {r.endedAt ? `ended ${formatDateTime(r.endedAt).split(' · ')[1]}` : 'still open'}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={[text.muted, { marginTop: space.sm }]}>{actAs ? 'No one has signed in as anyone yet.' : 'Not available yet.'}</Text>
+            )}
           </Card>
 
           <SectionTitle>App versions</SectionTitle>

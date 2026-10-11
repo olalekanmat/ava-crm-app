@@ -46,6 +46,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.10.0',
+    items: [
+      { icon: 'eye-outline', title: 'Sign in as a user', body: 'From Users & roles, open the app exactly as one of your people to see what they see or fix something for them. A banner takes you back; every time is listed for all administrators.', who: 'admin' },
+      { icon: 'map-outline', title: 'Map fixed on phones', body: 'The accounts map now loads on Android and iPhone instead of showing “Access blocked”.' },
+    ],
+  },
+  {
     version: '2.9.0',
     items: [
       { icon: 'map-outline', title: 'Accounts on a map', body: 'Doctors, pharmacies and hospitals on a map, coloured by tier. Overdue accounts stand out.' },

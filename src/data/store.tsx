@@ -8,8 +8,9 @@ import type { DriveAdapter, FolderRef } from '@/cloud/drive';
 import type { ReplayLogEntry } from '@/cloud/journal';
 import { activeTrial, licenseState, trialEnded, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
 import { trialLimitError } from '@/data/trial';
-import { saveToken } from '@/cloud/relay';
-import { pendingCount, rebuild, ROSTER_FILE, rosterKey, syncOnce, writeLicense, type CloudCache } from '@/cloud/sync';
+import { api, loadAdminToken, loadToken, saveAdminToken, saveToken } from '@/cloud/relay';
+import { deviceId } from '@/cloud/setup';
+import { cacheAs, pendingCount, rebuild, ROSTER_FILE, rosterKey, syncOnce, writeLicense, type CloudCache } from '@/cloud/sync';
 import { activeUserCount, isAdmin, scopeSnapshot, withoutDeleted } from './access';
 import { sanitizeMutation } from './sanitize';
 import { removeBig, loadBig, saveBig } from './bigStorage';
@@ -22,7 +23,26 @@ import { buildDemo } from './demo';
 import { emptySnapshot, type Account, type Call, type Company, type Cycle, type Product, type Snapshot, type User } from './types';
 
 /** A signed-in person in a company whose data lives in its administrator's OneDrive or Google Drive folder (`folder.provider`). */
-export type Session = { mode: 'cloud'; userId: string; email: string; companyId: string; companyCode?: string; folder: FolderRef; deviceId: string; /** The demo company: in memory only, never synced. */ demo?: boolean };
+export type Session = {
+  mode: 'cloud';
+  userId: string;
+  email: string;
+  companyId: string;
+  companyCode?: string;
+  folder: FolderRef;
+  deviceId: string;
+  /** The demo company: in memory only, never synced. */
+  demo?: boolean;
+  /** An administrator signed in as this person (2.10); their own session waits under KEYS.adminSession. */
+  actingAs?: ActingAs;
+};
+
+export interface ActingAs {
+  adminId: string;
+  adminName: string;
+  /** The server ends the session at this time. */
+  expiresAt: string;
+}
 
 export type CloudSession = Session;
 
@@ -86,7 +106,15 @@ interface Store {
   enterCloud(session: CloudSession, cache: CloudCache): Promise<void>;
   /** Opens the demo company as one of its people (see DEMO_ROLES). Nothing is saved or uploaded. */
   enterDemo(userId: string): void;
+  /** Signing out while signed in as someone goes back to the administrator's own account. */
   signOut(): Promise<void>;
+  /** Administrators: open the app as one of their people (2.10). The server logs it. */
+  signInAs(userId: string): Promise<void>;
+  /**
+   * Back to the administrator's own account. Changes made as the other person upload first;
+   * without `force` it throws when some could not, so the screen can ask.
+   */
+  backToOwnAccount(force?: boolean): Promise<void>;
   /** `manual`: the person pressed Sync (admins then also refresh the CSV copies in the drive). */
   syncNow(manual?: boolean): Promise<void>;
   /** Uploads this device's changes now; true when nothing is left waiting. */
@@ -237,6 +265,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
         }
       }
+      // Someone switched account while this ran (an administrator signing in as someone, or back).
+      if (sessionRef.current !== s) return setSync((x) => ({ ...x, syncing: false }));
       await setCache(c);
       // Replayed once per sync: in a large company this is the slow part.
       const r = applyReplay(c);
@@ -253,6 +283,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         error: stillMember ? undefined : 'Your account has been removed from this company by an administrator.',
       }));
     } catch (e) {
+      if (sessionRef.current !== s) return setSync((x) => ({ ...x, syncing: false }));
       const msg = e instanceof Error ? e.message : String(e);
       const code = (e as { code?: string }).code;
       setSync((x) => ({ ...x, syncing: false, error: msg, needsSignIn: (e as { status?: number }).status === 401, updateRequired: code === 'update_required' ? msg : undefined }));
@@ -367,8 +398,76 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return !c || pendingCount(c) === 0;
   }, [syncNow]);
 
+  const signInAs = useCallback(
+    async (userId: string) => {
+      const s = sessionRef.current;
+      if (!s || s.demo || s.actingAs) throw new Error('Go back to your own account first.');
+      // Upload this administrator's own changes first; the device keeps them either way.
+      await uploadNow();
+      const adminToken = await loadToken();
+      if (!adminToken) throw new Error('Please sign in again.');
+      const login = await api.actAs(adminToken, userId);
+      const admin = cacheRef.current;
+      if (!admin) throw new Error('Sync once before signing in as someone.');
+      // Keep the administrator's own sign-in and data aside, then open the company as the person.
+      await saveAdminToken(adminToken);
+      await saveJson(KEYS.adminSession, s);
+      await saveBig(KEYS.adminCache, admin);
+      await saveToken(login.token);
+      // The person's changes made here go to their own journal for this device ("as" + device).
+      const dev = `as${await deviceId()}`;
+      const c = cacheAs(admin, login.user.id, login.user.email, dev);
+      await enterCloud(
+        {
+          mode: 'cloud',
+          userId: login.user.id,
+          email: login.user.email.toLowerCase(),
+          companyId: s.companyId,
+          companyCode: s.companyCode,
+          folder: s.folder,
+          deviceId: dev,
+          actingAs: { adminId: login.actAs.admin.id, adminName: login.actAs.admin.name, expiresAt: login.actAs.expiresAt },
+        },
+        c,
+      );
+    },
+    [uploadNow, enterCloud],
+  );
+
+  const backToOwnAccount = useCallback(
+    async (force = false) => {
+      const s = sessionRef.current;
+      if (!s?.actingAs) return;
+      if (!force && !(await uploadNow())) {
+        const n = cacheRef.current ? pendingCount(cacheRef.current) : 0;
+        throw new Error(`${n} change${n === 1 ? '' : 's'} made as this person could not upload yet.`);
+      }
+      const token = await loadToken();
+      if (token) await api.actAsEnd(token).catch(() => {});
+      const [adminSession, adminCache, adminToken] = await Promise.all([loadJson<Session>(KEYS.adminSession), loadBig<CloudCache>(KEYS.adminCache), loadAdminToken()]);
+      await saveToken(adminToken);
+      await saveAdminToken(null);
+      await removeKeys(KEYS.adminSession);
+      await removeBig(KEYS.adminCache);
+      if (adminSession && adminCache && adminToken) {
+        await enterCloud(adminSession, adminCache);
+      } else {
+        // The administrator's own sign-in is gone (should not happen): sign in again.
+        await removeBig(KEYS.cache);
+        await removeKeys(KEYS.session);
+        await setCache(null, false);
+        setSession(null);
+        setFull(EMPTY);
+        setActivity([]);
+        setSync(NO_SYNC);
+      }
+    },
+    [uploadNow, enterCloud, setCache, setFull],
+  );
+
   const signOut = useCallback(async () => {
     const s = sessionRef.current;
+    if (s?.actingAs) return backToOwnAccount(true);
     if (s?.mode === 'cloud' && !s.demo) {
       await unregisterBackgroundSync().catch(() => {});
       await saveToken(null);
@@ -380,7 +479,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setFull(EMPTY);
     setActivity([]);
     setSync(NO_SYNC);
-  }, [setFull, setCache]);
+  }, [setFull, setCache, backToOwnAccount]);
 
   const saveLicense = useCallback(
     async (file: LicenseFile) => {
@@ -426,13 +525,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       enterCloud,
       enterDemo,
       signOut,
+      signInAs,
+      backToOwnAccount,
       uploadNow,
       syncNow,
       saveLicense,
       clearRejected: () => setSync((x) => ({ ...x, rejected: [] })),
       drive: () => (session?.mode === 'cloud' && !UI_PREVIEW && !session.demo ? adapterFor(session.folder) : null),
     };
-  }, [full, me, ready, session, sync, license, licensed, cache?.license, activity, run, enterCloud, enterDemo, signOut, syncNow, uploadNow, saveLicense]);
+  }, [full, me, ready, session, sync, license, licensed, cache?.license, activity, run, enterCloud, enterDemo, signOut, signInAs, backToOwnAccount, syncNow, uploadNow, saveLicense]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

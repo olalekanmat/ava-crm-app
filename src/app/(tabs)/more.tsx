@@ -85,7 +85,7 @@ export default function MoreScreen() {
         {admin && <ListRow icon="people-outline" title="Users & roles" onPress={() => router.push('/admin/users')} />}
         {admin && <ListRow icon="grid-outline" tone={colors.success} title="Edit in a grid" subtitle="Change many accounts or users at once, with undo" onPress={() => router.push('/admin/grid')} />}
         {admin && <ListRow icon="swap-horizontal-outline" tone={colors.orange} title="Hand over work" subtitle="Move a leaver’s accounts, plans and stock to someone else" onPress={() => router.push('/admin/handover')} />}
-        {admin && <ListRow icon="shield-checkmark-outline" tone={colors.primaryInk} title="Sign-in & app versions" subtitle="Two-step sign-in, who runs which version" onPress={() => router.push('/admin/security')} />}
+        {admin && <ListRow icon="shield-checkmark-outline" tone={colors.primaryInk} title="Sign-in & app versions" subtitle="Two-step sign-in, app versions, who signed in as whom" onPress={() => router.push('/admin/security')} />}
         {admin && <ListRow icon="layers-outline" tone={colors.orange} title="Tier names" subtitle="Tiering for each team (default ST, T1, T2, T3)" onPress={() => router.push('/admin/tiers')} />}
         {admin && <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, planning cycles" onPress={() => router.push('/admin/settings')} />}
         {admin && <ListRow icon="git-merge-outline" tone={colors.primaryInk} title="Duplicates" subtitle="Find and merge duplicate doctors and hospitals" onPress={() => router.push('/admin/duplicates')} />}

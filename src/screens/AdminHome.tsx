@@ -56,7 +56,7 @@ export function AdminHome() {
         <ListRow icon="download-outline" tone={colors.success} title="Export data" subtitle="Calls, accounts, plans and team KPIs as CSV" onPress={() => router.push('/export')} />
         <ListRow icon="layers-outline" tone={colors.orange} title="Tier names" subtitle="Tiering for each team (default ST, T1, T2, T3)" onPress={() => router.push('/admin/tiers')} />
         <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, planning cycles" onPress={() => router.push('/admin/settings')} />
-        <ListRow icon="shield-checkmark-outline" tone={colors.success} title="Sign-in & app versions" subtitle="Two-step sign-in, who needs to update" onPress={() => router.push('/admin/security')} />
+        <ListRow icon="shield-checkmark-outline" tone={colors.success} title="Sign-in & app versions" subtitle="Two-step sign-in, app versions, who signed in as whom" onPress={() => router.push('/admin/security')} />
         <ListRow icon="swap-horizontal-outline" tone={colors.orange} title="Hand over work" subtitle="Move a leaver’s accounts, plans, tasks and samples" onPress={() => router.push('/admin/handover')} />
         <ListRow icon="grid-outline" tone={colors.primary} title="Edit in a grid" subtitle="Change many accounts or users at once" onPress={() => router.push('/admin/grid')} />
         {<ListRow icon="document-lock-outline" tone={colors.muted} title="Audit log" subtitle="Every change, who made it and when" onPress={() => router.push('/admin/audit')} />}

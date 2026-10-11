@@ -9,6 +9,9 @@ export const KEYS = {
   demo: 'ava:demo:v3',
   /** Cloud mode: the company's journals, cached for offline use (see bigStorage). */
   cache: 'ava-cloud-cache-v1',
+  /** An administrator's own session and cache, kept while they are signed in as someone (2.10). */
+  adminSession: 'ava:session:admin',
+  adminCache: 'ava-cloud-cache-admin-v1',
 };
 
 export async function loadJson<T>(key: string): Promise<T | null> {
