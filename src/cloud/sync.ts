@@ -45,6 +45,30 @@ export function newCache(companyId: string, userId: string, email: string, devic
   return { companyId, journals: {}, own: { format: 'ava-journal/1', companyId, userId, email: email.toLowerCase(), deviceId, entries: [] }, uploaded: 0 };
 }
 
+/**
+ * The administrator's data seen from one of their people: the same journals (the administrator's
+ * own uploaded journal joins the others), with this device's journal for that person as `own`.
+ */
+export function cacheAs(c: CloudCache, userId: string, email: string, dev: string): CloudCache {
+  const journals = { ...c.journals };
+  if (c.ownFileId && c.uploaded) {
+    journals[c.ownFileId] = { name: journalName(c.own.userId, c.own.deviceId), version: c.ownVersion ?? '', journal: { ...c.own, entries: c.own.entries.slice(0, c.uploaded) } };
+  }
+  const prev = Object.entries(journals).find(([, j]) => j.journal.userId === userId && j.journal.deviceId === dev);
+  if (prev) delete journals[prev[0]];
+  return {
+    ...c,
+    journals,
+    own: prev ? prev[1].journal : newCache(c.companyId, userId, email, dev).own,
+    ownFileId: prev?.[0],
+    ownVersion: prev?.[1].version,
+    uploaded: prev ? prev[1].journal.entries.length : 0,
+    rosterSent: undefined,
+    lastExport: undefined,
+    lastCheckpointTry: undefined,
+  };
+}
+
 export const pendingCount = (c: CloudCache) => c.own.entries.length - c.uploaded;
 
 /** Rebuilds the company data from what this device has (works offline). */

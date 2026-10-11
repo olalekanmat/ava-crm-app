@@ -13,7 +13,7 @@ export const UI_PREVIEW = process.env.EXPO_PUBLIC_AVA_UI_PREVIEW === '1';
 
 const AS: Record<string, string> = { rep: 'usr_rep1', flm: 'usr_flm1', slm: 'usr_slm', admin: 'usr_admin' };
 
-export function previewState(): { snapshot: Snapshot; session: { mode: 'cloud'; userId: string; email: string; companyId: string; folder: { provider: 'google'; id: string }; deviceId: string }; license: LicenseState } {
+export function previewState(): { snapshot: Snapshot; session: { mode: 'cloud'; userId: string; email: string; companyId: string; folder: { provider: 'google'; id: string }; deviceId: string; actingAs?: { adminId: string; adminName: string; expiresAt: string } }; license: LicenseState } {
   const as = Platform.OS === 'web' && typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('as') ?? 'rep' : 'rep';
   const snapshot = buildSeed();
   const userId = AS[as] ?? AS.rep;
@@ -30,9 +30,11 @@ export function previewState(): { snapshot: Snapshot; session: { mode: 'cloud'; 
       license: trial === 'ended' ? { state: 'expired', payload, trial: true } : { state: 'active', payload, daysLeft: 8 },
     };
   }
+  // ?actingAs=1 shows the banner an administrator sees while signed in as this person (2.10).
+  const actingAs = Platform.OS === 'web' && typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('actingAs') ? { adminId: 'usr_admin', adminName: 'Preview Admin', expiresAt: new Date(now + 45 * 60000).toISOString() } : undefined;
   return {
     snapshot,
-    session: { mode: 'cloud', userId, email, companyId: 'preview', folder: { provider: 'google', id: 'preview' }, deviceId: 'preview' },
+    session: { mode: 'cloud', userId, email, companyId: 'preview', folder: { provider: 'google', id: 'preview' }, deviceId: 'preview', ...(actingAs ? { actingAs } : {}) },
     license: {
       state: 'active',
       daysLeft: 365,

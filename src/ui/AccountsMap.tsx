@@ -1,7 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { useMemo, useState } from 'react';
-import { PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import Constants from 'expo-constants';
+import { PanResponder, Platform, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { fitBounds, project, TILE, unproject } from '@/data/mapData';
 import { colors, radius, shadow } from './theme';
 
@@ -20,6 +21,18 @@ const MIN_ZOOM = 3;
 const MAX_ZOOM = 18;
 /** OpenStreetMap's standard tiles; their policy asks for the attribution shown in the corner. */
 const tileUrl = (z: number, x: number, y: number) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+/**
+ * The same policy blocks apps that do not say who they are: phones would otherwise send the image
+ * library's generic User-Agent (okhttp) and no Referer, and get "403 Access blocked" tiles. Browsers
+ * send both on their own (and do not allow setting them), so the web app sends nothing extra.
+ */
+const TILE_HEADERS: Record<string, string> | undefined =
+  Platform.OS === 'web'
+    ? undefined
+    : {
+        'User-Agent': `AvaCRM/${Constants.expoConfig?.version ?? '0'} (${Platform.OS}; com.avacrm.app; +https://avahealthcareltd.com/AvaCRM)`,
+        Referer: 'https://avahealthcareltd.com/AvaCRM/',
+      };
 
 /**
  * A small map with no extra libraries or API keys (2.9): OpenStreetMap tiles laid out by hand,
@@ -108,7 +121,8 @@ export function AccountsMap({ pins, selected, onSelect, height = 420 }: { pins: 
       {tiles.map((t) => (
         <Image
           key={t.key}
-          source={{ uri: t.uri }}
+          // A new cache key: phones may have kept the blocked tiles under the old one.
+          source={{ uri: t.uri, headers: TILE_HEADERS, cacheKey: `osm2/${t.uri}` }}
           style={{
             position: 'absolute',
             left: t.left,

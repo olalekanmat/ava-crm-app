@@ -36,10 +36,10 @@ export function requestApproval(license: LicenseFile, company: Company, admin: {
  * Opens the company after a successful sign-in: reads everything once, finds this person,
  * and carries on with this device's earlier journal if it has one.
  */
-export async function openCompany(login: LoginResult): Promise<{ session: CloudSession; cache: CloudCache }> {
+export async function openCompany(login: LoginResult, opts: { deviceId?: string } = {}): Promise<{ session: CloudSession; cache: CloudCache }> {
   const folder: FolderRef = { provider: normalizeProvider(login.provider), id: login.companyId, name: login.companyName };
   const drive = adapterFor(folder);
-  const dev = await deviceId();
+  const dev = opts.deviceId ?? (await deviceId());
   const probe = await syncOnce(drive, newCache(login.companyId, login.user.id, login.user.email, `probe${dev}`));
   const me = rebuild(probe.cache)?.snapshot.users.find((u) => u.id === login.user.id);
   if (!me) throw new Error('Your account was not found in the company data yet. Ask your administrator to open Ava CRM so the change uploads, then try again.');

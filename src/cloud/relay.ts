@@ -56,6 +56,16 @@ export async function loadToken(): Promise<string | null> {
 /** This app's version, sent with each sync so administrators can see who needs to update (2.9). */
 export const APP_VERSION = Constants.expoConfig?.version ?? '0.0.0';
 
+// ----- an administrator's own sign-in, kept aside while they are signed in as someone (2.10) -----
+const ADMIN_TOKEN_KEY = 'ava.token.admin';
+export async function saveAdminToken(t: string | null) {
+  if (Platform.OS === 'web') return t ? AsyncStorage.setItem(ADMIN_TOKEN_KEY, t) : AsyncStorage.removeItem(ADMIN_TOKEN_KEY);
+  return t ? SecureStore.setItemAsync(ADMIN_TOKEN_KEY, t) : SecureStore.deleteItemAsync(ADMIN_TOKEN_KEY);
+}
+export async function loadAdminToken(): Promise<string | null> {
+  return (Platform.OS === 'web' ? AsyncStorage.getItem(ADMIN_TOKEN_KEY) : SecureStore.getItemAsync(ADMIN_TOKEN_KEY)).catch(() => null);
+}
+
 // ----- "trust this device" for administrators' two-step sign-in (2.9) -----
 const TRUST_KEY = 'ava.trust';
 export async function saveTrust(t: string | null) {
@@ -86,6 +96,19 @@ export interface LoginResult {
   provider?: string;
   /** After a two-step sign-in with "trust this device": skips the code here for 30 days. */
   trust?: string;
+  /** An administrator signed in as this person (2.10). */
+  actAs?: { id: string; expiresAt: string; admin: { id: string; name: string; email: string } };
+}
+
+/** One time an administrator signed in as someone (2.10), as the server logged it. */
+export interface ActAsRecord {
+  id: string;
+  at: string;
+  expiresAt: string;
+  /** When the administrator went back, or the session ran out. */
+  endedAt?: string;
+  admin: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string; role: string };
 }
 
 export interface DeviceSeen {
@@ -125,6 +148,11 @@ export const api = {
    */
   deleteAccount: (token: string, password: string, closeCompany = false) =>
     call<{ deleted?: true; closed?: true; folderUrl?: string; provider?: string }>('POST', 'account/delete', { token, body: { password, closeCompany } }),
+  /** An administrator signs in as one of their people for up to an hour (2.10). */
+  actAs: (token: string, userId: string) => call<LoginResult & { actAs: NonNullable<LoginResult['actAs']> }>('POST', 'admin/act-as', { token, body: { userId } }),
+  /** Tells the server the signed-in-as session is over (with that session's token). */
+  actAsEnd: (token: string) => call<{ ok: true }>('POST', 'auth/act-as-end', { token, body: {} }),
+  actAsLog: (token: string) => call<{ entries: ActAsRecord[] }>('GET', 'admin/act-as', { token }),
   billingQuote: (token: string, pick: BillingPick) =>
     call<BillingQuote>('GET', `billing/quote?kind=${pick.kind}&months=${pick.months}&seats=${pick.seats}`, { token }),
   /** Starts a Paystack payment; returns the checkout page to open. `expectedAmount` guards against a price change in between. */

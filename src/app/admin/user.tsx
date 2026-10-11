@@ -2,6 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { api, DEFAULT_PASSWORD, loadToken } from '@/cloud/relay';
+import { isAdmin } from '@/data/access';
 import { newId } from '@/data/ids';
 import { useMe, useStore } from '@/data/store';
 import { ROLES, type Role } from '@/data/types';
@@ -18,7 +19,7 @@ const MANAGER_ROLE: Partial<Record<Role, Role>> = { Rep: 'FLM', FLM: 'SLM' };
 export default function UserEditScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const me = useMe();
-  const { data, getUser, run, session, admin: canManage } = useStore();
+  const { data, getUser, run, session, admin: canManage, signInAs } = useStore();
   const existing = id ? getUser(id) : undefined;
   const [name, setName] = useState(existing?.name ?? '');
   const [email, setEmail] = useState(existing?.email ?? '');
@@ -32,6 +33,7 @@ export default function UserEditScreen() {
   const [resetting, setResetting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [successor, setSuccessor] = useState<string>();
+  const [opening, setOpening] = useState(false);
   if (!canManage) return <Screen><Empty>Only administrators can manage users.</Empty></Screen>;
   if (id && (!existing || existing.deletedAt)) return <Screen><Empty>This person was deleted.</Empty></Screen>;
 
@@ -56,6 +58,27 @@ export default function UserEditScreen() {
         }
       },
       'Reset',
+    );
+
+  // ----- signing in as this person (2.10) -----
+  const canActAs = !!existing && existing.id !== me.id && existing.active && !isAdmin(existing) && !session?.demo && !session?.actingAs;
+  const actAs = () =>
+    confirm(
+      `Sign in as ${existing?.name}?`,
+      `You will see Ava CRM exactly as ${existing?.name} does for up to an hour, and anything you change is saved as theirs. A banner at the top takes you back to your own account. Every administrator can see that you did this, in Sign-in & app versions.`,
+      async () => {
+        setOpening(true);
+        try {
+          await signInAs(existing!.id);
+          if (router.canDismiss()) router.dismissAll();
+          router.replace('/');
+        } catch (e) {
+          notify('Could not sign in as them', e instanceof Error ? e.message : String(e));
+        } finally {
+          setOpening(false);
+        }
+      },
+      'Sign in as them',
     );
 
   const save = () => {
@@ -174,7 +197,11 @@ export default function UserEditScreen() {
       <View style={{ marginTop: space.sm, gap: space.sm }}>
         <Button title="Save" onPress={save} />
         {existing && existing.id !== me.id && <Button title={resetting ? 'Resetting…' : 'Reset password'} variant="secondary" icon="refresh-outline" onPress={resetPassword} disabled={resetting} />}
+        {canActAs && <Button title={opening ? 'Opening their account…' : `Sign in as ${existing.name.split(' ')[0]}`} variant="secondary" icon="eye-outline" onPress={actAs} disabled={opening} />}
       </View>
+      {existing && existing.id !== me.id && existing.active && isAdmin(existing) && !session?.demo && (
+        <Text style={[text.small, { marginTop: space.xs }]}>Administrators cannot sign in as another administrator.</Text>
+      )}
 
       {existing && existing.id !== me.id && existing.active && <InviteButtons user={existing} />}
 
