@@ -19,6 +19,7 @@ import { currentCycle } from './metrics';
 import { applyMutation, RuleError, type Mutation } from './mutations';
 import { KEYS, loadJson, removeKeys, saveJson } from './storage';
 import { previewState, UI_PREVIEW } from '@/dev/preview';
+import { setAiDemo } from '@/ai/demoMode';
 import { buildDemo } from './demo';
 import { emptySnapshot, type Account, type Call, type Company, type Cycle, type Product, type Snapshot, type User } from './types';
 
@@ -291,6 +292,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       syncing.current = false;
     }
   }, [setCache, applyReplay]);
+
+  useEffect(() => setAiDemo(!!session?.demo), [session?.demo]);
 
   // Sync when the app opens, a moment after every change (auto-save), every few minutes while
   // it is open, and when it comes back to the foreground. Offline changes wait on the device and
