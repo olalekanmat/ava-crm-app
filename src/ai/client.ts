@@ -1,10 +1,11 @@
 import { useStore } from '@/data/store';
 import { API, loadToken } from '@/cloud/relay';
 import { ensureAiConsent } from './consent';
+import { aiDemo } from './demoMode';
 import { coerceResult } from './logic';
 import type { AiTask, AiTasks } from './types';
 
-export type AiErrorCode = 'declined' | 'not_configured' | 'disabled' | 'offline' | 'timeout' | 'auth' | 'busy' | 'too_large' | 'server' | 'bad_reply';
+export type AiErrorCode = 'demo' | 'declined' | 'not_configured' | 'disabled' | 'offline' | 'timeout' | 'auth' | 'busy' | 'too_large' | 'server' | 'bad_reply';
 
 /** A failed AI request, with a message that can be shown as is. */
 export class AiError extends Error {
@@ -18,6 +19,7 @@ export class AiError extends Error {
 }
 
 const MESSAGES: Record<AiErrorCode, string> = {
+  demo: 'Ava AI works from your own company’s data, so it is not available in the demo company. Sign in to your company to use it.',
   declined: 'Nothing was sent to Ava AI. You can allow Ava AI the next time you use an Ava AI feature.',
   not_configured: 'Ava AI is not set up yet for Ava CRM. Everything else works as usual; please try again later.',
   disabled: 'Your administrator has turned Ava AI features off.',
@@ -39,6 +41,7 @@ const TIMEOUT_MS: Record<AiTask, number> = { call_note: 45_000, schedule: 45_000
  * The reply is checked and tidied (coerceResult) before it reaches the screen.
  */
 export async function runAi<T extends AiTask>(task: T, input: AiTasks[T]['input'], opts: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<AiTasks[T]['result']> {
+  if (aiDemo()) throw new AiError(MESSAGES.demo, 'demo');
   const token = await loadToken().catch(() => null);
   if (!token) throw new AiError(MESSAGES.auth, 'auth', 401);
   if (!(await ensureAiConsent())) throw new AiError(MESSAGES.declined, 'declined');
