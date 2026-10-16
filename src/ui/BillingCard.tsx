@@ -7,6 +7,7 @@ import { activeTrial, refreshLicense, trialEnded } from '@/cloud/license';
 import { ApiError, api, loadToken, type BillingPick, type BillingQuote } from '@/cloud/relay';
 import { activeUserCount } from '@/data/access';
 import { formatDate } from '@/data/dates';
+import { ERP_MODULE, ERP_NAME } from '@/data/erp';
 import { useStore } from '@/data/store';
 import { previewBilling, previewState, UI_PREVIEW } from '@/dev/preview';
 import { Banner, Button, Card, ProgressBar, Row, SectionTitle, Segmented, text } from '@/ui/components';
@@ -23,12 +24,13 @@ export const money = (minor: number, currency: string) => {
 
 const months = (n: number) => (n % 12 === 0 ? `${n / 12} year${n > 12 ? 's' : ''}` : `${n} month${n === 1 ? '' : 's'}`);
 const PRESETS = [1, 3, 6, 12, 24];
-type Mode = 'renew' | 'add';
+type Mode = 'renew' | 'add' | 'module';
 
 /**
  * Subscription and online payment (Paystack), for administrators in the web app only: the phone
  * apps never sell or link to purchases, as the app stores require. The administrator picks how
- * many users and how many months, or buys extra users for the rest of the current term. After
+ * many users and how many months (and optional modules such as Ava ERP), buys extra users for the
+ * rest of the current term, or adds a module for the rest of the term. After
  * paying, Paystack sends them back to this page with ?reference=…, which is checked with the server.
  */
 export function BillingCard() {
@@ -71,10 +73,10 @@ export function BillingCard() {
   // Price it, shortly after the administrator stops changing the numbers.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
-    if (info && pick.kind === info.quote.kind && pick.seats === info.quote.seats && (pick.kind === 'add' || pick.months === info.quote.months)) return;
+    if (info && pick.kind === info.quote.kind && (pick.kind === 'module' || pick.seats === info.quote.seats) && (pick.kind !== 'renew' || pick.months === info.quote.months) && (!pick.modules || sameList(pick.modules, info.quote.modules ?? []))) return;
     const t = setTimeout(() => ask(pick), info ? 250 : 0);
     return () => clearTimeout(t);
-  }, [pick.kind, pick.months, pick.seats, info, ask]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pick.kind, pick.months, pick.seats, pick.modules?.join(), info, ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Coming back from Paystack.
   const reference = params.reference || params.trxref;
@@ -133,7 +135,13 @@ export function BillingCard() {
   const minUsers = info ? Math.max(info.minSeats, used) : 1;
   const presets = PRESETS.filter((m) => !info || m <= info.maxMonths);
   const offFor = (m: number) => info?.durationDiscounts.filter((d) => m >= d.minMonths).sort((a, b) => b.minMonths - a.minMonths)[0];
-  const setMode = (kind: Mode) => setPick({ ...pick, kind, seats: kind === 'add' ? 1 : Math.max(minUsers, seats ?? 0) });
+  const setMode = (kind: Mode) => setPick({ kind, months: pick.months, seats: kind === 'add' ? 1 : Math.max(minUsers, seats ?? 0), ...(kind === 'module' ? { modules: [ERP_MODULE] } : {}) });
+  // Modules (2.11): what the company has, and Ava ERP's price when it is on sale.
+  const has = info?.licence?.modules ?? info?.modules?.filter((m) => m.active).map((m) => m.id) ?? [];
+  const erpOffer = info?.modules?.find((m) => m.id === ERP_MODULE);
+  const chosen = pick.modules ?? q?.modules ?? has;
+  const toggleErp = () => setPick({ ...pick, modules: chosen.includes(ERP_MODULE) ? chosen.filter((m) => m !== ERP_MODULE) : [...chosen, ERP_MODULE] });
+  const modes: Mode[] = ['renew', 'add', ...(erpOffer && !has.includes(ERP_MODULE) ? ['module' as const] : [])];
 
   return (
     <>
@@ -173,9 +181,22 @@ export function BillingCard() {
 
           {info && (
             <>
-              {canAdd && <Segmented options={['renew', 'add'] as Mode[]} value={pick.kind} onChange={setMode} labels={{ renew: 'Renew or change plan', add: 'Add users now' }} />}
+              {has.includes(ERP_MODULE) && (
+                <Banner tone="success" icon="cube-outline">
+                  {ERP_NAME} is on: selling, invoices, payments and stock.
+                </Banner>
+              )}
+              {canAdd && <Segmented options={modes} value={pick.kind} onChange={setMode} labels={{ renew: 'Renew or change plan', add: 'Add users now', module: `Add ${ERP_NAME}` }} />}
 
-              {pick.kind === 'renew' ? (
+              {pick.kind === 'module' ? (
+                <View style={styles.addon}>
+                  <Ionicons name="cube-outline" size={26} color={colors.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={text.title}>{ERP_NAME} for your {seats} users</Text>
+                    <Text style={text.small}>Charged by the day until {lic?.subscriptionEnd ? formatDate(lic.subscriptionEnd.slice(0, 10)) : 'your end date'}, then renewed with the rest. It switches on as soon as you pay.</Text>
+                  </View>
+                </View>
+              ) : pick.kind === 'renew' ? (
                 <>
                   <Text style={styles.label}>How long</Text>
                   <View style={styles.terms}>
@@ -203,6 +224,16 @@ export function BillingCard() {
                     </View>
                     <NumberBox value={pick.seats} min={minUsers} max={10000} onChange={(v) => setPick({ ...pick, seats: v })} label="Users" />
                   </Row>
+                  {(erpOffer || has.includes(ERP_MODULE)) && (
+                    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: chosen.includes(ERP_MODULE) }} onPress={toggleErp} style={[styles.addon, chosen.includes(ERP_MODULE) && styles.addonOn]}>
+                      <Ionicons name={chosen.includes(ERP_MODULE) ? 'checkbox' : 'square-outline'} size={24} color={chosen.includes(ERP_MODULE) ? colors.primary : colors.faint} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={text.title}>Add {ERP_NAME}</Text>
+                        <Text style={text.small}>Sell on the visit, invoices on WhatsApp, payments, customer balances and stock.</Text>
+                      </View>
+                      {!!erpOffer && <Text style={styles.addonPrice}>+{money(erpOffer.perUserMonth * 100, info.currency)}{'\n'}<Text style={text.small}>per user / month</Text></Text>}
+                    </Pressable>
+                  )}
                 </>
               ) : (
                 <Row style={{ marginBottom: space.xs }}>
@@ -217,7 +248,14 @@ export function BillingCard() {
               {/* Price */}
               {q && (
                 <View style={[styles.summary, pricing && { opacity: 0.55 }]}>
-                  <Line label={q.kind === 'add' ? `${q.seats} user${q.seats === 1 ? '' : 's'} × ${q.days} days` : `${q.seats} users × ${months(q.months)}`} value={money(q.subtotal, q.currency)} />
+                  <Line
+                    label={
+                      q.kind === 'module'
+                        ? `${ERP_NAME} · ${q.seats} users × ${q.days} days`
+                        : `${q.kind === 'add' ? `${q.seats} user${q.seats === 1 ? '' : 's'} × ${q.days} days` : `${q.seats} users × ${months(q.months)}`}${q.modulePrices?.length ? ` · CRM + ${q.modulePrices.map((m) => m.name).join(' + ')}` : ''}`
+                    }
+                    value={money(q.subtotal, q.currency)}
+                  />
                   {q.discounts.map((d) => (
                     <Line key={d.label} label={`${d.label} (${d.percent}%)`} value={`−${money(d.amount, q.currency)}`} good />
                   ))}
@@ -227,7 +265,9 @@ export function BillingCard() {
                     <Text style={styles.total}>{money(q.amount, q.currency)}</Text>
                   </Row>
                   <Text style={[text.small, { textAlign: 'right' }]}>
-                    {q.kind === 'add'
+                    {q.kind === 'module'
+                      ? `${ERP_NAME} until ${lic?.subscriptionEnd ? formatDate(lic.subscriptionEnd.slice(0, 10)) : 'your end date'}`
+                      : q.kind === 'add'
                       ? `You will have ${(seats ?? 0) + q.seats} user licences`
                       : `${months(q.months)} added ${active ? (onTrial ? 'after your free trial ends' : 'after your current end date') : 'from today'} · about ${money(Math.round(q.amount / Math.max(1, q.seats * q.months)), q.currency)} per user per month`}
                   </Text>
@@ -261,7 +301,7 @@ export function BillingCard() {
               {lic.payments.slice().reverse().map((x) => (
                 <Row key={x.reference} style={styles.payRow}>
                   <Text style={[text.body, { flex: 1 }]}>
-                    {formatDate(x.at.slice(0, 10))} · {x.kind === 'add' ? `${x.seats} more users` : `${months(x.months)} · ${x.seats} users`}
+                    {formatDate(x.at.slice(0, 10))} · {x.kind === 'module' ? `Added ${ERP_NAME}` : x.kind === 'add' ? `${x.seats} more users` : `${months(x.months)} · ${x.seats} users${x.modules?.includes(ERP_MODULE) ? ` · ${ERP_NAME}` : ''}`}
                   </Text>
                   <Text style={[text.body, { fontWeight: '700' }]}>{money(x.amount, x.currency)}</Text>
                 </Row>
@@ -273,6 +313,8 @@ export function BillingCard() {
     </>
   );
 }
+
+const sameList = (a: string[], b: string[]) => [...a].sort().join() === [...b].sort().join();
 
 function Line({ label, value, good }: { label: string; value: string; good?: boolean }) {
   return (
@@ -333,4 +375,7 @@ const styles = StyleSheet.create({
   numberBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   numberInput: { width: 58, textAlign: 'center', fontSize: 16, fontWeight: '700', color: colors.text, paddingVertical: 8, outlineStyle: 'none' } as never,
   payRow: { paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.hairline },
+  addon: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, marginVertical: space.sm },
+  addonOn: { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.primarySoft },
+  addonPrice: { fontSize: 15, fontWeight: '800', color: colors.primary, textAlign: 'right' },
 });

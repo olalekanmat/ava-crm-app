@@ -15,7 +15,7 @@ import { WeeklyTile } from '@/ui/WeeklyTile';
 import { LicenseBanner } from '@/ui/SyncCard';
 import { StatSplit, Tile } from '@/ui/Tiles';
 import { colors, paceColor, space, tone } from '@/ui/theme';
-import { AlertsTile, CyclePlanTile, HeroButton, HomeHeader, ScheduleTile, SyncTile } from './HomeTiles';
+import { AlertsTile, CyclePlanTile, HeroButton, HomeHeader, ScheduleTile, SyncTile, SalesTile } from './HomeTiles';
 
 /** How many reps are on track, at risk and behind their plan. */
 export function repHealth(reps: RepMetrics[], elapsed: number): Record<Pace, number> {
@@ -145,6 +145,7 @@ export function TeamDashboard({ manager }: { manager: User }) {
             ]}
           />
         </Tile>
+        <SalesTile key="sales" />
         <ScheduleTile key="today" calls={todays} showRep />
         <SyncTile key="sync" />
       </Grid>

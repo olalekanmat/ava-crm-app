@@ -1,3 +1,4 @@
+import { withErpDemo } from './erpDemo';
 import { addDays, toDateKey } from './dates';
 import { distanceM } from './geo';
 import { tierFrequency } from './tiers';
@@ -244,6 +245,6 @@ export function buildSeed(now = new Date()): Snapshot {
   ];
   const products = DEMO_PRODUCTS.map((p, i) => (i < 2 ? { ...p, brochureUrl: `https://example.com/brochures/${p.name.toLowerCase().replace(/\W+/g, '-')}.pdf` } : p));
 
-  return { company: { ...DEMO_COMPANY }, users, accounts, calls, plans, cycles, products, settings: { ...DEFAULT_SETTINGS }, leaves, tasks, samples };
+  return withErpDemo({ company: { ...DEMO_COMPANY }, users, accounts, calls, plans, cycles, products, settings: { ...DEFAULT_SETTINGS }, leaves, tasks, samples }, now);
 }
 

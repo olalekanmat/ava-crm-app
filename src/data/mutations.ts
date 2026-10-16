@@ -1,9 +1,10 @@
 import { isAdmin as hasAdminRights, manages, visibleOwnerIds } from './access';
 import { handover } from './handover';
 import { spanDays } from './metrics';
+import { erpSettings, invoiceTotals, nextInvoiceNumber, round2 } from './erp';
 import { MAX_REPORTS, reportProblem } from './reports';
 import { teamOf, tierSchemeProblem } from './tiers';
-import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, type Account, type AccountChange, type AccountChanges, type Call, type Coaching, type Company, type Cycle, type CyclePlan, type Leave, type MeetingEvent, type Product, type ReportDef, type Role, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type Snapshot, type Task, type TierDef, type User } from './types';
+import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, type Account, type AccountChange, type AccountChanges, type Call, type Coaching, type Company, type ErpSettings, type Invoice, type Payment, type StockMove, PAYMENT_METHODS, STOCK_MOVE_KINDS, WAREHOUSE, type Cycle, type CyclePlan, type Leave, type MeetingEvent, type Product, type ReportDef, type Role, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type Snapshot, type Task, type TierDef, type User } from './types';
 
 /**
  * Every change to the data is one of these. The app applies it locally right away and appends it
@@ -67,9 +68,20 @@ export type Mutation =
   /** A rep asks for more samples; their manager approves it, then records the issue with sample.issue. */
   | { type: 'sample.request'; request: SampleRequest }
   | { type: 'sample.requestReview'; id: string; approve: boolean; note?: string }
-  | { type: 'sample.requestCancel'; id: string };
+  | { type: 'sample.requestCancel'; id: string }
+  // ----- 2.11, Ava ERP (only offered when the company has the ERP module). Older versions skip these. -----
+  /** A sale: the invoice number is given by the rules, so every device gives the same one. */
+  | { type: 'invoice.create'; invoice: Invoice }
+  | { type: 'invoice.pay'; invoiceId: string; payment: Payment }
+  /** Removes a payment recorded by mistake (a manager or administrator). */
+  | { type: 'invoice.unpay'; invoiceId: string; paymentId: string; reason: string }
+  /** Cancels an invoice: the stock goes back. Only invoices without payments. */
+  | { type: 'invoice.void'; id: string; reason: string }
+  | { type: 'stock.move'; move: StockMove }
+  /** Sets (or, without `limit`, removes) the most a customer may owe. */
+  | { type: 'account.credit'; id: string; limit?: number };
 
-export const SETTINGS_KEYS = ['geofenceM', 'requireCheckIn', 'aiEnabled', 'cycleLength', 'objectives', 'reviewNewAccounts', 'sampleSignature'] as const;
+export const SETTINGS_KEYS = ['geofenceM', 'requireCheckIn', 'aiEnabled', 'cycleLength', 'objectives', 'reviewNewAccounts', 'sampleSignature', 'erp'] as const;
 export type SettingsKey = (typeof SETTINGS_KEYS)[number];
 
 export class RuleError extends Error {}
@@ -281,6 +293,44 @@ function withChanges(a: Account, changes: AccountChanges, s: Snapshot): Account 
   return next;
 }
 
+/** Price, stock code and VAT a change leaves out keep their values; a negative price, empty code or false clear them. */
+function withErpFields(p: Product, existing?: Product): Product {
+  const out: Product = { ...p };
+  if (p.price === undefined) {
+    if (existing?.price !== undefined) out.price = existing.price;
+    else delete out.price;
+  } else if (p.price < 0) delete out.price;
+  else if (!(p.price <= 1e9)) fail('Enter a price of 1,000,000,000 or less.');
+  else out.price = round2(p.price);
+  if (p.sku === undefined) {
+    if (existing?.sku) out.sku = existing.sku;
+    else delete out.sku;
+  } else if (!p.sku.trim()) delete out.sku;
+  else if (p.sku.trim().length > 40) fail('Keep the stock code to 40 characters.');
+  else out.sku = p.sku.trim();
+  if (p.vatExempt === undefined) {
+    if (existing?.vatExempt) out.vatExempt = true;
+    else delete out.vatExempt;
+  } else if (!p.vatExempt) delete out.vatExempt;
+  return out;
+}
+
+function checkErpSettings(e: Partial<ErpSettings>): ErpSettings {
+  const x = { ...erpSettings({}), ...e };
+  if (!/^[A-Z]{3}$/.test(x.currency)) fail('Use a 3-letter currency code such as NGN.');
+  if (!(x.vatPercent >= 0 && x.vatPercent <= 100)) fail('VAT must be from 0 to 100%.');
+  x.prefix = x.prefix.trim().toUpperCase();
+  if (!/^[A-Z0-9]{1,8}$/.test(x.prefix)) fail('The invoice prefix must be 1 to 8 letters or numbers.');
+  if (!Number.isInteger(x.termsDays) || x.termsDays < 0 || x.termsDays > 365) fail('Payment terms must be 0 to 365 days.');
+  if (!Number.isInteger(x.lowStock) || x.lowStock < 0 || x.lowStock > 100000) fail('Low stock must be a whole number of units.');
+  const paymentDetails = x.paymentDetails?.trim();
+  if ((paymentDetails?.length ?? 0) > 500) fail('Keep payment details to 500 characters.');
+  return { currency: x.currency, vatPercent: round2(x.vatPercent), prefix: x.prefix, termsDays: x.termsDays, lowStock: x.lowStock, ...(paymentDetails ? { paymentDetails } : {}) };
+}
+
+export const MAX_INVOICE_LINES = 50;
+export const MAX_UNITS = 1_000_000;
+
 const DECK_FILE_RE = /^ava-deck-[A-Za-z0-9_-]{1,80}\.json$/;
 export const MAX_DECK_SLIDES = 40;
 
@@ -323,6 +373,9 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (pending) account.pendingReview = true;
       else delete account.pendingReview;
       delete account.mergedInto;
+      // The credit limit changes only with account.credit.
+      if (existing?.creditLimit !== undefined) account.creditLimit = existing.creditLimit;
+      else delete account.creditLimit;
       return { ...s, accounts: replaceOrAdd(s.accounts, { ...account, createdAt: existing?.createdAt ?? a.createdAt ?? nowIso }) };
     }
 
@@ -508,7 +561,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (!m.product.name.trim()) fail('Product name is required.');
       if (m.product.brochureUrl && !/^https:\/\/\S+$/.test(m.product.brochureUrl)) fail('The brochure link must start with https://');
       if (m.product.deck) checkDeck(m.product.deck);
-      return { ...s, products: replaceOrAdd(s.products, m.product) };
+      return { ...s, products: replaceOrAdd(s.products, withErpFields(m.product, s.products.find((p) => p.id === m.product.id))) };
     }
 
     case 'cycle.upsert': {
@@ -544,6 +597,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (next.cycleLength !== 'quarter' && next.cycleLength !== 'month') fail('Choose quarterly or monthly cycles.');
       if (!(next.geofenceM >= 25 && next.geofenceM <= 5000)) fail('Geofence must be between 25 and 5000 metres.');
       if (m.settings.aiEnabled !== undefined) next.aiEnabled = m.settings.aiEnabled;
+      if (m.settings.erp !== undefined) next.erp = checkErpSettings(m.settings.erp);
       return { ...s, settings: next };
     }
 
@@ -619,8 +673,9 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       for (const p of m.products) {
         if (p.brochureUrl && !/^https:\/\/\S+$/.test(p.brochureUrl)) fail(`The brochure link for ${p.name} must start with https://`);
         // CSV files carry no slides: a product keeps its presentation.
-        const deck = products.find((x) => x.id === p.id)?.deck;
-        products = replaceOrAdd(products, deck ? { ...p, deck } : p);
+        const existing = products.find((x) => x.id === p.id);
+        const deck = existing?.deck;
+        products = replaceOrAdd(products, withErpFields(deck ? { ...p, deck } : p, existing));
       }
       return { ...s, products };
     }
@@ -892,6 +947,109 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       return { ...s, sampleRequests: replaceOrAdd(s.sampleRequests ?? [], { ...x, status: 'Cancelled' }) };
     }
 
+    // ----- Ava ERP (2.11) -----
+    case 'invoice.create': {
+      const x = m.invoice;
+      if ((s.invoices ?? []).some((i) => i.id === x.id)) return s;
+      const seller = s.users.find((u) => u.id === x.ownerId && !u.deletedAt) ?? fail('Seller not found.');
+      if (seller.id !== actor.id && !manages(s.users, actor, seller.id)) fail('You can only sell for yourself or your team.');
+      const account = s.accounts.find((a) => a.id === x.accountId && !a.deletedAt) ?? fail('Customer not found.');
+      if (!visible.has(account.ownerId)) fail(`You cannot sell to ${account.name}.`);
+      if (!DAY_RE.test(x.date) || !DAY_RE.test(x.dueDate)) fail('Use YYYY-MM-DD dates.');
+      if (x.dueDate < x.date) fail('The due date cannot be before the invoice date.');
+      if (!x.lines.length || x.lines.length > MAX_INVOICE_LINES) fail(`An invoice has 1 to ${MAX_INVOICE_LINES} lines.`);
+      for (const l of x.lines) {
+        if (!s.products.some((p) => p.name === l.product)) fail(`${l.product} is not a product.`);
+        if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > MAX_UNITS) fail(`Quantity of ${l.product} must be a whole number from 1.`);
+        if (!(l.unitPrice >= 0 && l.unitPrice <= 1e9)) fail(`Enter a price for ${l.product}.`);
+        if (l.discountPercent !== undefined && !(l.discountPercent >= 0 && l.discountPercent <= 100)) fail('Discounts go from 0 to 100%.');
+        if (!(l.vatPercent >= 0 && l.vatPercent <= 100)) fail('VAT goes from 0 to 100%.');
+      }
+      // Reps sell from their own stock; managers and administrators can also sell from the warehouse.
+      if (x.stockFrom === WAREHOUSE ? actor.role === 'Rep' && !isAdmin : x.stockFrom !== seller.id) fail('Sell from your own stock or the warehouse.');
+      const invoice: Invoice = {
+        id: x.id, number: nextInvoiceNumber(s, seller), accountId: account.id, ownerId: seller.id, date: x.date, dueDate: x.dueDate,
+        lines: x.lines.map((l) => ({ product: l.product, qty: l.qty, unitPrice: round2(l.unitPrice), ...(l.discountPercent ? { discountPercent: round2(l.discountPercent) } : {}), vatPercent: round2(l.vatPercent) })),
+        orderRef: x.orderRef?.trim() || undefined, notes: x.notes?.trim() || undefined, stockFrom: x.stockFrom, status: 'Issued', payments: [],
+        callId: x.callId && s.calls.some((c) => c.id === x.callId) ? x.callId : undefined, createdAt: nowIso,
+      };
+      return { ...s, invoices: [...(s.invoices ?? []), invoice] };
+    }
+
+    case 'invoice.pay': {
+      const inv = (s.invoices ?? []).find((i) => i.id === m.invoiceId) ?? fail('Invoice not found.');
+      if (inv.payments.some((p) => p.id === m.payment.id)) return s;
+      if (inv.status === 'Void') fail('This invoice was cancelled.');
+      if (inv.ownerId !== actor.id && !manages(s.users, actor, inv.ownerId)) fail('You can only record payments for your own or your team’s invoices.');
+      const p = m.payment;
+      const balance = invoiceTotals(inv).balance;
+      if (!(p.amount > 0)) fail('Enter the amount received.');
+      if (p.amount > balance + 0.005) fail(`That is more than the ${balance.toFixed(2)} still owed.`);
+      if (!PAYMENT_METHODS.includes(p.method)) fail('Choose how they paid.');
+      if (!DAY_RE.test(p.date)) fail('Use YYYY-MM-DD for the payment date.');
+      if (p.date < inv.date) fail('A payment cannot be before the invoice date.');
+      const payment: Payment = { id: p.id, amount: round2(p.amount), method: p.method, date: p.date, reference: p.reference?.trim() || undefined, receiptNo: `${inv.number}-R${inv.payments.length + 1}`, byId: actor.id, at: nowIso };
+      return { ...s, invoices: (s.invoices ?? []).map((i) => (i.id === inv.id ? { ...i, payments: [...i.payments, payment] } : i)) };
+    }
+
+    case 'invoice.unpay': {
+      const inv = (s.invoices ?? []).find((i) => i.id === m.invoiceId) ?? fail('Invoice not found.');
+      if (!inv.payments.some((p) => p.id === m.paymentId)) return s;
+      if (!isAdmin && (inv.ownerId === actor.id || !manages(s.users, actor, inv.ownerId))) fail('Ask your manager to remove a payment.');
+      if (!m.reason.trim()) fail('Say why the payment is removed.');
+      return { ...s, invoices: (s.invoices ?? []).map((i) => (i.id === inv.id ? { ...i, payments: i.payments.filter((p) => p.id !== m.paymentId) } : i)) };
+    }
+
+    case 'invoice.void': {
+      const inv = (s.invoices ?? []).find((i) => i.id === m.id) ?? fail('Invoice not found.');
+      if (inv.status === 'Void') return s;
+      // The seller can cancel their own invoice on the day it was made; after that, a manager.
+      const sameDay = inv.ownerId === actor.id && inv.createdAt.slice(0, 10) === nowIso.slice(0, 10);
+      if (!sameDay && (inv.ownerId === actor.id ? !isAdmin : !manages(s.users, actor, inv.ownerId))) fail('Ask your manager to cancel this invoice.');
+      if (inv.payments.length) fail('Remove its payments before cancelling the invoice.');
+      if (!m.reason.trim() || m.reason.length > 300) fail('Say why the invoice is cancelled.');
+      return { ...s, invoices: (s.invoices ?? []).map((i) => (i.id === inv.id ? { ...i, status: 'Void' as const, voidReason: m.reason.trim(), voidedBy: actor.id, voidedAt: nowIso } : i)) };
+    }
+
+    case 'stock.move': {
+      const x = m.move;
+      if ((s.stockMoves ?? []).some((y) => y.id === x.id)) return s;
+      if (!STOCK_MOVE_KINDS.includes(x.kind)) fail('Invalid stock change.');
+      if (!s.products.some((p) => p.name === x.product)) fail(`${x.product} is not a product.`);
+      if (!Number.isInteger(x.qty) || x.qty < 1 || x.qty > MAX_UNITS) fail('Quantity must be a whole number from 1.');
+      const place = (id?: string) => {
+        if (id === undefined) return;
+        if (id !== WAREHOUSE && !s.users.some((u) => u.id === id && !u.deletedAt)) fail('Stock place not found.');
+        // Managers look after the warehouse and their team's stock; everyone their own.
+        const ok = isAdmin || id === actor.id || (id === WAREHOUSE ? actor.role !== 'Rep' : manages(s.users, actor, id));
+        return ok;
+      };
+      const fromOk = place(x.from);
+      const toOk = place(x.to);
+      if (x.kind === 'receive') {
+        if (x.to !== WAREHOUSE || x.from !== undefined) fail('Stock is received into the warehouse.');
+        if (!toOk) fail('Only managers and administrators receive stock.');
+      } else if (x.kind === 'transfer') {
+        if (!x.from || !x.to || x.from === x.to) fail('Choose where the stock moves from and to.');
+        // Anyone can send their own stock back to the warehouse; other moves need a manager.
+        const returning = x.from === actor.id && x.to === WAREHOUSE;
+        if (!returning && !(fromOk && toOk)) fail('Only a manager can move stock between these places.');
+      } else {
+        if ((x.from === undefined) === (x.to === undefined)) fail('An adjustment adds to or takes from one place.');
+        if (!(fromOk ?? toOk) || (actor.role === 'Rep' && !isAdmin)) fail('Only managers and administrators adjust stock.');
+        if (!x.note?.trim()) fail('Say why the stock is adjusted.');
+      }
+      const move: StockMove = { id: x.id, kind: x.kind, product: x.product, qty: x.qty, ...(x.from ? { from: x.from } : {}), ...(x.to ? { to: x.to } : {}), batch: x.batch?.trim() || undefined, note: x.note?.trim() || undefined, byId: actor.id, at: nowIso };
+      return { ...s, stockMoves: [...(s.stockMoves ?? []), move] };
+    }
+
+    case 'account.credit': {
+      const a = s.accounts.find((x) => x.id === m.id && !x.deletedAt) ?? fail('Account not found.');
+      if (!isAdmin && (actor.role === 'Rep' || !manages(s.users, actor, a.ownerId))) fail('Only a manager or administrator sets credit limits.');
+      if (m.limit !== undefined && !(m.limit >= 0 && m.limit <= 1e12)) fail('Enter a credit limit of zero or more.');
+      return { ...s, accounts: s.accounts.map((x) => (x.id === a.id ? (m.limit === undefined ? (({ creditLimit: _drop, ...rest }) => rest)(x) : { ...x, creditLimit: round2(m.limit) }) : x)) };
+    }
+
     // ----- reports (2.3) -----
     case 'report.save': {
       adminOnly();
@@ -974,6 +1132,18 @@ export function describeMutation(m: Mutation): string {
       return m.approve ? 'Approved a sample request' : 'Declined a sample request';
     case 'sample.requestCancel':
       return 'Cancelled a sample request';
+    case 'invoice.create':
+      return `Made an invoice of ${m.invoice.lines.length} line${m.invoice.lines.length === 1 ? '' : 's'}`;
+    case 'invoice.pay':
+      return `Recorded a payment of ${m.payment.amount}`;
+    case 'invoice.unpay':
+      return `Removed a payment: ${m.reason}`;
+    case 'invoice.void':
+      return `Cancelled an invoice: ${m.reason}`;
+    case 'stock.move':
+      return `${m.move.kind === 'receive' ? 'Received' : m.move.kind === 'transfer' ? 'Moved' : 'Adjusted'} ${m.move.qty} ${m.move.product}`;
+    case 'account.credit':
+      return m.limit === undefined ? 'Removed a credit limit' : `Set a credit limit of ${m.limit}`;
     default:
       return m.type;
   }

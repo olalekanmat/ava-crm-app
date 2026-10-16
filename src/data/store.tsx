@@ -6,7 +6,7 @@ import { adapterFor } from '@/cloud/connect';
 import { prefetchDecks } from '@/cloud/decks';
 import type { DriveAdapter, FolderRef } from '@/cloud/drive';
 import type { ReplayLogEntry } from '@/cloud/journal';
-import { activeTrial, licenseState, trialEnded, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
+import { activeTrial, licenseModules, licenseState, trialEnded, refreshLicense, type LicenseFile, type LicenseState } from '@/cloud/license';
 import { trialLimitError } from '@/data/trial';
 import { api, loadAdminToken, loadToken, saveAdminToken, saveToken } from '@/cloud/relay';
 import { deviceId } from '@/cloud/setup';
@@ -17,6 +17,7 @@ import { removeBig, loadBig, saveBig } from './bigStorage';
 import { activeCycleLength } from './cycles';
 import { currentCycle } from './metrics';
 import { applyMutation, RuleError, type Mutation } from './mutations';
+import { ERP_MODULE, ERP_NAME } from './erp';
 import { KEYS, loadJson, removeKeys, saveJson } from './storage';
 import { previewState, UI_PREVIEW } from '@/dev/preview';
 import { setAiDemo } from '@/ai/demoMode';
@@ -73,6 +74,9 @@ const SETUP_TYPES = new Set<Mutation['type']>([
   'account.merge',
 ]);
 
+/** Changes that belong to Ava ERP: only made when the company has the module. */
+const ERP_TYPES = new Set<Mutation['type']>(['invoice.create', 'invoice.pay', 'invoice.unpay', 'invoice.void', 'stock.move', 'account.credit']);
+
 interface Store {
   ready: boolean;
   session: Session | null;
@@ -93,6 +97,10 @@ interface Store {
   licenseFile?: LicenseFile;
   /** False when the licence does not allow changes (read-only). */
   canEdit: boolean;
+  /** Optional modules the licence switches on (2.11). */
+  modules: string[];
+  /** The company has Ava ERP: selling, invoicing, payments and stock. */
+  erp: boolean;
   /** Everything replayed from the journals, newest first (cloud mode). */
   activity: ReplayLogEntry[];
   /** Also finds deleted accounts, so call history keeps their names. */
@@ -319,6 +327,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const me = useMemo(() => full.users.find((u) => u.id === session?.userId), [full.users, session]);
   const license = useMemo<Store['license']>(() => UI_PREVIEW || session?.demo ? previewState().license : licenseState(cache?.license, session?.companyId ?? ''), [session, cache?.license]);
   const licensed = license.state === 'active';
+  const modules = useMemo(() => (session?.demo ? [ERP_MODULE] : licenseModules(license)), [license, session?.demo]);
+  const erp = modules.includes(ERP_MODULE);
   const autosave = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const run = useCallback(
@@ -333,6 +343,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             : 'Your company’s Ava CRM licence is not active, so data is read-only. Your administrator can renew it.',
         );
       }
+      if (!erp && ERP_TYPES.has(m.type)) throw new RuleError(`${ERP_NAME} is not switched on for your company. Your administrator can add it in Company settings › Subscription.`);
       const now = new Date();
       // Check the change exactly as every device will when it replays the journal, so anything
       // replay would drop fails here, visibly, instead of vanishing after the next sync.
@@ -369,7 +380,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }, AUTOSAVE_MS);
       }
     },
-    [setFull, setCache, licensed, license, syncNow],
+    [setFull, setCache, licensed, license, erp, syncNow],
   );
 
   const enterCloud = useCallback(
@@ -518,6 +529,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       license,
       licenseFile: cache?.license,
       canEdit: licensed,
+      modules,
+      erp,
       activity,
       getAccount: (id) => accountById.get(id),
       getCall: (id) => callById.get(id),
@@ -536,7 +549,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       clearRejected: () => setSync((x) => ({ ...x, rejected: [] })),
       drive: () => (session?.mode === 'cloud' && !UI_PREVIEW && !session.demo ? adapterFor(session.folder) : null),
     };
-  }, [full, me, ready, session, sync, license, licensed, cache?.license, activity, run, enterCloud, enterDemo, signOut, signInAs, backToOwnAccount, syncNow, uploadNow, saveLicense]);
+  }, [full, me, ready, session, sync, license, licensed, modules, erp, cache?.license, activity, run, enterCloud, enterDemo, signOut, signInAs, backToOwnAccount, syncNow, uploadNow, saveLicense]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

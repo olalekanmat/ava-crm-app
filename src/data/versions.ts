@@ -46,6 +46,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.11.0',
+    items: [
+      { icon: 'cart-outline', title: 'Ava ERP: sell and invoice', body: 'An optional add-on. Make a sale from a visit in a few taps, with a numbered invoice you can share as a PDF or on WhatsApp.' },
+      { icon: 'cash-outline', title: 'Payments and balances', body: 'Record full or part payments with receipts, see what each customer owes, set credit limits and send statements.' },
+      { icon: 'cube-outline', title: 'Stock', body: 'Warehouse and personal stock that goes down with every sale, with low-stock warnings.' },
+      { icon: 'pie-chart-outline', title: 'Sales dashboard', body: 'Sales today and this month, money owed and overdue, top products and sales by person.', who: 'manager' },
+      { icon: 'card-outline', title: 'Add Ava ERP', body: 'Switch it on during setup or add it from Company settings › Subscription on the web.', who: 'admin' },
+    ],
+  },
+  {
     version: '2.10.0',
     items: [
       { icon: 'eye-outline', title: 'Sign in as a user', body: 'From Users & roles, open the app exactly as one of your people to see what they see or fix something for them. A banner takes you back; every time is listed for all administrators.', who: 'admin' },

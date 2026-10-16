@@ -1,4 +1,4 @@
-import { ROLE_LABEL, type Snapshot, type User } from './types';
+import { ROLE_LABEL, WAREHOUSE, type Snapshot, type User } from './types';
 
 /** True for administrators, including a Rep, FLM or SLM who is also an administrator. */
 export const isAdmin = (u?: User | null): boolean => !!u && (u.role === 'Admin' || u.admin === true);
@@ -86,6 +86,9 @@ export function scopeSnapshot(s: Snapshot, user: User): Snapshot {
     accountChanges: s.accountChanges?.filter((x) => owners.has(x.byId) || s.accounts.some((a) => a.id === x.accountId && owners.has(a.ownerId))),
     sampleCounts: s.sampleCounts?.filter((x) => owners.has(x.repId)),
     sampleRequests: s.sampleRequests?.filter((x) => owners.has(x.repId)),
+    // 2.11: sales of the people in view; stock of their places, and the warehouse for managers.
+    invoices: s.invoices?.filter((x) => owners.has(x.ownerId)),
+    stockMoves: s.stockMoves?.filter((x) => [x.from, x.to].some((p) => p !== undefined && (owners.has(p) || (p === WAREHOUSE && user.role !== 'Rep')))),
   };
 }
 

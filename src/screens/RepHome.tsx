@@ -14,11 +14,11 @@ import { Screen } from '@/ui/Screen';
 import { LicenseBanner } from '@/ui/SyncCard';
 import { StatSplit, Tile } from '@/ui/Tiles';
 import { colors, space, tone } from '@/ui/theme';
-import { AlertsTile, CompanyTile, CyclePlanTile, greeting, HeroButton, HomeHeader, QuickActionsTile, ScheduleTile, SyncTile, TasksTile } from './HomeTiles';
+import { AlertsTile, CompanyTile, CyclePlanTile, greeting, HeroButton, HomeHeader, QuickActionsTile, ScheduleTile, SyncTile, TasksTile, SalesTile } from './HomeTiles';
 
 export function RepHome() {
   const me = useMe();
-  const { data, calls, cycle, getAccount, syncNow, sync } = useStore();
+  const { data, calls, cycle, getAccount, syncNow, sync, erp } = useStore();
   const { width, landscape, compact } = useLayout();
   const today = todayKey();
   const mine = calls.filter((c) => c.ownerId === me.id);
@@ -54,7 +54,7 @@ export function RepHome() {
         actions={
           <>
             <HeroButton title="Log a call" icon="add-circle-outline" onPress={() => router.push('/call/edit')} />
-            <HeroButton title="My plan" icon="flag-outline" onPress={() => router.navigate('/plan')} />
+            {erp ? <HeroButton title="New sale" icon="cart-outline" onPress={() => router.push('/erp/sale')} /> : <HeroButton title="My plan" icon="flag-outline" onPress={() => router.navigate('/plan')} />}
           </>
         }
       />
@@ -76,6 +76,7 @@ export function RepHome() {
             empty={`You have no plan for ${cycle.name} yet. Build one in a minute from your accounts.`}
           />
         ) : null}
+        <SalesTile key="sales" />
         <ScheduleTile key="today" calls={todays} />
         <Tile key="suggest" title="Suggestions" icon="bulb-outline" alert={behind.length > 0} onPress={() => router.navigate('/plan')}>
           <StatSplit

@@ -26,6 +26,8 @@ export interface LicensePayload {
   /** Set while the company is on a free trial (2.8); `limits` says what the trial allows. */
   trial?: boolean;
   limits?: TrialLimits;
+  /** Optional modules the company has switched on (2.11), e.g. "erp" for Ava ERP. */
+  modules?: string[];
 }
 
 /** What a free trial allows. The server sets these when the trial starts. */
@@ -137,6 +139,8 @@ export interface RegisterRequest {
   drive: { provider: string; folderUrl: string };
   server: string;
   appVersion?: string;
+  /** Optional modules the administrator picked at setup (2.11). */
+  modules?: string[];
 }
 
 const base = (server: string) => server.trim().replace(/\/+$/, '');
@@ -152,6 +156,13 @@ export const licenseApi = {
   register: (server: string, req: RegisterRequest) => post<{ status: LicenseStatus }>(`${base(server)}/api/register`, req),
   status: (server: string, companyId: string, statusKey: string) =>
     post<{ status: LicenseStatus; expiresAt?: string; token?: string; trial?: boolean }>(`${base(server)}/api/status`, { companyId, statusKey }),
+  /** Optional modules on sale with their price per user per month (2.11); older servers send none. */
+  modules: async (server = DEFAULT_LICENSE_SERVER) => {
+    const res = await fetch(`${base(server)}/api/pricing`);
+    if (!res.ok) throw new Error(`The server answered ${res.status}.`);
+    const p = (await res.json()) as { currency?: string; modules?: { id: string; name: string; perUserMonth: number }[] };
+    return { currency: p.currency ?? 'NGN', modules: p.modules ?? [] };
+  },
   /** The free trial new companies get (length and limits); older servers have none. */
   trial: async (server = DEFAULT_LICENSE_SERVER) => {
     const res = await fetch(`${base(server)}/api/trial`);
@@ -174,6 +185,12 @@ export function activeTrial(license: LicenseState): TrialLimits | undefined {
 /** True once a free trial has run out without the company subscribing: the app is closed to everyone. */
 export function trialEnded(license: LicenseState): boolean {
   return license.state === 'expired' && !!license.trial;
+}
+
+/** Optional modules the licence switches on. A lapsed licence keeps them so their data can still be read. */
+export function licenseModules(license: LicenseState): string[] {
+  const m = license.payload?.modules;
+  return Array.isArray(m) ? m.filter((x): x is string => typeof x === 'string') : [];
 }
 
 export const DEFAULT_TRIAL: TrialLimits = { days: 30, users: 5, hcps: 20, hcos: 20, products: 3, aiPerDay: 10 };

@@ -102,6 +102,13 @@ function RootNav() {
         <Stack.Screen name="admin/grid" options={{ title: 'Edit in a grid' }} />
         <Stack.Screen name="map" options={{ title: 'Accounts map' }} />
         <Stack.Screen name="tier-review" options={{ title: 'Tier review' }} />
+        <Stack.Screen name="erp/index" options={{ title: 'Ava ERP' }} />
+        <Stack.Screen name="erp/sale" options={{ title: 'New sale', presentation: 'modal' }} />
+        <Stack.Screen name="erp/invoice/[id]" options={{ title: 'Invoice' }} />
+        <Stack.Screen name="erp/customers" options={{ title: 'Customers' }} />
+        <Stack.Screen name="erp/customer/[id]" options={{ title: 'Customer' }} />
+        <Stack.Screen name="erp/stock" options={{ title: 'Stock' }} />
+        <Stack.Screen name="erp/settings" options={{ title: 'Prices & invoices' }} />
       </Stack.Protected>
       {/* Administrators subscribe here, also after a free trial has ended. */}
       <Stack.Protected guard={!!session}>
