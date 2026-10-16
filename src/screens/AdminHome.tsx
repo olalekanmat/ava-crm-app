@@ -14,7 +14,7 @@ import { CompanyTile, HeroButton, HomeHeader, SyncTile, SalesTile } from './Home
 
 export function AdminHome() {
   const me = useMe();
-  const { data, cycle, syncNow, sync, company, session } = useStore();
+  const { data, cycle, syncNow, sync, company, session, erp } = useStore();
   const reps = data.users.filter((u) => u.role === 'Rep' && u.active).length;
   const inCycle = cycle ? cycleCalls(data.calls, cycle).length : 0;
   return (
@@ -45,7 +45,7 @@ export function AdminHome() {
           />
           <Text style={{ marginTop: 12, textAlign: 'center', color: colors.faint, fontSize: 12 }}>{inCycle} calls submitted in {cycle?.name ?? 'this cycle'}</Text>
         </Tile>
-        <SalesTile key="sales" />
+        {erp && <SalesTile key="sales" />}
         <SyncTile key="sync" />
       </Grid>
 

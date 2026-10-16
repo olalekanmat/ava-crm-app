@@ -41,7 +41,8 @@ export function RepHome() {
   const next = nextVisits(data, me.id, cycle, new Date(), 4);
   // A phone held upright already shows the logo in the header.
   const showCompany = !compact && (width >= 600 || landscape);
-  // Three columns of tiles: a ninth tile completes the last row.
+  // Three columns of tiles: a ninth tile completes the last row. With Ava ERP the Sales tile is the
+  // ninth, so quick actions (whose New sale is already in the header) only show on phones.
   const wideGrid = width >= 930;
 
   return (
@@ -76,7 +77,7 @@ export function RepHome() {
             empty={`You have no plan for ${cycle.name} yet. Build one in a minute from your accounts.`}
           />
         ) : null}
-        <SalesTile key="sales" />
+        {erp && <SalesTile key="sales" />}
         <ScheduleTile key="today" calls={todays} />
         <Tile key="suggest" title="Suggestions" icon="bulb-outline" alert={behind.length > 0} onPress={() => router.navigate('/plan')}>
           <StatSplit
@@ -104,7 +105,7 @@ export function RepHome() {
           </Tile>
         ) : null}
         <SyncTile key="sync" />
-        {(wideGrid || compact) && (
+        {((wideGrid && !erp) || compact) && (
           <QuickActionsTile
             key="quick"
             actions={[
