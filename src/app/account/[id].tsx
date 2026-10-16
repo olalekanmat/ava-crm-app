@@ -16,6 +16,7 @@ import { Avatar, Banner, Button, Card, Empty, ProgressBar, Row, SectionTitle, Se
 import { confirm, notify } from '@/ui/confirm';
 import { Grid } from '@/ui/layout';
 import { currentFix } from '@/ui/location';
+import { AccountSales } from '@/ui/erp';
 import { Screen } from '@/ui/Screen';
 import { StatSplit } from '@/ui/Tiles';
 import { formatDate } from '@/data/dates';
@@ -190,6 +191,7 @@ export default function AccountScreen() {
           <Button title="Plan a visit" icon="calendar-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { accountId: account.id, plan: '1' } })} />
         </Row>
       )}
+      {!deleted && <AccountSales account={account} />}
       {!deleted && account.ownerId === me.id && (
         <View style={{ marginBottom: space.md }}>
           <BrochureShare account={account} />

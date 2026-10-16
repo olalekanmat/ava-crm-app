@@ -10,7 +10,7 @@ import { Screen } from '@/ui/Screen';
 import { LicenseBanner } from '@/ui/SyncCard';
 import { SetupChecklist } from '@/ui/SetupChecklist';
 import { colors, tone } from '@/ui/theme';
-import { CompanyTile, HeroButton, HomeHeader, SyncTile } from './HomeTiles';
+import { CompanyTile, HeroButton, HomeHeader, SyncTile, SalesTile } from './HomeTiles';
 
 export function AdminHome() {
   const me = useMe();
@@ -45,6 +45,7 @@ export function AdminHome() {
           />
           <Text style={{ marginTop: 12, textAlign: 'center', color: colors.faint, fontSize: 12 }}>{inCycle} calls submitted in {cycle?.name ?? 'this cycle'}</Text>
         </Tile>
+        <SalesTile key="sales" />
         <SyncTile key="sync" />
       </Grid>
 

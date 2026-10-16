@@ -7,6 +7,8 @@ import { normalizeProvider, type SetupProvider } from '@/cloud/drive';
 import { DEFAULT_TRIAL, licenseApi, type TrialLimits } from '@/cloud/license';
 import { api, DEFAULT_PASSWORD } from '@/cloud/relay';
 import { trialSummary } from '@/data/trial';
+import { ERP_MODULE, ERP_NAME } from '@/data/erp';
+import { money } from '@/ui/BillingCard';
 import type { Company } from '@/data/types';
 import { BrandTitle } from '@/ui/Brand';
 import { Banner, Button, Field, text, ToggleRow, type IconName } from '@/ui/components';
@@ -38,7 +40,7 @@ const PROVIDERS: { key: SetupProvider; title: string; icon: IconName; account: s
  * Microsoft or Google sign-in to link the drive where all of the company's data will be kept.
  */
 export default function SetupScreen() {
-  const params = useLocalSearchParams<{ error?: string; trial?: string }>();
+  const params = useLocalSearchParams<{ error?: string; trial?: string; erp?: string }>();
   const [company, setCompany] = useState<Company>({ name: '' });
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -52,8 +54,12 @@ export default function SetupScreen() {
   // New companies start on a free trial ("Start free trial" on the website links here with ?trial=1).
   const [trial, setTrial] = useState(params.trial !== '0');
   const [limits, setLimits] = useState<TrialLimits>(DEFAULT_TRIAL);
+  // Ava ERP (2.11): picked here or later from Company settings › Subscription. `?erp=1` on the link ticks it.
+  const [erp, setErp] = useState(params.erp === '1');
+  const [erpPrice, setErpPrice] = useState<{ perUserMonth: number; currency: string } | null>();
   useEffect(() => {
     licenseApi.trial().then(setLimits, () => {});
+    licenseApi.modules().then((m) => setErpPrice(m.modules.some((x) => x.id === ERP_MODULE) ? { ...m.modules.find((x) => x.id === ERP_MODULE)!, currency: m.currency } : null), () => {});
   }, []);
 
   const submit = async () => {
@@ -66,7 +72,7 @@ export default function SetupScreen() {
     if (password !== confirmPw) return setError('The two passwords do not match.');
     try {
       setBusy(`Preparing the ${choice.drive} link…`);
-      const r = await api.startSetup(cleanCompany(company), { name: name.trim(), email: email.trim().toLowerCase(), password }, provider, trial);
+      const r = await api.startSetup(cleanCompany(company), { name: name.trim(), email: email.trim().toLowerCase(), password }, provider, trial, erp && erpPrice !== null ? [ERP_MODULE] : []);
       // A server that does not know Google Drive yet would link OneDrive instead: say so rather than surprise.
       if (r.provider && normalizeProvider(r.provider) !== provider) throw new Error(`${choice.drive} cannot be linked right now. Choose ${provider === 'google' ? 'Microsoft OneDrive' : 'Google Drive'} or try again later.`);
       const { authorizeUrl } = r;
@@ -100,6 +106,18 @@ export default function SetupScreen() {
             }
           />
         </View>
+
+        {erpPrice !== null && (
+          <View style={[styles.card, erp && styles.trialCard]}>
+            <Text style={styles.step}>Optional · {ERP_NAME}</Text>
+            <ToggleRow
+              label={`Add ${ERP_NAME}: selling, invoices and stock`}
+              value={erp}
+              onChange={setErp}
+              hint={`Reps sell on the visit in a few taps and share the invoice on WhatsApp. Track payments, what each customer owes, and stock in the warehouse and with each rep.${erpPrice ? ` ${money(erpPrice.perUserMonth * 100, erpPrice.currency)} per user per month on top of Ava CRM${trial ? ', free during the trial' : ''}.` : ''} You can add or remove it later.`}
+            />
+          </View>
+        )}
 
         <View style={styles.card}>
           <Text style={styles.step}>1 · Company</Text>

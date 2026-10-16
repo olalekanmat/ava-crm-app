@@ -88,6 +88,8 @@ export interface Account {
   pendingReview?: boolean;
   /** Set when an administrator merged this duplicate into another account (it is then deleted). */
   mergedInto?: string;
+  /** Ava ERP (2.11): the most this customer may owe; set with account.credit. */
+  creditLimit?: number;
 }
 
 /** Account details a rep can ask to change; a manager or administrator approves (2.7). */
@@ -370,6 +372,13 @@ export interface Product {
   brochureUrl?: string;
   /** The approved slide presentation for calls (2.7); the slides are a file in the company folder. */
   deck?: DeckRef;
+  // ----- Ava ERP (2.11); a change that leaves these out keeps the current values -----
+  /** Selling price per unit, before VAT, in the company's currency. */
+  price?: number;
+  /** The company's stock code. */
+  sku?: string;
+  /** Sold without VAT (many medicines are zero-rated). */
+  vatExempt?: boolean;
 }
 
 /** Points to a presentation file in the company folder; `hash` proves the file is the one the administrator uploaded. */
@@ -418,6 +427,110 @@ export interface Settings {
   reviewNewAccounts?: boolean;
   /** Doctor's signature for samples: offered (absent), required, or not used. */
   sampleSignature?: SignatureRule;
+  /** Ava ERP (2.11): invoicing rules. Absent means the defaults (ERP_DEFAULTS). */
+  erp?: ErpSettings;
+}
+
+// ----- Ava ERP (2.11): selling, invoicing, payments and stock. Only used when the company has the ERP module. -----
+
+export interface ErpSettings {
+  /** ISO currency code, e.g. NGN. */
+  currency: string;
+  /** VAT charged on products that are not VAT-exempt, in percent. */
+  vatPercent: number;
+  /** Start of every invoice number, e.g. INV. */
+  prefix: string;
+  /** Days a customer has to pay. 0 means payment on delivery. */
+  termsDays: number;
+  /** Shown at the foot of every invoice: bank name, account number, account name. */
+  paymentDetails?: string;
+  /** Stock at or below this many units is flagged as low. */
+  lowStock: number;
+}
+
+export const ERP_DEFAULTS: ErpSettings = { currency: 'NGN', vatPercent: 7.5, prefix: 'INV', termsDays: 30, lowStock: 10 };
+
+/** Where stock is kept: the company warehouse ("main") or a person's own stock (their user id). */
+export type StockPlace = string;
+export const WAREHOUSE: StockPlace = 'main';
+
+export type StockMoveKind = 'receive' | 'transfer' | 'adjust';
+export const STOCK_MOVE_KINDS: StockMoveKind[] = ['receive', 'transfer', 'adjust'];
+
+/**
+ * Stock coming in (receive, to the warehouse), moving between places (transfer), or a correction
+ * after a count (adjust: `to` adds, `from` takes away). Sales take stock off through their invoice.
+ */
+export interface StockMove {
+  id: string;
+  kind: StockMoveKind;
+  product: string;
+  /** Always more than zero; the direction comes from `from` and `to`. */
+  qty: number;
+  from?: StockPlace;
+  to?: StockPlace;
+  batch?: string;
+  note?: string;
+  byId: string;
+  at: string;
+}
+
+export interface InvoiceLine {
+  product: string;
+  qty: number;
+  /** Price per unit before VAT. */
+  unitPrice: number;
+  /** Discount on this line, in percent. */
+  discountPercent?: number;
+  /** VAT on this line, in percent (0 for exempt products). Fixed when the invoice is made. */
+  vatPercent: number;
+}
+
+export type PaymentMethod = 'Cash' | 'Transfer' | 'POS' | 'Cheque' | 'Other';
+export const PAYMENT_METHODS: PaymentMethod[] = ['Transfer', 'Cash', 'POS', 'Cheque', 'Other'];
+
+export interface Payment {
+  id: string;
+  amount: number;
+  method: PaymentMethod;
+  /** YYYY-MM-DD the money was received. */
+  date: string;
+  reference?: string;
+  /** Receipt number, set by the rules: the invoice number plus -R1, -R2, ... */
+  receiptNo: string;
+  byId: string;
+  at: string;
+}
+
+export type InvoiceStatus = 'Issued' | 'Void';
+
+/**
+ * A sale to an account: the goods leave `stockFrom` and the customer owes the total until paid.
+ * Issued invoices are never edited; a mistake is voided (the stock goes back) and sold again.
+ */
+export interface Invoice {
+  id: string;
+  /** Set by the rules when the invoice is first applied, the same on every device. */
+  number: string;
+  accountId: string;
+  /** The person who made the sale. */
+  ownerId: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  dueDate: string;
+  lines: InvoiceLine[];
+  /** The customer's order reference (LPO number). */
+  orderRef?: string;
+  notes?: string;
+  stockFrom: StockPlace;
+  status: InvoiceStatus;
+  payments: Payment[];
+  voidReason?: string;
+  voidedBy?: string;
+  voidedAt?: string;
+  /** The visit the sale was made in, if any. */
+  callId?: string;
+  createdAt: string;
 }
 
 export type SignatureRule = 'optional' | 'required' | 'off';
@@ -501,6 +614,9 @@ export interface Snapshot {
   sampleCounts?: SampleCount[];
   // 2.8
   sampleRequests?: SampleRequest[];
+  // 2.11, Ava ERP
+  invoices?: Invoice[];
+  stockMoves?: StockMove[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -528,4 +644,6 @@ export const emptySnapshot = (company: Company = { name: '' }): Snapshot => ({
   accountChanges: [],
   sampleCounts: [],
   sampleRequests: [],
+  invoices: [],
+  stockMoves: [],
 });

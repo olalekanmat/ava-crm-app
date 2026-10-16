@@ -11,7 +11,7 @@ import { Screen } from '@/ui/Screen';
 import { WeeklyTile } from '@/ui/WeeklyTile';
 import { LicenseBanner } from '@/ui/SyncCard';
 import { colors, paceColor, space, tone } from '@/ui/theme';
-import { AlertsTile, CompanyTile, CyclePlanTile, HeroButton, HomeHeader, SyncTile } from './HomeTiles';
+import { AlertsTile, CompanyTile, CyclePlanTile, HeroButton, HomeHeader, SalesTile, SyncTile } from './HomeTiles';
 import { repHealth, TierCoverage } from './TeamDashboard';
 
 /**
@@ -64,6 +64,7 @@ export function RegionDashboard({ leader }: { leader: User }) {
             ]}
           />
         </Tile>
+        <SalesTile key="sales" />
         <SyncTile key="sync" />
       </Grid>
 

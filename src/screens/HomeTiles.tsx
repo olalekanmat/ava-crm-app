@@ -7,6 +7,7 @@ import { AskAvaBar } from '@/ai/AskAvaBar';
 import type { Pace } from '@/data/alerts';
 import { calendarState } from '@/data/calendar';
 import { formatDateTime } from '@/data/dates';
+import { erpSettings, formatMoneyShort, salesSummary, todayIso } from '@/data/erp';
 import { cycleElapsed, daysLeft, pct } from '@/data/metrics';
 import { useStore } from '@/data/store';
 import type { Call, Cycle } from '@/data/types';
@@ -281,3 +282,27 @@ const styles = StyleSheet.create({
   schedTime: { minWidth: 64, fontSize: 13, fontWeight: '700', color: colors.muted, fontVariant: ['tabular-nums'] },
   schedDot: { width: 8, height: 8, borderRadius: 4 },
 });
+
+/** Ava ERP (2.11): this month's sales and what is owed; only when the company has the module. */
+export function SalesTile() {
+  const { erp, data } = useStore();
+  if (!erp) return null;
+  const today = todayIso();
+  const s = salesSummary(data.invoices ?? [], `${today.slice(0, 7)}-01`, today, today);
+  const cur = erpSettings(data.settings).currency;
+  return (
+    <Tile title="Sales this month" icon="cart-outline" alert={s.overdue > 0} onPress={() => router.push('/erp')}>
+      <StatSplit
+        items={[
+          { value: formatMoneyShort(s.sales, cur), label: 'Sold', color: tone.normal },
+          { value: formatMoneyShort(s.owed, cur), label: 'Owed', color: s.owed ? tone.important : colors.faint },
+          { value: formatMoneyShort(s.overdue, cur), label: 'Overdue', color: s.overdue ? tone.urgent : colors.faint },
+        ]}
+        small
+      />
+      <Text style={[text.small, { marginTop: space.md, textAlign: 'center' }]}>
+        {s.invoices} invoice{s.invoices === 1 ? '' : 's'} · {formatMoneyShort(s.collected, cur)} collected
+      </Text>
+    </Tile>
+  );
+}

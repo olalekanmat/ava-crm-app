@@ -1,6 +1,6 @@
 import { RuleError, type Mutation, type SettingsKey } from './mutations';
 import { REPORT_COLUMNS } from './reports';
-import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, CHANNELS, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, type Account, type AccountChange, type AccountChanges, type Call, type CallObjective, type Coaching, type Company, type Cycle, type CyclePlan, type DeckRef, type GeoTag, type Leave, type MeetingEvent, type Product, type ReportDef, type ReportFilters, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type SlideView, type Task, type TierDef, type User } from './types';
+import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, CHANNELS, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, type Account, type AccountChange, type AccountChanges, type Call, type CallObjective, type Coaching, type Company, type Cycle, type ErpSettings, type Invoice, type Payment, type StockMove, PAYMENT_METHODS, STOCK_MOVE_KINDS, type CyclePlan, type DeckRef, type GeoTag, type Leave, type MeetingEvent, type Product, type ReportDef, type ReportFilters, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type SlideView, type Task, type TierDef, type User } from './types';
 
 /**
  * Rebuilds a mutation from untrusted JSON (a journal file in the company drive), keeping only
@@ -183,6 +183,10 @@ function product(v: unknown): Product {
   return {
     id: str(p.id, 'product id', 80), name: str(p.name, 'product name', 120), keyMessages: arr(p.keyMessages, 'key messages', 50).map((k) => str(k, 'key message', 300)), active: bool(p.active, 'active flag'),
     brochureUrl: optStr(p.brochureUrl, 'brochure link', 1000), deck: deck(p.deck),
+    // 2.11 ERP: absent keeps the current value; null (or a negative price), empty or false clears it.
+    price: p.price === undefined ? undefined : p.price === null ? -1 : numb(p.price, 'price'),
+    sku: p.sku === undefined ? undefined : p.sku === null ? '' : str(p.sku, 'stock code', 40),
+    vatExempt: p.vatExempt === undefined ? undefined : p.vatExempt === null ? false : bool(p.vatExempt, 'VAT setting'),
   };
 }
 
@@ -203,7 +207,46 @@ function settings(v: unknown): Partial<Pick<Settings, SettingsKey>> {
   if ('objectives' in s && s.objectives !== undefined) out.objectives = arr(s.objectives, 'objectives', 20).map((o) => str(o, 'objective', 200));
   if ('reviewNewAccounts' in s && s.reviewNewAccounts !== undefined) out.reviewNewAccounts = bool(s.reviewNewAccounts, 'review setting');
   if ('sampleSignature' in s && s.sampleSignature !== undefined) out.sampleSignature = oneOf(s.sampleSignature, ['optional', 'required', 'off'] as const, 'signature setting');
+  // 2.11
+  if ('erp' in s && s.erp !== undefined) out.erp = erp(s.erp);
   return out;
+}
+
+function erp(v: unknown): ErpSettings {
+  const e = obj(v, 'invoice settings');
+  return {
+    currency: str(e.currency, 'currency', 3), vatPercent: numb(e.vatPercent, 'VAT'), prefix: str(e.prefix, 'invoice prefix', 8),
+    termsDays: numb(e.termsDays, 'payment terms'), lowStock: numb(e.lowStock, 'low stock level'), paymentDetails: optStr(e.paymentDetails, 'payment details', 500),
+  };
+}
+
+// ----- 2.11, Ava ERP -----
+
+function invoice(v: unknown, now: string): Invoice {
+  const x = obj(v, 'invoice');
+  return {
+    id: str(x.id, 'invoice id', 80), number: '', accountId: str(x.accountId, 'customer', 80), ownerId: str(x.ownerId, 'seller', 80),
+    date: day(x.date, 'invoice date'), dueDate: day(x.dueDate, 'due date'),
+    lines: arr(x.lines, 'invoice lines', 50).map((l) => {
+      const o = obj(l, 'invoice line');
+      return { product: str(o.product, 'product', 120), qty: numb(o.qty, 'quantity'), unitPrice: numb(o.unitPrice, 'price'), discountPercent: optNum(o.discountPercent, 'discount'), vatPercent: numb(o.vatPercent, 'VAT') };
+    }),
+    orderRef: optStr(x.orderRef, 'order reference', 60), notes: optStr(x.notes, 'notes', 1000), stockFrom: str(x.stockFrom, 'stock place', 80),
+    status: 'Issued', payments: [], callId: optStr(x.callId, 'call', 80), createdAt: now,
+  };
+}
+
+function payment(v: unknown, now: string): Payment {
+  const p = obj(v, 'payment');
+  return { id: str(p.id, 'payment id', 80), amount: numb(p.amount, 'amount'), method: oneOf(p.method, PAYMENT_METHODS, 'payment method'), date: day(p.date, 'payment date'), reference: optStr(p.reference, 'payment reference', 80), receiptNo: '', byId: '', at: now };
+}
+
+function stockMove(v: unknown, now: string): StockMove {
+  const x = obj(v, 'stock change');
+  return {
+    id: str(x.id, 'id', 80), kind: oneOf(x.kind, STOCK_MOVE_KINDS, 'stock change'), product: str(x.product, 'product', 120), qty: numb(x.qty, 'quantity'),
+    from: optStr(x.from, 'stock place', 80), to: optStr(x.to, 'stock place', 80), batch: optStr(x.batch, 'batch', 60), note: optStr(x.note, 'note', 300), byId: '', at: now,
+  };
 }
 
 const COMPANY_FIELDS = ['name', 'address', 'city', 'country', 'phone', 'email', 'website', 'registrationNo'] as const;
@@ -417,6 +460,19 @@ export function sanitizeMutation(raw: unknown, at: Date): Mutation {
       return { type: m.type, id: str(m.id, 'id', 80), approve: bool(m.approve, 'decision'), note: optStr(m.note, 'note', 1000) };
     case 'sample.requestCancel':
       return { type: m.type, id: str(m.id, 'id', 80) };
+    // ----- 2.11, Ava ERP -----
+    case 'invoice.create':
+      return { type: m.type, invoice: invoice(m.invoice, now) };
+    case 'invoice.pay':
+      return { type: m.type, invoiceId: str(m.invoiceId, 'invoice', 80), payment: payment(m.payment, now) };
+    case 'invoice.unpay':
+      return { type: m.type, invoiceId: str(m.invoiceId, 'invoice', 80), paymentId: str(m.paymentId, 'payment', 80), reason: str(m.reason, 'reason', 300) };
+    case 'invoice.void':
+      return { type: m.type, id: str(m.id, 'invoice', 80), reason: str(m.reason, 'reason', 300) };
+    case 'stock.move':
+      return { type: m.type, move: stockMove(m.move, now) };
+    case 'account.credit':
+      return { type: m.type, id: str(m.id, 'account', 80), limit: optNum(m.limit, 'credit limit') };
     default:
       return bad('change type');
   }

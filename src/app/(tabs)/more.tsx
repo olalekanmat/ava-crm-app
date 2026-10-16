@@ -16,7 +16,7 @@ import { colors, space } from '@/ui/theme';
 
 export default function MoreScreen() {
   const me = useMe();
-  const { session, sync, signOut, getUser, company, admin } = useStore();
+  const { session, sync, signOut, getUser, company, admin, erp } = useStore();
   const manager = getUser(me.managerId);
   const drive = providerLabel(session?.folder.provider);
 
@@ -46,6 +46,18 @@ export default function MoreScreen() {
         <>
           <SectionTitle>Sync</SectionTitle>
           <SyncCard />
+        </>
+      )}
+
+      {erp && (
+        <>
+          <SectionTitle>Ava ERP</SectionTitle>
+          <Card style={{ padding: 0 }}>
+            <ListRow icon="add-circle-outline" title="New sale" subtitle="Sell and invoice in a few taps" onPress={() => router.push('/erp/sale')} />
+            <ListRow icon="stats-chart-outline" tone={colors.success} title="Sales & invoices" subtitle="What was sold, collected and is owed" onPress={() => router.push('/erp')} />
+            <ListRow icon="people-outline" tone={colors.primaryInk} title="Customers & balances" subtitle="Who owes what, statements" onPress={() => router.push('/erp/customers')} />
+            <ListRow icon="cube-outline" tone={colors.orange} title="Stock" subtitle={me.role === 'Rep' ? 'What you hold' : 'Warehouse and team stock'} onPress={() => router.push('/erp/stock')} />
+          </Card>
         </>
       )}
 

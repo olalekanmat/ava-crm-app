@@ -140,8 +140,9 @@ export const api = {
   changePassword: (token: string, currentPassword: string, newPassword: string) => call<{ token: string }>('POST', 'auth/password', { token, body: { currentPassword, newPassword } }),
   resetPassword: (token: string, email: string) => call<{ ok: true; password: string }>('POST', 'admin/reset-password', { token, body: { email } }),
   /** `provider` picks where the company's data lives; servers without Google Drive support ignore it. */
-  startSetup: (company: Company, admin: { name: string; email: string; password: string }, provider: SetupProvider = 'onedrive', trial = false) =>
-    call<{ authorizeUrl: string; provider?: string }>('POST', 'setup/start', { body: { company, admin, provider, ...(trial ? { trial: true } : {}) } }),
+  /** `modules` (2.11): optional modules the administrator picked, e.g. ["erp"]. */
+  startSetup: (company: Company, admin: { name: string; email: string; password: string }, provider: SetupProvider = 'onedrive', trial = false, modules: string[] = []) =>
+    call<{ authorizeUrl: string; provider?: string }>('POST', 'setup/start', { body: { company, admin, provider, ...(trial ? { trial: true } : {}), ...(modules.length ? { modules } : {}) } }),
   /**
    * Deletes the signed-in person's account after checking their password. The company's only
    * administrator must pass `closeCompany`: the server then forgets the whole company.
@@ -154,7 +155,7 @@ export const api = {
   actAsEnd: (token: string) => call<{ ok: true }>('POST', 'auth/act-as-end', { token, body: {} }),
   actAsLog: (token: string) => call<{ entries: ActAsRecord[] }>('GET', 'admin/act-as', { token }),
   billingQuote: (token: string, pick: BillingPick) =>
-    call<BillingQuote>('GET', `billing/quote?kind=${pick.kind}&months=${pick.months}&seats=${pick.seats}`, { token }),
+    call<BillingQuote>('GET', `billing/quote?kind=${pick.kind}&months=${pick.months}&seats=${pick.seats}${pick.modules ? `&modules=${encodeURIComponent(pick.modules.join(','))}` : ''}`, { token }),
   /** Starts a Paystack payment; returns the checkout page to open. `expectedAmount` guards against a price change in between. */
   billingCheckout: (token: string, pick: BillingPick, expectedAmount: number) =>
     call<{ url: string; reference: string }>('POST', 'billing/checkout', { token, body: { ...pick, expectedAmount } }),
@@ -162,10 +163,14 @@ export const api = {
     call<{ status: string; subscriptionEnd?: string; seats?: number }>('GET', `billing/verify?reference=${encodeURIComponent(reference)}`, { token }),
 };
 
-/** renew: `seats` licences for `months` months after the current end. add: `seats` more licences until the current end. */
-export interface BillingPick { kind: 'renew' | 'add'; months: number; seats: number }
+/**
+ * renew: `seats` licences for `months` months after the current end, with `modules` (absent keeps
+ * the company's own). add: `seats` more licences until the current end. module: `modules` switched
+ * on for the licences already paid for, until the current end (2.11).
+ */
+export interface BillingPick { kind: 'renew' | 'add' | 'module'; months: number; seats: number; modules?: string[] }
 export interface PriceQuote {
-  kind: 'renew' | 'add';
+  kind: 'renew' | 'add' | 'module';
   months: number;
   days: number;
   seats: number;
@@ -176,6 +181,9 @@ export interface PriceQuote {
   subtotal: number;
   discounts: { label: string; percent: number; amount: number; until?: string }[];
   amount: number;
+  /** Modules included in the price (2.11), with their price per user per month. */
+  modules?: string[];
+  modulePrices?: { id: string; name: string; perUserMonth: number }[];
 }
 export interface BillingQuote {
   configured: boolean;
@@ -187,7 +195,9 @@ export interface BillingQuote {
   promotion: { label: string; percent: number; until?: string } | null;
   activeUsers: number;
   quote: PriceQuote;
-  licence?: { status: string; subscriptionEnd?: string; seats?: number | null; trial?: { startedAt: string; endsAt: string } | null; payments?: { at: string; kind?: string; amount: number; currency: string; months: number; seats: number; reference: string }[] };
+  /** Optional modules the company can buy or has (2.11); older servers send none. */
+  modules?: { id: string; perUserMonth: number; active: boolean }[];
+  licence?: { status: string; subscriptionEnd?: string; seats?: number | null; modules?: string[]; trial?: { startedAt: string; endsAt: string } | null; payments?: { at: string; kind?: string; amount: number; currency: string; months: number; seats: number; modules?: string[]; reference: string }[] };
 }
 
 /** The company folder, reached through the server with this person's sign-in. */
