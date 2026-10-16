@@ -97,7 +97,7 @@ export function TeamHeroStats({ r }: { r: Rollup }) {
 
 /** First-line manager view: the reps reporting to `manager`. */
 export function TeamDashboard({ manager }: { manager: User }) {
-  const { data, cycle, calls, syncNow, sync } = useStore();
+  const { data, cycle, calls, syncNow, sync, erp } = useStore();
   if (!cycle) return <Screen><LicenseBanner /><Empty>No planning cycle found. Pull down to refresh.</Empty></Screen>;
   const r = teamRollup(data, manager, cycle);
   const elapsed = cycleElapsed(cycle);
@@ -145,7 +145,7 @@ export function TeamDashboard({ manager }: { manager: User }) {
             ]}
           />
         </Tile>
-        <SalesTile key="sales" />
+        {erp && <SalesTile key="sales" />}
         <ScheduleTile key="today" calls={todays} showRep />
         <SyncTile key="sync" />
       </Grid>

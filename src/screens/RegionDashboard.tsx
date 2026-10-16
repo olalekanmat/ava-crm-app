@@ -19,7 +19,7 @@ import { repHealth, TierCoverage } from './TeamDashboard';
  * Admins see the same view for the whole organisation.
  */
 export function RegionDashboard({ leader }: { leader: User }) {
-  const { data, cycle, syncNow, sync, company } = useStore();
+  const { data, cycle, syncNow, sync, company, erp } = useStore();
   if (!cycle) return <Screen><LicenseBanner /><Empty>No planning cycle found. Pull down to refresh.</Empty></Screen>;
   const elapsed = cycleElapsed(cycle);
   const flms = leader.role === 'Admin' ? data.users.filter((u) => u.role === 'FLM' && u.active) : data.users.filter((u) => u.managerId === leader.id && u.role === 'FLM' && u.active);
@@ -64,7 +64,7 @@ export function RegionDashboard({ leader }: { leader: User }) {
             ]}
           />
         </Tile>
-        <SalesTile key="sales" />
+        {erp && <SalesTile key="sales" />}
         <SyncTile key="sync" />
       </Grid>
 
