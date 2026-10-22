@@ -29,6 +29,8 @@ const SETUP_URL = 'https://avahealthcareltd.com/AvaCRM/app/setup';
 export default function SignInScreen() {
   const { enterCloud, enterDemo } = useStore();
   const [demo, setDemo] = useState(false);
+  /** Someone who signed in on this device before sees the sign-in form first, not the demo. */
+  const [returning, setReturning] = useState(false);
   const params = useLocalSearchParams<{ company?: string; email?: string; setup?: string; provider?: string; trial?: string }>();
   const [code, setCode] = useState(params.company ?? '');
   const [email, setEmail] = useState(params.email ?? '');
@@ -50,6 +52,7 @@ export default function SignInScreen() {
     if (params.company) return;
     loadJson<{ code: string; email: string }>(REMEMBER).then((r) => {
       if (r) {
+        setReturning(true);
         setCode((c) => c || r.code);
         setEmail((e) => e || r.email);
       }
@@ -150,9 +153,34 @@ export default function SignInScreen() {
     });
 
   const setUp = () => {
-    if (Platform.OS === 'web') router.push('/setup');
-    else WebBrowser.openBrowserAsync(SETUP_URL);
+    if (Platform.OS === 'web') router.push({ pathname: '/setup', params: { trial: '1' } });
+    else WebBrowser.openBrowserAsync(`${SETUP_URL}?trial=1`);
   };
+
+  const demoCard = (
+    <View style={styles.card}>
+      <Text style={text.title}>Just looking?</Text>
+      <Text style={[text.muted, { marginBottom: space.sm }]}>Try Ava CRM with a demo company. No sign-in needed.</Text>
+      <Button title="Try the demo" icon="sparkles-outline" onPress={() => setDemo((x) => !x)} disabled={!!busy} />
+      {demo && (
+        <View style={{ marginTop: space.sm }}>
+          <Text style={[text.muted, { marginBottom: space.xs }]}>Look around with made-up data. Nothing is saved. Choose whose view to see:</Text>
+          {DEMO_ROLES.map((r) => (
+            <ListRow
+              key={r.key}
+              icon={r.key === 'rep' ? 'walk-outline' : r.key === 'admin' ? 'settings-outline' : 'people-outline'}
+              title={r.label}
+              subtitle={r.hint}
+              onPress={() => {
+                enterDemo(r.userId);
+                setTimeout(() => router.push('/tour'), 400);
+              }}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -165,6 +193,8 @@ export default function SignInScreen() {
             <Text style={styles.name}>Ava CRM</Text>
             <Text style={styles.tagline}>by Ava Healthcare Limited</Text>
           </View>
+
+          {!returning && !params.company && demoCard}
 
           <View style={styles.card}>
             {params.setup === 'done' && !pending && <Banner tone="success">Your company is set up and {providerLabel(normalizeProvider(params.provider))} is linked. Sign in with the password you chose. Your company code is {params.company}.</Banner>}
@@ -248,26 +278,11 @@ export default function SignInScreen() {
           <View style={styles.card}>
             <Text style={text.title}>New to Ava CRM?</Text>
             <Text style={[text.muted, { marginBottom: space.sm }]}>Company administrators set up the company once and link the company’s OneDrive or Google Drive, where all of its data is kept. Everyone else just signs in.</Text>
-            <Button title="Set up a new company" variant="secondary" icon="business-outline" onPress={setUp} disabled={!!busy} />
-            <Button title="Explore a demo company" variant="ghost" icon="sparkles-outline" onPress={() => setDemo((x) => !x)} disabled={!!busy} />
-            {demo && (
-              <View style={{ marginTop: space.sm }}>
-                <Text style={[text.muted, { marginBottom: space.xs }]}>Look around with made-up data. Nothing is saved. Choose whose view to see:</Text>
-                {DEMO_ROLES.map((r) => (
-                  <ListRow
-                    key={r.key}
-                    icon={r.key === 'rep' ? 'walk-outline' : r.key === 'admin' ? 'settings-outline' : 'people-outline'}
-                    title={r.label}
-                    subtitle={r.hint}
-                    onPress={() => {
-                      enterDemo(r.userId);
-                      setTimeout(() => router.push('/tour'), 400);
-                    }}
-                  />
-                ))}
-              </View>
-            )}
+            <Button title="Start a free trial" variant="secondary" icon="rocket-outline" onPress={setUp} disabled={!!busy} />
+            <Text style={[text.small, { marginTop: space.xs, textAlign: 'center' }]}>Sets up your company. No card needed.</Text>
           </View>
+
+          {(returning || !!params.company) && demoCard}
         </ScrollView>
       </LinearGradient>
     </KeyboardAvoidingView>

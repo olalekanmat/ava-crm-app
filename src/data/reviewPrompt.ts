@@ -17,3 +17,13 @@ export function shouldAskForReview(s: ReviewState, now: Date): boolean {
   const last = Date.parse(s.askedAt);
   return !Number.isFinite(last) || now.getTime() - last >= REVIEW_GAP_DAYS * 86_400_000;
 }
+
+export const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.avacrm.app&showAllReviews=true';
+export const FEEDBACK_EMAIL = 'hello@avahealthcareltd.com';
+
+/** A mailto link for "Send feedback", with the version and platform filled in so replies can help. */
+export function feedbackMail(version: string, platform: string): string {
+  const subject = `Ava CRM feedback (${version}, ${platform})`;
+  const body = 'Tell us what you like, what is missing or what went wrong:\n\n';
+  return `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
