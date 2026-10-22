@@ -21,6 +21,7 @@ import { confirm, notify } from '@/ui/confirm';
 import { currentFix } from '@/ui/location';
 import { Screen } from '@/ui/Screen';
 import { remindersSupported } from '@/ui/reminders';
+import { recordWin } from '@/ui/reviewPrompt';
 import { colors, radius, space } from '@/ui/theme';
 
 /** Objectives from an earlier call, without their results, for a repeated call. */
@@ -33,7 +34,7 @@ const clock = () => Date.now();
 export default function EditCallScreen() {
   const params = useLocalSearchParams<{ id?: string; accountId?: string; plan?: string; repeat?: string }>();
   const me = useMe();
-  const { accounts, products, data, getAccount, getCall, run, callsForAccount } = useStore();
+  const { accounts, products, data, getAccount, getCall, run, callsForAccount, session } = useStore();
   const existing = params.id ? getCall(params.id) : undefined;
   // 2.9: ?repeat=<callId> starts a new call from an earlier one (products, key messages, objectives).
   const template = !existing && params.repeat ? getCall(params.repeat) : undefined;
@@ -209,6 +210,7 @@ export default function EditCallScreen() {
         }
         if (tidyLater && status === 'Saved' && notes.trim()) queueTidy(me.id, id).catch(() => {});
         router.dismissTo({ pathname: '/call/[id]', params: { id } });
+        if (status === 'Submitted') recordWin(!!session?.demo || !!session?.actingAs);
       } catch (e) {
         notify('Not saved', e instanceof Error ? e.message : String(e));
       }
