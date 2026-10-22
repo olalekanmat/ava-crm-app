@@ -15,6 +15,7 @@ import { tierFrequency, tierRank, tiersFor } from '@/data/tiers';
 import type { Cycle, PlanTarget } from '@/data/types';
 import { Banner, Button, Card, Chip, Empty, Field, PlanBadge, ProgressBar, Row, SectionTitle, Stepper, TierBadge, UserAvatar, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
+import { recordWin } from '@/ui/reviewPrompt';
 import { colors, paceColor, space } from '@/ui/theme';
 
 /** Working days (Mon–Fri) from tomorrow until the cycle ends. */
@@ -29,7 +30,7 @@ function workingDaysLeft(cycle: Cycle): number {
 /** A rep's plan for one cycle: build it, track it, submit it, or (as a manager) review it. */
 export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) {
   const me = useMe();
-  const { data, accounts, calls, getAccount, getUser, run } = useStore();
+  const { data, accounts, calls, getAccount, getUser, run, session } = useStore();
   const [note, setNote] = useState('');
   const [adding, setAdding] = useState(false);
   const [showChanges, setShowChanges] = useState(false);
@@ -198,7 +199,10 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
           <Text style={text.h2}>Review this plan</Text>
           <Field label="Note to the rep" value={note} onChangeText={setNote} placeholder="Required when requesting changes" multiline />
           <Row>
-            <Button title="Approve" icon="checkmark-circle-outline" onPress={() => attempt(() => run({ type: 'plan.review', id: plan.id, approve: true, note }))} />
+            <Button title="Approve" icon="checkmark-circle-outline" onPress={() => attempt(() => {
+              run({ type: 'plan.review', id: plan.id, approve: true, note });
+              recordWin(!!session?.demo || !!session?.actingAs);
+            })} />
             <Button title="Request changes" variant="danger" onPress={() => attempt(() => run({ type: 'plan.review', id: plan.id, approve: false, note }))} />
           </Row>
         </Card>
