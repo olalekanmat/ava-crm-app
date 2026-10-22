@@ -46,6 +46,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.11.2',
+    items: [
+      { icon: 'sparkles-outline', title: 'Easier to try', body: 'The sign-in screen now offers the demo company and a free trial up front, so colleagues can see Ava CRM before their company signs up.' },
+      { icon: 'chatbubble-ellipses-outline', title: 'Rate and send feedback', body: 'Find Rate Ava CRM and Send feedback under More. Your ideas go straight to the Ava CRM team.' },
+    ],
+  },
+  {
     version: '2.11.0',
     items: [
       { icon: 'cart-outline', title: 'Ava ERP: sell and invoice', body: 'An optional add-on. Make a sale from a visit in a few taps, with a numbered invoice you can share as a PDF or on WhatsApp.' },

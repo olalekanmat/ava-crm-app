@@ -1,10 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { Text, View } from 'react-native';
+import { Linking, Platform, Text, View } from 'react-native';
 import { providerLabel } from '@/cloud/drive';
+import { APP_VERSION } from '@/cloud/relay';
 import { roleLabel } from '@/data/access';
 import { canViewReports } from '@/data/reports';
+import { feedbackMail, PLAY_URL } from '@/data/reviewPrompt';
 import { useMe, useStore } from '@/data/store';
 import { BrandTitle } from '@/ui/Brand';
 import { Button, Card, ListRow, Row, SectionTitle, UserAvatar, text } from '@/ui/components';
@@ -80,6 +82,8 @@ export default function MoreScreen() {
         <ListRow icon="contrast-outline" title="Display & calendar" subtitle="Dark mode, text size, phone calendar" onPress={() => router.push('/appearance')} />
         <ListRow icon="sparkles-outline" tone={colors.orange} title="What’s new" subtitle="What changed in this version" onPress={() => router.push('/whats-new')} />
         <ListRow icon="compass-outline" tone={colors.primary} title="Take the tour" subtitle="A quick look at what Ava can do" onPress={() => router.push('/tour')} />
+        {Platform.OS !== 'ios' && <ListRow icon="star-outline" tone={colors.orange} title="Rate Ava CRM" subtitle="Tell others what you think on Google Play" onPress={() => Linking.openURL(PLAY_URL)} />}
+        <ListRow icon="chatbubble-ellipses-outline" tone={colors.success} title="Send feedback" subtitle="Ideas or problems? Tell us directly" onPress={() => Linking.openURL(feedbackMail(APP_VERSION, Platform.OS))} />
       </Card>
 
       <SectionTitle>Account</SectionTitle>
