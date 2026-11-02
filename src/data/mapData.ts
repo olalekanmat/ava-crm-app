@@ -91,7 +91,10 @@ export function fitBounds(points: Pick<Account, 'lat' | 'lng'>[], w: number, h: 
   return { lat: (box.n + box.s) / 2, lng: (box.e + box.w) / 2, zoom: 3 };
 }
 
-/** Where the map pictures come from (2.12.1). Set on the website in AvaCRM/app-config.json as "mapTiles". */
+/**
+ * Where the map pictures come from (2.12.1). Set on the website in AvaCRM/app-config.json as "mapTiles2"
+ * (2.12.2+; phones send the site as Referer, which keys limited to avahealthcareltd.com need) or "mapTiles".
+ */
 export interface TileSource {
   /** https URL with {z}, {x} and {y}, e.g. a provider's 256-pixel PNG tiles with its key in the query. */
   url: string;
@@ -103,7 +106,8 @@ export const OSM_TILES: TileSource = { url: 'https://tile.openstreetmap.org/{z}/
 
 /** The tile source in the website's app settings, or OpenStreetMap when none is set or it looks wrong. */
 export function parseTileSource(config: unknown): TileSource {
-  const t = (config as { mapTiles?: { url?: unknown; attribution?: unknown } } | null)?.mapTiles;
+  const c = config as { mapTiles?: { url?: unknown; attribution?: unknown }; mapTiles2?: { url?: unknown; attribution?: unknown } } | null;
+  const t = c?.mapTiles2 ?? c?.mapTiles;
   const url = typeof t?.url === 'string' ? t.url.trim() : '';
   if (!/^https:\/\/[^\s]+$/.test(url) || !['{z}', '{x}', '{y}'].every((k) => url.includes(k))) return OSM_TILES;
   const attribution = typeof t?.attribution === 'string' && t.attribution.trim() ? t.attribution.trim().slice(0, 120) : '© OpenStreetMap contributors';
