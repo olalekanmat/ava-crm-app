@@ -46,6 +46,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.12.1',
+    items: [
+      { icon: 'cloud-upload-outline', title: 'Smaller uploads', body: 'Saving now sends only your new changes instead of your whole history, so it stays quick however long you have used Ava CRM.' },
+    ],
+  },
+  {
     version: '2.12.0',
     items: [
       { icon: 'sync-outline', title: 'Faster, lighter sync', body: 'Each sync is now one quick request that brings only your colleagues’ new changes, so it uses less mobile data and works better on weak signal.' },

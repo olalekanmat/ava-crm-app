@@ -121,6 +121,24 @@ function knownFiles(c: CloudCache): Record<string, DriveSyncKnown> {
   return known;
 }
 
+/** Set once the server has answered that it has no drive/append (an older server). */
+let appendUnavailable = false;
+
+/** Uploads only this device's new entries, or returns undefined when the whole journal must go. */
+async function appendNew(drive: DriveAdapter, c: CloudCache, name: string, remote: DriveFile | undefined): Promise<DriveFile | undefined> {
+  const last = c.own.entries[c.uploaded - 1];
+  if (!drive.append || appendUnavailable || !remote || !last || remote.version !== c.ownVersion || c.uploaded >= c.own.entries.length) return undefined;
+  try {
+    return await drive.append({ name, base: remote.version, from: c.uploaded, seq: last.seq, at: last.at, entries: c.own.entries.slice(c.uploaded) });
+  } catch (e) {
+    if (!(e instanceof DriveError)) throw e;
+    if ((e.status === 404 || e.status === 405) && !e.code) appendUnavailable = true;
+    // A changed copy in the drive (409) or anything else the server refused: send the whole journal.
+    if (e.status === 409 || e.status === 404 || e.status === 405 || e.status === 413) return undefined;
+    throw e;
+  }
+}
+
 /** The folder list and changed files in one request (2.12), or undefined when the drive cannot. */
 async function batchSync(drive: DriveAdapter, c: CloudCache, opts: SyncOptions): Promise<DriveSyncResult | undefined> {
   if (!drive.sync || batchUnavailable) return undefined;
@@ -207,7 +225,9 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
   if (c.uploaded < c.own.entries.length || !ownRemote) {
     if (c.own.entries.length || ownRemote) {
       const count = c.own.entries.length;
-      const written = await drive.write(ownName, JSON.stringify(c.own), 'application/json', ownRemote?.id ?? c.ownFileId);
+      // Only the new entries (2.12.1) when the drive has exactly what this device last uploaded;
+      // otherwise (or from an older server) the whole journal, as before.
+      const written = (await appendNew(drive, c, ownName, ownRemote)) ?? (await drive.write(ownName, JSON.stringify(c.own), 'application/json', ownRemote?.id ?? c.ownFileId));
       c.ownFileId = written.id;
       c.ownVersion = written.version;
       c.uploaded = count;

@@ -53,6 +53,22 @@ export interface DriveAdapter {
    * entries after the ones this device has. Drives without it are listed and read file by file.
    */
   sync?(req: DriveSyncRequest): Promise<DriveSyncResult>;
+  /**
+   * Adds entries to this device's journal in the drive without sending the whole file (2.12.1).
+   * Throws DriveError 409 when the drive's copy is not the version and length this device expects.
+   */
+  append?(req: DriveAppendRequest): Promise<DriveFile>;
+}
+
+export interface DriveAppendRequest {
+  name: string;
+  /** The journal's version in the drive after this device's last upload. */
+  base: string;
+  /** How many entries the drive has, and the last one's seq and time. */
+  from: number;
+  seq: number;
+  at: string;
+  entries: JournalEntry[];
 }
 
 /** What this device already has of a file, by file id (or by name when it keeps no id). */
@@ -123,7 +139,7 @@ export class MemoryDrive {
   private next = 1;
 
   /** Requests each device made, by kind, so tests can count them. */
-  calls = { list: 0, read: 0, write: 0, sync: 0 };
+  calls = { list: 0, read: 0, write: 0, sync: 0, append: 0 };
 
   as(email: string, folderId = 'mem-folder', { batch = false }: { batch?: boolean } = {}): DriveAdapter {
     const self = this;
@@ -158,6 +174,17 @@ export class MemoryDrive {
       adapter.sync = async (req) => {
         self.calls.sync++;
         return answerSync([...self.files].map(([id, f]) => ({ id, name: f.name, version: String(f.version), content: f.content })), req);
+      };
+      adapter.append = async (req) => {
+        self.calls.append++;
+        const hit = [...self.files].find(([, f]) => f.name === req.name);
+        const j = hit && (JSON.parse(hit[1].content) as JournalFile);
+        const last = j?.entries[req.from - 1];
+        if (!hit || !j || String(hit[1].version) !== req.base || j.entries.length !== req.from || last?.seq !== req.seq || last?.at !== req.at) {
+          throw new DriveError('The journal in the drive changed. Sending all of it.', 409, 'append_conflict');
+        }
+        self.files.set(hit[0], { ...hit[1], content: JSON.stringify({ ...j, entries: [...j.entries, ...req.entries] }), version: hit[1].version + 1, modifiedBy: email });
+        return meta(hit[0]);
       };
     }
     return adapter;

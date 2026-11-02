@@ -5,7 +5,7 @@ import { scopeSnapshot } from '../src/data/access';
 import { ACCOUNT_GRID, applyEdits, USER_GRID } from '../src/data/grid';
 import { describeHandover, handover } from '../src/data/handover';
 import { inviteMessage, whatsappLink } from '../src/data/invite';
-import { fitBounds, project, unproject, visitStatus } from '../src/data/mapData';
+import { OSM_TILES, fitBounds, parseTileSource, project, tileAddress, unproject, visitStatus } from '../src/data/mapData';
 import { applyMutation, type Mutation } from '../src/data/mutations';
 import { nextCyclePlan } from '../src/data/nextPlan';
 import { batchStock, sampleStock } from '../src/data/samples';
@@ -251,4 +251,14 @@ test('condensed history: starting from a checkpoint gives the same data as repla
   const later = new Date('2026-12-20T12:00:00.000Z');
   const cp2 = buildCheckpoint(genesis, sources, later, cp, 1)!;
   assert.deepEqual(json(replay(genesis, sources, later, JSON.parse(JSON.stringify(cp2))).snapshot), json(replay(genesis, sources, later).snapshot));
+});
+
+test('map tiles come from the website settings, OpenStreetMap otherwise (2.12.1)', () => {
+  assert.deepEqual(parseTileSource(null), OSM_TILES);
+  assert.deepEqual(parseTileSource({ mapTiles: { url: 'http://x/{z}/{x}/{y}.png' } }), OSM_TILES, 'https only');
+  assert.deepEqual(parseTileSource({ mapTiles: { url: 'https://x/{z}/{x}.png' } }), OSM_TILES, 'needs z, x and y');
+  const tt = parseTileSource({ mapTiles: { url: 'https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=K', attribution: '© TomTom © OpenStreetMap' } });
+  assert.equal(tt.osm, false);
+  assert.equal(tt.attribution, '© TomTom © OpenStreetMap');
+  assert.equal(tileAddress(tt, 5, 17, 15), 'https://api.tomtom.com/map/1/tile/basic/main/5/17/15.png?key=K');
 });
