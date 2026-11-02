@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Company, Role } from '../data/types';
-import { DriveError, type DriveAdapter, type DriveFile, type FolderRef, type SetupProvider } from './drive';
+import { DriveError, type DriveAdapter, type DriveFile, type DriveSyncRequest, type DriveSyncResult, type FolderRef, type SetupProvider } from './drive';
 import { DEFAULT_LICENSE_SERVER } from './license';
 
 /**
@@ -225,6 +225,9 @@ export function relayDrive(getToken: () => Promise<string | null>, folder: Folde
     },
     async share() {
       // Not needed: people sign in with a password, not by opening the folder.
+    },
+    async sync(req: DriveSyncRequest): Promise<DriveSyncResult> {
+      return authed<DriveSyncResult>('POST', 'drive/sync', { ...req, v: APP_VERSION, p: Platform.OS });
     },
   };
 }

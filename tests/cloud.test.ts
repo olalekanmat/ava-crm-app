@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { test } from 'node:test';
-import { MemoryDrive, normalizeProvider, providerAccount, providerLabel } from '../src/cloud/drive';
+import { DriveError, MemoryDrive, normalizeProvider, providerAccount, providerLabel } from '../src/cloud/drive';
 import { COMPANY_FILE, journalName, type CompanyFile, type JournalFile } from '../src/cloud/journal';
 import { licenseState, verifyToken, type LicenseFile } from '../src/cloud/license';
 import { createCompany, EXPORT_FILES, newCache, pendingCount, rebuild, rosterKey, syncOnce, writeLicense, type CloudCache } from '../src/cloud/sync';
@@ -33,6 +33,7 @@ class Device {
     readonly email: string,
     userId: string,
     deviceId: string,
+    private batch = false,
   ) {
     this.cache = newCache(genesis.companyId, userId, email, deviceId);
   }
@@ -43,21 +44,22 @@ class Device {
     this.cache = { ...this.cache, own: { ...this.cache.own, entries: [...this.cache.own.entries, { seq: this.cache.own.entries.length + 1, at: when.toISOString(), m }] } };
   }
   async sync(when: Date, writeExports = false) {
-    const r = await syncOnce(this.drive.as(this.email), this.cache, { now: when, writeExports });
+    const r = await syncOnce(this.drive.as(this.email, undefined, { batch: this.batch }), this.cache, { now: when, writeExports });
     this.cache = r.cache;
     return r.result!;
   }
 }
 
-async function company() {
+async function company(batch = false) {
   const drive = new MemoryDrive();
   await createCompany(drive.as('boss@acme.com'), genesis);
-  const admin = new Device(drive, 'boss@acme.com', 'usr_admin', 'dA');
+  const admin = new Device(drive, 'boss@acme.com', 'usr_admin', 'dA', batch);
   return { drive, admin };
 }
 
-test('admin sets up a company; a rep and FLM join, work offline and sync', async () => {
-  const { drive, admin } = await company();
+for (const batch of [false, true]) test(`admin sets up a company; a rep and FLM join, work offline and sync${batch ? ' (one request per sync, 2.12)' : ''}`, async () => {
+  const { drive, admin } = await company(batch);
+  const setupLists = drive.calls.list;
   await assert.rejects(createCompany(drive.as('boss@acme.com'), genesis), /already has/);
 
   admin.run({ type: 'company.update', company: { name: 'Acme Pharma Ltd', city: 'Lagos' } }, at(1));
@@ -71,8 +73,8 @@ test('admin sets up a company; a rep and FLM join, work offline and sync', async
   assert.equal(r.snapshot.users.length, 3);
   assert.ok(drive.files.size >= 2);
 
-  const ritaPhone = new Device(drive, 'rita@acme.com', 'usr_rep', 'dR');
-  const femiPhone = new Device(drive, 'femi@acme.com', 'usr_flm', 'dF');
+  const ritaPhone = new Device(drive, 'rita@acme.com', 'usr_rep', 'dR', batch);
+  const femiPhone = new Device(drive, 'femi@acme.com', 'usr_flm', 'dF', batch);
   await ritaPhone.sync(at(6));
   await femiPhone.sync(at(6));
 
@@ -99,6 +101,8 @@ test('admin sets up a company; a rep and FLM join, work offline and sync', async
   const a = (await admin.sync(at(40))).snapshot;
   assert.deepEqual(a, (await ritaPhone.sync(at(40))).snapshot);
   assert.deepEqual(a, (await femiPhone.sync(at(40))).snapshot);
+  if (batch) assert.deepEqual([drive.calls.list - setupLists, drive.calls.read], [1, 0], 'every sync was one request, nothing read file by file (one list from the second company set-up attempt)');
+  else assert.ok(drive.calls.read > 0);
 });
 
 test('replay drops changes that break the rules, the same way on every device', async () => {
@@ -250,4 +254,44 @@ test('drive providers: OneDrive unless the server says Google Drive', () => {
   assert.equal(providerLabel(undefined), 'OneDrive');
   assert.equal(providerAccount('google'), 'Google');
   assert.equal(providerAccount('onedrive'), 'Microsoft');
+});
+
+test('one-request sync (2.12) adds only new journal entries, and falls back for older servers', async () => {
+  const drive = new MemoryDrive();
+  await createCompany(drive.as('boss@acme.com'), genesis);
+  const admin = new Device(drive, 'boss@acme.com', 'usr_admin', 'dA', true);
+  admin.run({ type: 'import.users', users: [flm, rep] }, at(1));
+  admin.run({ type: 'import.accounts', accounts: [account] }, at(2));
+  await admin.sync(at(3));
+  const rita = new Device(drive, 'rita@acme.com', 'usr_rep', 'dR', true);
+  await rita.sync(at(4));
+
+  // The server sends only the admin's new entry; Rita's copy of the admin's journal grows by one.
+  const seen: unknown[] = [];
+  const spy = drive.as('rita@acme.com', undefined, { batch: true });
+  const inner = spy.sync!;
+  spy.sync = async (req) => {
+    const res = await inner(req);
+    seen.push(...Object.values(res.content));
+    return res;
+  };
+  admin.run({ type: 'company.update', company: { name: 'Acme Two', city: 'Lagos' } }, at(5));
+  await admin.sync(at(6));
+  const r = await syncOnce(spy, rita.cache, { now: at(7) });
+  assert.equal(r.result!.snapshot.company.name, 'Acme Two');
+  assert.equal(seen.length, 1);
+  const only = seen[0] as { delta?: { from: number; entries: unknown[] } };
+  assert.equal(only.delta?.from, 2);
+  assert.equal(only.delta?.entries.length, 1);
+
+  // A server without drive/sync answers 404: the device lists and reads as before, with the same result.
+  const old = drive.as('rita@acme.com');
+  let tried = 0;
+  old.sync = async () => {
+    tried++;
+    throw new DriveError('Not found', 404);
+  };
+  const viaOld = await syncOnce(old, newCache(genesis.companyId, 'usr_rep', 'rita@acme.com', 'dR2'), { now: at(8) });
+  assert.equal(tried, 1);
+  assert.deepEqual(viaOld.result!.snapshot, (await syncOnce(spy, r.cache, { now: at(8) })).result!.snapshot);
 });

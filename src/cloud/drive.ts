@@ -1,4 +1,4 @@
-import type { Provider } from './journal';
+import type { JournalEntry, JournalFile, Provider } from './journal';
 
 /** Where a company keeps its data, chosen by its administrator at setup. OneDrive is the default. */
 export const SETUP_PROVIDERS = ['onedrive', 'google'] as const;
@@ -48,6 +48,58 @@ export interface DriveAdapter {
   write(name: string, content: string, mimeType?: string, existingId?: string): Promise<DriveFile>;
   /** Gives a person edit access to the folder and sends them the drive's invitation email. */
   share(email: string): Promise<void>;
+  /**
+   * One request per sync (2.12): the folder list with the changed files inside, journals as only the
+   * entries after the ones this device has. Drives without it are listed and read file by file.
+   */
+  sync?(req: DriveSyncRequest): Promise<DriveSyncResult>;
+}
+
+/** What this device already has of a file, by file id (or by name when it keeps no id). */
+export interface DriveSyncKnown {
+  version: string;
+  /** Journals: how many entries this device has, and the last one's seq and time. */
+  count?: number;
+  seq?: number;
+  at?: string;
+}
+export interface DriveSyncRequest {
+  /** This device's own journal file name: never sent back. */
+  own: string;
+  known: Record<string, DriveSyncKnown>;
+  /** Administrators also want the sign-in list when it changed. */
+  readRoster?: boolean;
+}
+export type DriveSyncContent =
+  | { text: string }
+  | { delta: { head: Omit<JournalFile, 'entries'>; from: number; entries: JournalEntry[] } };
+export interface DriveSyncResult {
+  files: DriveFile[];
+  /** Changed files, by id. A changed file missing here (too big for one answer) is read on its own. */
+  content: Record<string, DriveSyncContent>;
+}
+
+const SYNC_ALWAYS = new Set(['ava-company.json', 'ava-license.json', 'ava-checkpoint.json']);
+const isJournalName = (n: string) => n.startsWith('ava-journal-') && n.endsWith('.json');
+
+/** The same answer as the server's drive/sync, for the in-memory drive. */
+export function answerSync(files: { id: string; name: string; version: string; content: string }[], req: DriveSyncRequest): DriveSyncResult {
+  const content: DriveSyncResult['content'] = {};
+  for (const f of files) {
+    const k = req.known[f.id] ?? req.known[f.name];
+    if (k?.version === f.version || f.name === req.own) continue;
+    if (!(SYNC_ALWAYS.has(f.name) || isJournalName(f.name) || (req.readRoster && f.name === 'ava-roster.json'))) continue;
+    let delta: Extract<DriveSyncContent, { delta: unknown }>['delta'] | undefined;
+    if (isJournalName(f.name) && k?.count) {
+      try {
+        const { entries, ...head } = JSON.parse(f.content) as JournalFile;
+        const last = entries[k.count - 1];
+        if (last && last.seq === k.seq && last.at === k.at) delta = { head, from: k.count, entries: entries.slice(k.count) };
+      } catch {}
+    }
+    content[f.id] = delta ? { delta } : { text: f.content };
+  }
+  return { files: files.map(({ id, name, version }) => ({ id, name, version })), content };
 }
 
 export class DriveError extends Error {
@@ -70,23 +122,29 @@ export class MemoryDrive {
   shared = new Set<string>();
   private next = 1;
 
-  as(email: string, folderId = 'mem-folder'): DriveAdapter {
+  /** Requests each device made, by kind, so tests can count them. */
+  calls = { list: 0, read: 0, write: 0, sync: 0 };
+
+  as(email: string, folderId = 'mem-folder', { batch = false }: { batch?: boolean } = {}): DriveAdapter {
     const self = this;
     const meta = (id: string) => {
       const f = self.files.get(id)!;
       return { id, name: f.name, version: String(f.version), modifiedBy: f.modifiedBy };
     };
-    return {
+    const adapter: DriveAdapter = {
       folder: { provider: 'google', id: folderId },
       async list() {
+        self.calls.list++;
         return [...self.files.keys()].map(meta);
       },
       async read(id) {
+        self.calls.read++;
         const f = self.files.get(id);
         if (!f) throw new DriveError('Not found', 404);
         return f.content;
       },
       async write(name, content, _mime, existingId) {
+        self.calls.write++;
         const id = existingId && self.files.has(existingId) ? existingId : [...self.files].find(([, f]) => f.name === name)?.[0] ?? `f${self.next++}`;
         const prev = self.files.get(id);
         self.files.set(id, { name, content, version: (prev?.version ?? 0) + 1, modifiedBy: email });
@@ -96,5 +154,12 @@ export class MemoryDrive {
         self.shared.add(who.toLowerCase());
       },
     };
+    if (batch) {
+      adapter.sync = async (req) => {
+        self.calls.sync++;
+        return answerSync([...self.files].map(([id, f]) => ({ id, name: f.name, version: String(f.version), content: f.content })), req);
+      };
+    }
+    return adapter;
   }
 }
