@@ -261,4 +261,6 @@ test('map tiles come from the website settings, OpenStreetMap otherwise (2.12.1)
   assert.equal(tt.osm, false);
   assert.equal(tt.attribution, '© TomTom © OpenStreetMap');
   assert.equal(tileAddress(tt, 5, 17, 15), 'https://api.tomtom.com/map/1/tile/basic/main/5/17/15.png?key=K');
+  // 2.12.2 reads mapTiles2 first (2.12.1 phones, which send no Referer, keep reading mapTiles).
+  assert.equal(parseTileSource({ mapTiles2: { url: 'https://b/{z}/{x}/{y}.png' }, mapTiles: { url: 'https://a/{z}/{x}/{y}.png' } }).url, 'https://b/{z}/{x}/{y}.png');
 });

@@ -149,7 +149,8 @@ export function AccountsMap({ pins, selected, onSelect, height = 420 }: { pins: 
         <Image
           key={t.key}
           // OpenStreetMap tiles keep the "osm2/" key: phones may have kept blocked tiles under the first one.
-          source={{ uri: t.uri, headers: src?.osm ? TILE_HEADERS : undefined, cacheKey: t.cacheKey }}
+          // Every provider gets the Referer (keys limited to the website's address check it).
+          source={{ uri: t.uri, headers: TILE_HEADERS, cacheKey: t.cacheKey }}
           style={{
             position: 'absolute',
             left: t.left,
