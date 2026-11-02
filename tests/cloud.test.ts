@@ -295,3 +295,30 @@ test('one-request sync (2.12) adds only new journal entries, and falls back for 
   assert.equal(tried, 1);
   assert.deepEqual(viaOld.result!.snapshot, (await syncOnce(spy, r.cache, { now: at(8) })).result!.snapshot);
 });
+
+test('uploads send only new entries (2.12.1); a changed copy in the drive gets the whole journal', async () => {
+  const drive = new MemoryDrive();
+  await createCompany(drive.as('boss@acme.com'), genesis);
+  const admin = new Device(drive, 'boss@acme.com', 'usr_admin', 'dA', true);
+  admin.run({ type: 'import.users', users: [flm, rep] }, at(1));
+  await admin.sync(at(2));
+  assert.equal(drive.calls.append, 0, 'the first upload creates the file');
+  admin.run({ type: 'import.accounts', accounts: [account] }, at(3));
+  await admin.sync(at(4));
+  assert.equal(drive.calls.append, 1);
+  const id = [...drive.files].find(([, f]) => f.name === journalName('usr_admin', 'dA'))![0];
+  const entries = () => (JSON.parse(drive.files.get(id)!.content) as JournalFile).entries;
+  assert.equal(entries().length, 2);
+
+  // Someone else's copy of this journal lands in the drive (e.g. a restored browser) while this
+  // device still thinks it has the latest: no blind append.
+  const writes = drive.calls.write;
+  const f = drive.files.get(id)!;
+  drive.files.set(id, { ...f, content: JSON.stringify({ ...(JSON.parse(f.content) as JournalFile), entries: entries().slice(0, 1) }) });
+  admin.run({ type: 'company.update', company: { name: 'Acme Three', city: 'Lagos' } }, at(5));
+  const r = await admin.sync(at(6));
+  assert.equal(drive.calls.append, 2, 'tried to append');
+  assert.equal(drive.calls.write, writes + 1, 'then sent the whole journal');
+  assert.equal(entries().length, 3);
+  assert.equal(r.snapshot.company.name, 'Acme Three');
+});

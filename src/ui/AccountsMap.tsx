@@ -1,9 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Constants from 'expo-constants';
 import { PanResponder, Platform, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import { fitBounds, project, TILE, unproject } from '@/data/mapData';
+import { DEFAULT_LICENSE_SERVER } from '@/cloud/license';
+import { fitBounds, OSM_TILES, parseTileSource, project, TILE, tileAddress, unproject, type TileSource } from '@/data/mapData';
 import { colors, radius, shadow } from './theme';
 
 export interface MapPin {
@@ -19,8 +20,32 @@ export interface MapPin {
 
 const MIN_ZOOM = 3;
 const MAX_ZOOM = 18;
-/** OpenStreetMap's standard tiles; their policy asks for the attribution shown in the corner. */
-const tileUrl = (z: number, x: number, y: number) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+/**
+ * Map pictures (2.12.1): OpenStreetMap's own tiles unless the website's app settings name a provider
+ * ("mapTiles" in avahealthcareltd.com/AvaCRM/app-config.json). OpenStreetMap's servers are not meant for
+ * heavy use by a busy app, so a provider with a free tier can be switched in without a new app release.
+ */
+let tileSource: Promise<TileSource> | undefined;
+function loadTileSource(): Promise<TileSource> {
+  tileSource ??= fetch(`${DEFAULT_LICENSE_SERVER}/app-config.json`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then(parseTileSource)
+    .catch(() => OSM_TILES);
+  return tileSource;
+}
+function useTileSource(): TileSource | undefined {
+  const [src, setSrc] = useState<TileSource>();
+  useEffect(() => {
+    let live = true;
+    loadTileSource().then((s) => live && setSrc(s));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return src;
+}
+/** The cache key leaves out a provider key in the address, so changing the key keeps the cached tiles. */
+const cacheKeyOf = (src: TileSource, z: number, x: number, y: number) => (src.osm ? `osm2/${tileAddress(src, z, x, y)}` : `tiles/${/^https:\/\/([^/?#]+)/.exec(src.url)?.[1] ?? 'map'}/${z}/${x}/${y}`);
 /**
  * The same policy blocks apps that do not say who they are: phones would otherwise send the image
  * library's generic User-Agent (okhttp) and no Referer, and get "403 Access blocked" tiles. Browsers
@@ -39,6 +64,7 @@ const TILE_HEADERS: Record<string, string> | undefined =
  * drag to move, buttons to zoom. Works the same on phones and on the web.
  */
 export function AccountsMap({ pins, selected, onSelect, height = 420 }: { pins: MapPin[]; selected?: string; onSelect: (id: string | undefined) => void; height?: number }) {
+  const src = useTileSource();
   const [size, setSize] = useState({ w: 0, h: height });
   const [drag, setDrag] = useState({ dx: 0, dy: 0 });
   // The view fits the pins until someone drags or zooms; a new size or a new set of pins fits again.
@@ -86,7 +112,7 @@ export function AccountsMap({ pins, selected, onSelect, height = 420 }: { pins: 
       zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, view.zoom + d)),
     });
 
-  let tiles: { key: string; uri: string; left: number; top: number }[] = [];
+  let tiles: { key: string; uri: string; cacheKey: string; left: number; top: number }[] = [];
   let placed: (MapPin & { left: number; top: number })[] = [];
   if (view && size.w) {
     const c = project(view.lat, view.lng, view.zoom);
@@ -96,9 +122,10 @@ export function AccountsMap({ pins, selected, onSelect, height = 420 }: { pins: 
     for (let tx = Math.floor(ox / TILE); tx <= Math.floor((ox + size.w) / TILE); tx++) {
       for (let ty = Math.max(0, Math.floor(oy / TILE)); ty <= Math.min(n - 1, Math.floor((oy + size.h) / TILE)); ty++) {
         const wx = ((tx % n) + n) % n;
-        tiles.push({
+        if (src) tiles.push({
           key: `${view.zoom}/${tx}/${ty}`,
-          uri: tileUrl(view.zoom, wx, ty),
+          uri: tileAddress(src, view.zoom, wx, ty),
+          cacheKey: cacheKeyOf(src, view.zoom, wx, ty),
           left: tx * TILE - ox,
           top: ty * TILE - oy,
         });
@@ -121,8 +148,8 @@ export function AccountsMap({ pins, selected, onSelect, height = 420 }: { pins: 
       {tiles.map((t) => (
         <Image
           key={t.key}
-          // A new cache key: phones may have kept the blocked tiles under the old one.
-          source={{ uri: t.uri, headers: TILE_HEADERS, cacheKey: `osm2/${t.uri}` }}
+          // OpenStreetMap tiles keep the "osm2/" key: phones may have kept blocked tiles under the first one.
+          source={{ uri: t.uri, headers: src?.osm ? TILE_HEADERS : undefined, cacheKey: t.cacheKey }}
           style={{
             position: 'absolute',
             left: t.left,
@@ -172,7 +199,7 @@ export function AccountsMap({ pins, selected, onSelect, height = 420 }: { pins: 
           <Ionicons name="scan-outline" size={18} color={colors.text} />
         </Pressable>
       </View>
-      <Text style={styles.credit}>© OpenStreetMap contributors</Text>
+      <Text style={styles.credit}>{src?.attribution ?? OSM_TILES.attribution}</Text>
     </View>
   );
 }
