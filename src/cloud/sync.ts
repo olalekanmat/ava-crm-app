@@ -6,8 +6,8 @@ import {
 import { activeCycleLength } from '../data/cycles';
 import { currentCycle } from '../data/metrics';
 import type { Snapshot } from '../data/types';
-import type { DriveAdapter, DriveFile } from './drive';
-import { buildCheckpoint, CHECKPOINT_FILE, COMPANY_FILE, JOURNAL_PREFIX, journalName, LICENSE_FILE, parseCheckpoint, parseCompanyFile, parseJournal, replay, type Checkpoint, type CompanyFile, type JournalFile, type ReplayResult } from './journal';
+import { DriveError, type DriveAdapter, type DriveFile, type DriveSyncKnown, type DriveSyncResult } from './drive';
+import { buildCheckpoint, CHECKPOINT_FILE, COMPANY_FILE, JOURNAL_PREFIX, journalName, LICENSE_FILE, parseCheckpoint, parseCompanyFile, parseJournal, replay, validJournal, type Checkpoint, type CompanyFile, type JournalFile, type ReplayResult } from './journal';
 import { parseLicenseFile, type LicenseFile } from './license';
 
 /** Everything a device keeps between syncs, so it works offline. */
@@ -104,6 +104,38 @@ export interface SyncOptions {
   writeCheckpoint?: boolean;
 }
 
+/** Set once the server has answered that it has no drive/sync (an older server): list and read file by file. */
+let batchUnavailable = false;
+
+/** What this device has of each file, for drive/sync: journals by id with their entry count, the rest by name. */
+function knownFiles(c: CloudCache): Record<string, DriveSyncKnown> {
+  const known: Record<string, DriveSyncKnown> = {};
+  if (c.genesis && c.genesisVersion) known[COMPANY_FILE] = { version: c.genesisVersion };
+  if (c.licenseVersion) known[LICENSE_FILE] = { version: c.licenseVersion };
+  if (c.checkpointVersion) known[CHECKPOINT_FILE] = { version: c.checkpointVersion };
+  if (c.remoteRosterVersion) known[ROSTER_FILE] = { version: c.remoteRosterVersion };
+  for (const [id, j] of Object.entries(c.journals)) {
+    const last = j.journal.entries.at(-1);
+    known[id] = last ? { version: j.version, count: j.journal.entries.length, seq: last.seq, at: last.at } : { version: j.version };
+  }
+  return known;
+}
+
+/** The folder list and changed files in one request (2.12), or undefined when the drive cannot. */
+async function batchSync(drive: DriveAdapter, c: CloudCache, opts: SyncOptions): Promise<DriveSyncResult | undefined> {
+  if (!drive.sync || batchUnavailable) return undefined;
+  try {
+    return await drive.sync({ own: journalName(c.own.userId, c.own.deviceId), known: knownFiles(c), readRoster: !!opts.readRoster });
+  } catch (e) {
+    // An older server has no drive/sync: it answers "Not found" without a reason code.
+    if (e instanceof DriveError && (e.status === 404 || e.status === 405) && !e.code) {
+      batchUnavailable = true;
+      return undefined;
+    }
+    throw e;
+  }
+}
+
 /**
  * One round with the drive: download journals that changed, upload this device's new
  * entries, refresh the licence file, then rebuild. Returns the updated cache.
@@ -111,13 +143,19 @@ export interface SyncOptions {
 export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: SyncOptions = {}): Promise<{ cache: CloudCache; result?: ReplayResult }> {
   const now = opts.now ?? new Date();
   const c: CloudCache = { ...cache, journals: { ...cache.journals } };
-  const files = await drive.list();
+  const batch = await batchSync(drive, c, opts);
+  const files = batch ? batch.files : await drive.list();
   const byName = new Map(files.map((f) => [f.name, f]));
+  /** A changed file's content: from the batch answer when it came inside, else read on its own. */
+  const readText = async (id: string): Promise<string> => {
+    const got = batch?.content[id];
+    return got && 'text' in got ? got.text : drive.read(id);
+  };
 
   const companyFile = byName.get(COMPANY_FILE);
   if (!companyFile) throw new Error('The company folder has no ava-company.json. Check the folder link with your administrator.');
   if (companyFile.version !== c.genesisVersion || !c.genesis) {
-    const g = parseCompanyFile(await drive.read(companyFile.id));
+    const g = parseCompanyFile(await readText(companyFile.id));
     if (!g) throw new Error('ava-company.json in the company folder is damaged.');
     if (g.companyId !== c.companyId) throw new Error('This folder belongs to a different company.');
     if (companyFile.modifiedBy && companyFile.modifiedBy.toLowerCase() !== g.createdBy.toLowerCase()) {
@@ -132,8 +170,18 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
   for (const f of files) {
     if (!f.name.startsWith(JOURNAL_PREFIX) || f.name === ownName) continue;
     seen.add(f.id);
-    if (c.journals[f.id]?.version === f.version) continue;
-    const j = parseJournal(await drive.read(f.id));
+    const had = c.journals[f.id];
+    if (had?.version === f.version) continue;
+    // Only the new entries came (2.12): add them to the ones this device has.
+    const got = batch?.content[f.id];
+    if (got && 'delta' in got && had && got.delta.from === had.journal.entries.length) {
+      const j = { ...had.journal, ...got.delta.head, entries: [...had.journal.entries, ...got.delta.entries] };
+      if (validJournal(j)) {
+        c.journals[f.id] = { name: f.name, version: f.version, modifiedBy: f.modifiedBy, journal: j };
+        continue;
+      }
+    }
+    const j = parseJournal(await readText(f.id));
     if (j) c.journals[f.id] = { name: f.name, version: f.version, modifiedBy: f.modifiedBy, journal: j };
   }
   for (const id of Object.keys(c.journals)) if (!seen.has(id)) delete c.journals[id];
@@ -168,7 +216,7 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
 
   const lic = byName.get(LICENSE_FILE);
   if (lic && lic.version !== c.licenseVersion) {
-    const parsed = parseLicenseFile(await drive.read(lic.id));
+    const parsed = parseLicenseFile(await readText(lic.id));
     if (parsed && parsed.companyId === c.companyId) c.license = parsed;
     c.licenseFileId = lic.id;
     c.licenseVersion = lic.version;
@@ -178,7 +226,7 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
   const rosterFile = byName.get(ROSTER_FILE);
   if (opts.readRoster && rosterFile && rosterFile.version !== c.remoteRosterVersion) {
     try {
-      c.remoteRoster = rosterKey(JSON.parse(await drive.read(rosterFile.id)).users);
+      c.remoteRoster = rosterKey(JSON.parse(await readText(rosterFile.id)).users);
     } catch {
       c.remoteRoster = undefined;
     }
@@ -189,7 +237,7 @@ export async function syncOnce(drive: DriveAdapter, cache: CloudCache, opts: Syn
   // Condensed older history (2.9): start from it instead of replaying every journal from the start.
   const cpFile = byName.get(CHECKPOINT_FILE);
   if (cpFile && cpFile.version !== c.checkpointVersion) {
-    const cp = parseCheckpoint(await drive.read(cpFile.id), c.companyId);
+    const cp = parseCheckpoint(await readText(cpFile.id), c.companyId);
     if (cp) c.checkpoint = cp;
     c.checkpointVersion = cpFile.version;
   }

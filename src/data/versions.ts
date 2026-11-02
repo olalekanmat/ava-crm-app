@@ -46,6 +46,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.12.0',
+    items: [
+      { icon: 'sync-outline', title: 'Faster, lighter sync', body: 'Each sync is now one quick request that brings only your colleagues’ new changes, so it uses less mobile data and works better on weak signal.' },
+    ],
+  },
+  {
     version: '2.11.2',
     items: [
       { icon: 'sparkles-outline', title: 'Easier to try', body: 'The sign-in screen now offers the demo company and a free trial up front, so colleagues can see Ava CRM before their company signs up.' },

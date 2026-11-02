@@ -109,11 +109,16 @@ const same = (a?: string, b?: string) => !!a && !!b && a.trim().toLowerCase() ==
 export function parseJournal(text: string): JournalFile | undefined {
   try {
     const j = JSON.parse(text);
-    if (j?.format !== 'ava-journal/1' || typeof j.userId !== 'string' || typeof j.email !== 'string' || typeof j.deviceId !== 'string' || !Array.isArray(j.entries)) return undefined;
-    return j as JournalFile;
+    return validJournal(j) ? j : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** Whether an untrusted value has a journal's shape (the same check as parseJournal). */
+export function validJournal(j: unknown): j is JournalFile {
+  const x = j as Partial<JournalFile> | null | undefined;
+  return x?.format === 'ava-journal/1' && typeof x.userId === 'string' && typeof x.email === 'string' && typeof x.deviceId === 'string' && Array.isArray(x.entries);
 }
 
 export function parseCompanyFile(text: string): CompanyFile | undefined {

@@ -310,7 +310,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (session?.mode !== 'cloud' || session.demo) return;
     syncNow();
-    const timer = setInterval(() => syncNow(), POLL_MS);
+    // Only while the app is on screen: a browser tab left open in the background does not keep
+    // asking the server every few minutes (it syncs as soon as it comes back, below).
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') syncNow();
+    }, POLL_MS);
     const sub = AppState.addEventListener('change', (st) => {
       const last = cacheRef.current?.lastSync;
       if (st === 'active' && (!last || Date.now() - Date.parse(last) > 60 * 1000)) syncNow();
