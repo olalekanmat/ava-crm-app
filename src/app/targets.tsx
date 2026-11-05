@@ -83,7 +83,7 @@ export default function TargetsScreen() {
   const { data } = useStore();
   const [month, setMonth] = useState(todayIso().slice(0, 7));
   const setter = isAdmin(me) || can(me, 'finance');
-  const team = setter ? data.users.filter((u) => u.active && !u.deletedAt && (u.role === 'Rep' || u.role === 'FLM')) : repsUnder(data.users, me);
+  const team = (setter ? data.users.filter((u) => u.active && !u.deletedAt && (u.role === 'Rep' || u.role === 'FLM')) : me.role === 'Rep' ? [] : repsUnder(data.users, me)).filter((u) => u.id !== me.id);
   const ok = MONTH.test(month);
   return (
     <Screen wide>

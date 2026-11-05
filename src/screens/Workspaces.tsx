@@ -58,7 +58,7 @@ export function useDesk(field: ReactNode): ReactNode {
     setDesk(d);
     AsyncStorage.setItem(key, d).catch(() => {});
   };
-  const label = (d: Desk) => (d === 'field' ? (me.role === 'Rep' ? 'My field work' : 'My team') : d === 'finance' ? 'Finance desk' : FUNCTION_LABEL[DESK_FN[d]].split(' /')[0]);
+  const label = (d: Desk) => (d === 'field' ? (me.role === 'Rep' ? 'My field work' : leads ? 'My team' : 'Overview') : d === 'finance' ? 'Finance desk' : FUNCTION_LABEL[DESK_FN[d]].split(' /')[0]);
   return (
     <View style={{ flex: 1 }}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: space.md, paddingTop: space.sm }}>
