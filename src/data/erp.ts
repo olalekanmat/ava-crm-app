@@ -31,16 +31,19 @@ export function lineTotals(l: InvoiceLine): LineTotals {
 
 export interface InvoiceTotals extends LineTotals {
   paid: number;
+  /** 2.14: credit notes against the invoice. */
+  credited: number;
   balance: number;
 }
 
-export function invoiceTotals(inv: Pick<Invoice, 'lines' | 'payments' | 'status'> & { channel?: Invoice['channel'] }): InvoiceTotals {
+export function invoiceTotals(inv: Pick<Invoice, 'lines' | 'payments' | 'status'> & { channel?: Invoice['channel']; credits?: Invoice['credits'] }): InvoiceTotals {
   const t = inv.lines.map(lineTotals).reduce((a, b) => ({ gross: a.gross + b.gross, discount: a.discount + b.discount, net: a.net + b.net, vat: a.vat + b.vat, total: a.total + b.total }), { gross: 0, discount: 0, net: 0, vat: 0, total: 0 });
   const paid = round2(inv.payments.reduce((n, p) => n + p.amount, 0));
+  const credited = round2((inv.credits ?? []).reduce((n, c) => n + c.amount, 0));
   const total = round2(t.total);
   // 2.13: a sale through a distributor is owed to the distributor, not to us.
   const owedToUs = inv.status !== 'Void' && inv.channel !== 'Distributor';
-  return { gross: round2(t.gross), discount: round2(t.discount), net: round2(t.net), vat: round2(t.vat), total, paid, balance: owedToUs ? round2(total - paid) : 0 };
+  return { gross: round2(t.gross), discount: round2(t.discount), net: round2(t.net), vat: round2(t.vat), total, paid, credited, balance: owedToUs ? round2(Math.max(0, total - paid - credited)) : 0 };
 }
 
 export type PayState = 'Paid' | 'Part paid' | 'Unpaid' | 'Overdue' | 'Void' | 'Via distributor';
@@ -380,4 +383,105 @@ export function dso(invoices: Invoice[], today = todayIso()): number | undefined
   const owed = live.reduce((n, i) => n + invoiceTotals(i).balance, 0);
   if (sales <= 0) return undefined;
   return Math.round(owed / (sales / 90));
+}
+
+
+// ----- 2.14: price lists, batches and expiry, collections -----
+
+/** The price before VAT a customer pays for a product: their price list, else the product's list price. */
+export function priceFor(product: Pick<Product, 'name' | 'price'>, account: Pick<Account, 'priceGroup' | 'channel'> | undefined, e: ErpSettings): number | undefined {
+  const lists = e.priceLists ?? {};
+  const group = account?.priceGroup && lists[account.priceGroup] ? account.priceGroup : account?.channel === 'Distributor' && lists.Distributor ? 'Distributor' : undefined;
+  const p = group ? lists[group][product.name] : undefined;
+  return p ?? product.price;
+}
+
+export interface Lot {
+  product: string;
+  batch: string;
+  /** YYYY-MM-DD, or '' when unknown. */
+  expiry: string;
+  qty: number;
+}
+
+const lotOrder = (a: Lot, b: Lot) => (a.expiry || '9999').localeCompare(b.expiry || '9999') || a.batch.localeCompare(b.batch);
+
+/**
+ * Batches at every place, worked out first-expiry-first-out: received stock adds a batch, anything
+ * that leaves a place (transfers, sales, write-offs) takes the batch that expires first unless the
+ * move names its batch. Every device works it out the same way from the same history.
+ */
+export function stockLots(s: Pick<Snapshot, 'stockMoves' | 'invoices'>): Map<StockPlace, Lot[]> {
+  type Ev = { at: string; order: number; run: () => void };
+  const places = new Map<StockPlace, Lot[]>();
+  const lotsOf = (p: StockPlace) => places.get(p) ?? (places.set(p, []), places.get(p)!);
+  const add = (p: StockPlace, l: Lot) => {
+    const list = lotsOf(p);
+    const same = list.find((x) => x.product === l.product && x.batch === l.batch && x.expiry === l.expiry);
+    if (same) same.qty += l.qty;
+    else list.push({ ...l });
+  };
+  const take = (p: StockPlace, product: string, qty: number, batch?: string): Lot[] => {
+    const list = lotsOf(p).filter((l) => l.product === product && l.qty > 0).sort(lotOrder);
+    const named = batch ? list.filter((l) => l.batch === batch) : [];
+    const out: Lot[] = [];
+    let left = qty;
+    for (const l of [...named, ...list.filter((x) => !named.includes(x))]) {
+      if (left <= 0) break;
+      const n = Math.min(l.qty, left);
+      l.qty -= n;
+      left -= n;
+      out.push({ ...l, qty: n });
+    }
+    if (left > 0) out.push({ product, batch: batch || '', expiry: '', qty: left });
+    return out;
+  };
+  const evs: Ev[] = [];
+  for (const m of s.stockMoves ?? []) {
+    evs.push({
+      at: m.at, order: 0, run: () => {
+        if (m.from !== undefined) {
+          const taken = take(m.from, m.product, m.qty, m.batch);
+          if (m.to !== undefined) for (const l of taken) add(m.to, l);
+        } else if (m.to !== undefined) add(m.to, { product: m.product, batch: m.batch ?? '', expiry: m.expiry ?? '', qty: m.qty });
+      },
+    });
+  }
+  for (const inv of s.invoices ?? []) {
+    if (inv.status === 'Void' || inv.channel === 'Distributor' || !inv.stockFrom) continue;
+    evs.push({ at: inv.createdAt, order: 1, run: () => { for (const l of inv.lines) take(inv.stockFrom, l.product, l.qty); } });
+  }
+  evs.sort((a, b) => a.at.localeCompare(b.at) || a.order - b.order);
+  for (const e of evs) e.run();
+  for (const [p, list] of places) places.set(p, list.filter((l) => l.qty > 0).sort(lotOrder));
+  return places;
+}
+
+/** Batches at a place that have expired or expire within `days`. */
+export function expiringLots(lots: Lot[], today: string, days: number): { expired: Lot[]; soon: Lot[] } {
+  const limit = addDays(today, days);
+  const dated = lots.filter((l) => l.expiry && l.qty > 0);
+  return { expired: dated.filter((l) => l.expiry < today), soon: dated.filter((l) => l.expiry >= today && l.expiry <= limit) };
+}
+
+/** Promises to pay that are still open, and whether each is broken (its date passed and the money did not come). */
+export function promiseState(s: Pick<Snapshot, 'invoices' | 'promises'>, p: { accountId: string; amount: number; date: string; at: string; cancelled?: boolean }, today = todayIso()): 'Open' | 'Kept' | 'Broken' | 'Cancelled' {
+  if (p.cancelled) return 'Cancelled';
+  const since = p.at.slice(0, 10);
+  const paid = (s.invoices ?? []).filter((i) => i.accountId === p.accountId).flatMap((i) => i.payments).filter((x) => x.date >= since && x.date <= p.date).reduce((n, x) => n + x.amount, 0);
+  if (paid + 0.004 >= p.amount) return 'Kept';
+  return p.date < today ? 'Broken' : 'Open';
+}
+
+/** Sales (all channels) and cash collected by a person in a month, YYYY-MM. */
+export function achieved(s: Pick<Snapshot, 'invoices' | 'calls'>, userId: string, month: string): { sales: number; collection: number; calls: number } {
+  let sales = 0;
+  let collection = 0;
+  for (const inv of s.invoices ?? []) {
+    if (inv.ownerId !== userId || inv.status === 'Void') continue;
+    if (inv.date.slice(0, 7) === month) sales += invoiceTotals({ ...inv, payments: [], credits: [] }).total - (inv.credits ?? []).reduce((n, c) => n + c.amount, 0);
+    for (const p of inv.payments) if (p.date.slice(0, 7) === month) collection += p.amount;
+  }
+  const calls = (s.calls ?? []).filter((c) => c.ownerId === userId && c.status === 'Submitted' && c.datetime.slice(0, 7) === month).length;
+  return { sales: round2(sales), collection: round2(collection), calls };
 }

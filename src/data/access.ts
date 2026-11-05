@@ -67,7 +67,21 @@ export function manages(users: User[], manager: User, userId: string): boolean {
 export function scopeSnapshot(s: Snapshot, user: User): Snapshot {
   // Administrators and the back-office roles (Finance, invoicing, credit approval, marketing) see everything.
   if (isAdmin(user) || user.functions?.some((f) => COMPANY_WIDE_FUNCTIONS.includes(f))) return s;
+  // 2.15: a distributor's sign-in sees the products, its own orders and its own sales reports.
+  if (user.functions?.includes('distributor') && user.distributorId) {
+    const d = user.distributorId;
+    const orders = (s.orders ?? []).filter((o) => o.distributorId === d && o.status === 'Forwarded');
+    const accountIds = new Set(orders.map((o) => o.accountId));
+    return {
+      ...s, users: s.users.filter((u) => u.id === user.id), accounts: s.accounts.filter((a) => accountIds.has(a.id)), calls: [], plans: [], leaves: [], tasks: [], samples: [], events: [], accountChanges: [], sampleCounts: [], sampleRequests: [],
+      invoices: [], stockMoves: [], distributors: (s.distributors ?? []).filter((x) => x.id === d), orders, paymentClaims: [], creditRequests: [], returns: [], promises: [], targets: [],
+      secondarySales: (s.secondarySales ?? []).filter((x) => x.distributorId === d), campaigns: [], content: [], safetyReports: [], expenses: [],
+    };
+  }
   const owners = visibleOwnerIds(s.users, user);
+  // 2.15: a key account manager also sees the key accounts they look after, wherever they sit.
+  const keyAccounts = new Set(s.accounts.filter((a) => a.kamId === user.id).map((a) => a.id));
+  const accountSeen = (id: string) => keyAccounts.has(id) || s.accounts.some((a) => a.id === id && owners.has(a.ownerId));
   // Names of people in view plus the user's own reporting line.
   const people = new Set(owners);
   let cur: User | undefined = user;
@@ -78,8 +92,8 @@ export function scopeSnapshot(s: Snapshot, user: User): Snapshot {
   return {
     ...s,
     users: s.users.filter((u) => people.has(u.id)),
-    accounts: s.accounts.filter((a) => owners.has(a.ownerId)),
-    calls: s.calls.filter((c) => owners.has(c.ownerId)),
+    accounts: s.accounts.filter((a) => owners.has(a.ownerId) || keyAccounts.has(a.id)),
+    calls: s.calls.filter((c) => owners.has(c.ownerId) || keyAccounts.has(c.accountId)),
     plans: s.plans.filter((p) => owners.has(p.ownerId)),
     leaves: s.leaves?.filter((l) => owners.has(l.userId)),
     tasks: s.tasks?.filter((t) => owners.has(t.ownerId)),
@@ -89,11 +103,20 @@ export function scopeSnapshot(s: Snapshot, user: User): Snapshot {
     sampleCounts: s.sampleCounts?.filter((x) => owners.has(x.repId)),
     sampleRequests: s.sampleRequests?.filter((x) => owners.has(x.repId)),
     // 2.11: sales of the people in view; stock of their places, and the warehouse for managers.
-    invoices: s.invoices?.filter((x) => owners.has(x.ownerId)),
+    invoices: s.invoices?.filter((x) => owners.has(x.ownerId) || keyAccounts.has(x.accountId)),
     // 2.13: orders and reported payments of the people in view; credit changes are Finance's.
-    orders: s.orders?.filter((x) => owners.has(x.ownerId)),
+    orders: s.orders?.filter((x) => owners.has(x.ownerId) || keyAccounts.has(x.accountId)),
     paymentClaims: s.paymentClaims?.filter((x) => owners.has(x.byId) || s.accounts.some((a) => a.id === x.accountId && owners.has(a.ownerId))),
     creditRequests: [],
+    // 2.14 and 2.15: the people in view, their customers' returns and promises.
+    returns: s.returns?.filter((x) => owners.has(x.byId) || accountSeen(x.accountId)),
+    promises: s.promises?.filter((x) => owners.has(x.byId) || accountSeen(x.accountId)),
+    targets: s.targets?.filter((x) => owners.has(x.userId)),
+    secondarySales: s.secondarySales,
+    campaigns: s.campaigns,
+    content: s.content,
+    safetyReports: s.safetyReports?.filter((x) => owners.has(x.byId)),
+    expenses: s.expenses?.filter((x) => owners.has(x.userId)),
     stockMoves: s.stockMoves?.filter((x) => [x.from, x.to].some((p) => p !== undefined && (owners.has(p) || (p === WAREHOUSE && user.role !== 'Rep')))),
   };
 }

@@ -2,7 +2,8 @@ import { isAdmin as hasAdminRights, manages, visibleOwnerIds } from './access';
 import { handover } from './handover';
 import { spanDays } from './metrics';
 import { addDays, allocate, creditDaysOf, creditLimitOf, erpSettings, HOLD_RELEASER, holdsFor, invoiceTotals, nextInvoiceNumber, nextOrderNumber, oldestOverdueDays, orderInvoiceLines, owedBy, round2, rulesV2 } from './erp';
-import { can, cleanFunctions, holdersOf } from './roles';
+import { applyOps, describeOps, type OpsMutation } from './ops';
+import { can, cleanFunctions, distributorUser, holdersOf, readOnly } from './roles';
 import { MAX_REPORTS, reportProblem } from './reports';
 import { teamOf, tierSchemeProblem } from './tiers';
 import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, type Account, type AccountChange, type AccountChanges, type Call, type Coaching, type Company, type CreditRequest, type Distributor, type ErpSettings, type Invoice, type Order, type Payment, type PaymentClaim, SALES_CHANNELS, type SalesChannel, type StockMove, PAYMENT_METHODS, STOCK_MOVE_KINDS, WAREHOUSE, type Cycle, type CyclePlan, type Leave, type MeetingEvent, type Product, type ReportDef, type Role, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type Snapshot, type Task, type TierDef, type User } from './types';
@@ -101,23 +102,25 @@ export type Mutation =
   /** Finance asks to change customers' credit limit and/or days; a credit approver decides. */
   | { type: 'credit.request'; request: CreditRequest }
   | { type: 'credit.review'; id: string; approve: boolean; note?: string }
-  | { type: 'credit.cancel'; id: string };
+  | { type: 'credit.cancel'; id: string }
+  // 2.14 and 2.15 (rules in ops.ts)
+  | OpsMutation;
 
-export const SETTINGS_KEYS = ['geofenceM', 'requireCheckIn', 'aiEnabled', 'cycleLength', 'objectives', 'reviewNewAccounts', 'sampleSignature', 'erp'] as const;
+export const SETTINGS_KEYS = ['geofenceM', 'requireCheckIn', 'aiEnabled', 'cycleLength', 'objectives', 'reviewNewAccounts', 'sampleSignature', 'erp', 'contentApproval'] as const;
 export type SettingsKey = (typeof SETTINGS_KEYS)[number];
 
 export class RuleError extends Error {}
 
-const fail = (msg: string): never => {
+export const fail = (msg: string): never => {
   throw new RuleError(msg);
 };
 
-const replaceOrAdd = <T extends { id: string }>(list: T[], item: T): T[] =>
+export const replaceOrAdd = <T extends { id: string }>(list: T[], item: T): T[] =>
   list.some((x) => x.id === item.id) ? list.map((x) => (x.id === item.id ? item : x)) : [...list, item];
 
 const MANAGER_ROLE: Partial<Record<Role, Role>> = { Rep: 'FLM', FLM: 'SLM' };
 
-const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const MAX_LEAVE_DAYS = 90;
 export const MAX_SAMPLE_QTY = 10000;
@@ -179,6 +182,7 @@ function keepMissing(u: User, existing?: User): User {
     employeeId: u.employeeId === undefined ? existing?.employeeId : u.employeeId,
     territoryId: u.territoryId === undefined ? existing?.territoryId : u.territoryId,
     functions: u.functions === undefined ? existing?.functions : u.functions,
+    distributorId: u.distributorId === undefined ? existing?.distributorId : u.distributorId || undefined,
   };
 }
 
@@ -198,6 +202,7 @@ function normalUser(u: User): User {
 
 function checkUser(s: Snapshot, u: User) {
   if (!u.name.trim()) fail('Name is required.');
+  if (u.functions?.includes('distributor') && !(s.distributors ?? []).some((d) => d.id === u.distributorId)) fail('Choose the distributor this person signs in for.');
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(u.email)) fail(`"${u.email}" is not a valid email.`);
   const live = s.users.filter((x) => !x.deletedAt && x.id !== u.id);
   const clash = live.find((x) => x.email.toLowerCase() === u.email.toLowerCase());
@@ -373,6 +378,32 @@ function checkErpSettings(e: Partial<ErpSettings>): ErpSettings {
   }
   if (x.hcoOnly !== undefined) out.hcoOnly = !!x.hcoOnly;
   if (x.repsInvoice !== undefined) out.repsInvoice = !!x.repsInvoice;
+  // 2.14
+  if (x.priceLists !== undefined) {
+    const lists: Record<string, Record<string, number>> = {};
+    const names = Object.keys(x.priceLists);
+    if (names.length > 30) fail('Keep up to 30 price lists.');
+    for (const name of names) {
+      const n = name.trim();
+      if (!n || n.length > 40) fail('Price list names are 1 to 40 characters.');
+      const prices: Record<string, number> = {};
+      for (const [prod, price] of Object.entries(x.priceLists[name] ?? {})) {
+        if (!(typeof price === 'number' && price >= 0 && price <= 1e9)) fail(`Enter a price for ${prod} in ${n}.`);
+        prices[prod] = round2(price);
+      }
+      lists[n] = prices;
+    }
+    if (names.length) out.priceLists = lists;
+  }
+  if (x.nearExpiryDays !== undefined) {
+    if (!Number.isInteger(x.nearExpiryDays) || x.nearExpiryDays < 1 || x.nearExpiryDays > 730) fail('Near-expiry warning must be 1 to 730 days.');
+    out.nearExpiryDays = x.nearExpiryDays;
+  }
+  if (x.requireDelivery !== undefined) out.requireDelivery = !!x.requireDelivery || undefined;
+  if (x.incentiveOn !== undefined) {
+    if (x.incentiveOn !== 'collected' && x.incentiveOn !== 'sales') fail('Incentives are on cash collected or sales.');
+    out.incentiveOn = x.incentiveOn;
+  }
   return out;
 }
 
@@ -413,6 +444,11 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
   const adminOnly = () => {
     if (!isAdmin) fail('Only an administrator can do this.');
   };
+  // 2.15: key account managers also work on the key accounts they look after.
+  const seesAccount = (a: Account) => visible.has(a.ownerId) || a.kamId === actor.id;
+  // 2.15: read-only viewers change nothing; a distributor's sign-in only sends its sales reports.
+  if (readOnly(actor) && m.type !== 'user.photo') fail('You have read-only access.');
+  if (distributorUser(actor) && !['user.photo', 'secondary.upload', 'secondary.delete'].includes(m.type)) fail('Distributor sign-ins can only send sales and stock reports.');
 
   switch (m.type) {
     case 'account.upsert': {
@@ -459,7 +495,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (existing && existing.ownerId !== actor.id) fail('Only the rep who owns a call can change it.');
       if (c.ownerId !== actor.id) fail('You can only log your own calls.');
       const account = s.accounts.find((a) => a.id === c.accountId && !a.deletedAt);
-      if (!account || !visible.has(account.ownerId)) fail('Choose an account from your territory.');
+      if (!account || !seesAccount(account)) fail('Choose an account from your territory.');
       const problems = callProblems(c, s.settings, now);
       const first = Object.values(problems)[0];
       if (first) fail(first);
@@ -664,6 +700,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (!(next.geofenceM >= 25 && next.geofenceM <= 5000)) fail('Geofence must be between 25 and 5000 metres.');
       if (m.settings.aiEnabled !== undefined) next.aiEnabled = m.settings.aiEnabled;
       if (m.settings.erp !== undefined) next.erp = checkErpSettings(m.settings.erp);
+      if (m.settings.contentApproval !== undefined) next.contentApproval = m.settings.contentApproval || undefined;
       return { ...s, settings: next };
     }
 
@@ -1023,7 +1060,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       const invoicer = v2 && can(actor, 'invoicing');
       if (seller.id !== actor.id && !manages(s.users, actor, seller.id) && !invoicer) fail('You can only sell for yourself or your team.');
       const account = s.accounts.find((a) => a.id === x.accountId && !a.deletedAt) ?? fail('Customer not found.');
-      if (!visible.has(account.ownerId) && !invoicer) fail(`You cannot sell to ${account.name}.`);
+      if (!seesAccount(account) && !invoicer) fail(`You cannot sell to ${account.name}.`);
       if (!DAY_RE.test(x.date) || !DAY_RE.test(x.dueDate)) fail('Use YYYY-MM-DD dates.');
       const channel: SalesChannel = x.channel === 'Distributor' ? 'Distributor' : 'Direct';
       if (v2) {
@@ -1114,7 +1151,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
         if (id === undefined) return;
         if (id !== WAREHOUSE && !s.users.some((u) => u.id === id && !u.deletedAt)) fail('Stock place not found.');
         // Managers look after the warehouse and their team's stock; everyone their own.
-        const ok = isAdmin || id === actor.id || (id === WAREHOUSE ? actor.role !== 'Rep' : manages(s.users, actor, id));
+        const ok = isAdmin || id === actor.id || (id === WAREHOUSE ? actor.role !== 'Rep' || can(actor, 'warehouse') : manages(s.users, actor, id) || can(actor, 'warehouse'));
         return ok;
       };
       const fromOk = place(x.from);
@@ -1129,10 +1166,10 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
         if (!returning && !(fromOk && toOk)) fail('Only a manager can move stock between these places.');
       } else {
         if ((x.from === undefined) === (x.to === undefined)) fail('An adjustment adds to or takes from one place.');
-        if (!(fromOk ?? toOk) || (actor.role === 'Rep' && !isAdmin)) fail('Only managers and administrators adjust stock.');
+        if (!(fromOk ?? toOk) || (actor.role === 'Rep' && !isAdmin && !can(actor, 'warehouse'))) fail('Only managers, the warehouse and administrators adjust stock.');
         if (!x.note?.trim()) fail('Say why the stock is adjusted.');
       }
-      const move: StockMove = { id: x.id, kind: x.kind, product: x.product, qty: x.qty, ...(x.from ? { from: x.from } : {}), ...(x.to ? { to: x.to } : {}), batch: x.batch?.trim() || undefined, note: x.note?.trim() || undefined, byId: actor.id, at: nowIso };
+      const move: StockMove = { id: x.id, kind: x.kind, product: x.product, qty: x.qty, ...(x.from ? { from: x.from } : {}), ...(x.to ? { to: x.to } : {}), batch: x.batch?.trim() || undefined, ...(x.expiry ? { expiry: x.expiry } : {}), note: x.note?.trim() || undefined, byId: actor.id, at: nowIso };
       return { ...s, stockMoves: [...(s.stockMoves ?? []), move] };
     }
 
@@ -1181,7 +1218,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       const seller = s.users.find((u) => u.id === x.ownerId && !u.deletedAt) ?? fail('Rep not found.');
       if (seller.id !== actor.id && !manages(s.users, actor, seller.id) && !can(actor, 'invoicing')) fail('You can only order for yourself or your team.');
       const account = s.accounts.find((a) => a.id === x.accountId && !a.deletedAt) ?? fail('Customer not found.');
-      if (!visible.has(account.ownerId) && !can(actor, 'invoicing')) fail(`You cannot order for ${account.name}.`);
+      if (!seesAccount(account) && !can(actor, 'invoicing')) fail(`You cannot order for ${account.name}.`);
       const e = erpSettings(s.settings);
       if (e.hcoOnly && account.type !== 'HCO') fail(`Orders are for business accounts (HCOs), not ${account.name}.`);
       if (!SALES_CHANNELS.includes(x.channel)) fail('Choose Direct or Distributor.');
@@ -1264,7 +1301,7 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       const c = m.claim;
       if ((s.paymentClaims ?? []).some((x) => x.id === c.id)) return s;
       const account = s.accounts.find((a) => a.id === c.accountId && !a.deletedAt) ?? fail('Customer not found.');
-      if (!visible.has(account.ownerId) && !can(actor, 'finance')) fail(`You cannot report payments for ${account.name}.`);
+      if (!seesAccount(account) && !can(actor, 'finance')) fail(`You cannot report payments for ${account.name}.`);
       if (!(c.amount > 0 && c.amount <= 1e12)) fail('Enter the amount received.');
       if (!PAYMENT_METHODS.includes(c.method)) fail('Choose how they paid.');
       if (!DAY_RE.test(c.date)) fail('Use YYYY-MM-DD for the payment date.');
@@ -1364,6 +1401,9 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (!reports.some((r) => r.id === m.id)) return s;
       return { ...s, settings: { ...s.settings, reports: reports.filter((r) => r.id !== m.id) } };
     }
+
+    default:
+      return applyOps(s, m, actor, now);
   }
 }
 
@@ -1465,6 +1505,6 @@ export function describeMutation(m: Mutation): string {
     case 'account.channel':
       return `Set ${m.ids.length} customer${m.ids.length === 1 ? '' : 's'} to ${m.channel}`;
     default:
-      return m.type;
+      return describeOps(m as OpsMutation) ?? m.type;
   }
 }

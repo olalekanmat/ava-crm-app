@@ -28,3 +28,9 @@ export function holdersOf(users: User[], f: FunctionRole): User[] {
 
 /** Cleans a list of function roles: known ones, each once, in the standard order. */
 export const cleanFunctions = (list: readonly string[] | undefined): FunctionRole[] => FUNCTION_ROLES.filter((f) => list?.includes(f));
+
+/** 2.15: a read-only viewer sees the company but changes nothing (administrators are never read-only). */
+export const readOnly = (u: User | undefined | null): boolean => !!u && !isAdmin(u) && !!u.functions?.includes('viewer');
+
+/** 2.15: a distributor's own sign-in, limited to its orders and its sales uploads. */
+export const distributorUser = (u: User | undefined | null): boolean => !!u && !isAdmin(u) && !!u.functions?.includes('distributor') && !!u.distributorId;
