@@ -1,10 +1,11 @@
 import { isAdmin as hasAdminRights, manages, visibleOwnerIds } from './access';
 import { handover } from './handover';
 import { spanDays } from './metrics';
-import { erpSettings, invoiceTotals, nextInvoiceNumber, round2 } from './erp';
+import { addDays, allocate, creditDaysOf, creditLimitOf, erpSettings, HOLD_RELEASER, holdsFor, invoiceTotals, nextInvoiceNumber, nextOrderNumber, oldestOverdueDays, orderInvoiceLines, owedBy, round2, rulesV2 } from './erp';
+import { can, cleanFunctions, holdersOf } from './roles';
 import { MAX_REPORTS, reportProblem } from './reports';
 import { teamOf, tierSchemeProblem } from './tiers';
-import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, type Account, type AccountChange, type AccountChanges, type Call, type Coaching, type Company, type ErpSettings, type Invoice, type Payment, type StockMove, PAYMENT_METHODS, STOCK_MOVE_KINDS, WAREHOUSE, type Cycle, type CyclePlan, type Leave, type MeetingEvent, type Product, type ReportDef, type Role, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type Snapshot, type Task, type TierDef, type User } from './types';
+import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, type Account, type AccountChange, type AccountChanges, type Call, type Coaching, type Company, type CreditRequest, type Distributor, type ErpSettings, type Invoice, type Order, type Payment, type PaymentClaim, SALES_CHANNELS, type SalesChannel, type StockMove, PAYMENT_METHODS, STOCK_MOVE_KINDS, WAREHOUSE, type Cycle, type CyclePlan, type Leave, type MeetingEvent, type Product, type ReportDef, type Role, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type Snapshot, type Task, type TierDef, type User } from './types';
 
 /**
  * Every change to the data is one of these. The app applies it locally right away and appends it
@@ -79,7 +80,28 @@ export type Mutation =
   | { type: 'invoice.void'; id: string; reason: string }
   | { type: 'stock.move'; move: StockMove }
   /** Sets (or, without `limit`, removes) the most a customer may owe. */
-  | { type: 'account.credit'; id: string; limit?: number };
+  | { type: 'account.credit'; id: string; limit?: number }
+  // ----- 2.13: orders, payment confirmation, credit approval. Older versions skip these. -----
+  | { type: 'distributor.save'; distributor: Distributor }
+  /** Sets how customers usually buy: Direct, or through a distributor. */
+  | { type: 'account.channel'; ids: string[]; channel: SalesChannel; distributorId?: string }
+  /** A rep's order. The rules number it and put it on hold when credit or a discount needs a decision. */
+  | { type: 'order.create'; order: Order }
+  /** Releases the holds the person may release (Finance: credit and debt; credit approver: discounts). */
+  | { type: 'order.release'; id: string; note?: string }
+  /** The invoicing officer turns an order into an invoice. */
+  | { type: 'order.invoice'; id: string; invoiceId: string; date: string; stockFrom: string }
+  /** The invoicing officer passes a distributor order on to the distributor. */
+  | { type: 'order.forward'; id: string; note?: string }
+  | { type: 'order.reject'; id: string; note: string }
+  | { type: 'order.cancel'; id: string }
+  /** A rep reports money a customer paid; Finance confirms it before it counts. */
+  | { type: 'payment.submit'; claim: PaymentClaim }
+  | { type: 'payment.review'; id: string; approve: boolean; note?: string }
+  /** Finance asks to change customers' credit limit and/or days; a credit approver decides. */
+  | { type: 'credit.request'; request: CreditRequest }
+  | { type: 'credit.review'; id: string; approve: boolean; note?: string }
+  | { type: 'credit.cancel'; id: string };
 
 export const SETTINGS_KEYS = ['geofenceM', 'requireCheckIn', 'aiEnabled', 'cycleLength', 'objectives', 'reviewNewAccounts', 'sampleSignature', 'erp'] as const;
 export type SettingsKey = (typeof SETTINGS_KEYS)[number];
@@ -156,6 +178,7 @@ function keepMissing(u: User, existing?: User): User {
     admin: u.admin === undefined ? existing?.admin : u.admin,
     employeeId: u.employeeId === undefined ? existing?.employeeId : u.employeeId,
     territoryId: u.territoryId === undefined ? existing?.territoryId : u.territoryId,
+    functions: u.functions === undefined ? existing?.functions : u.functions,
   };
 }
 
@@ -166,6 +189,7 @@ function normalUser(u: User): User {
     name: u.name.trim(),
     email: u.email.trim().toLowerCase(),
     admin: u.role !== 'Admin' && u.admin ? true : undefined,
+    functions: u.functions?.length ? cleanFunctions(u.functions) : undefined,
     employeeId: trim(u.employeeId),
     territory: trim(u.territory),
     territoryId: trim(u.territoryId),
@@ -325,7 +349,49 @@ function checkErpSettings(e: Partial<ErpSettings>): ErpSettings {
   if (!Number.isInteger(x.lowStock) || x.lowStock < 0 || x.lowStock > 100000) fail('Low stock must be a whole number of units.');
   const paymentDetails = x.paymentDetails?.trim();
   if ((paymentDetails?.length ?? 0) > 500) fail('Keep payment details to 500 characters.');
-  return { currency: x.currency, vatPercent: round2(x.vatPercent), prefix: x.prefix, termsDays: x.termsDays, lowStock: x.lowStock, ...(paymentDetails ? { paymentDetails } : {}) };
+  const out: ErpSettings = { currency: x.currency, vatPercent: round2(x.vatPercent), prefix: x.prefix, termsDays: x.termsDays, lowStock: x.lowStock, ...(paymentDetails ? { paymentDetails } : {}) };
+  // 2.13
+  if (x.rulesVersion !== undefined) {
+    if (!Number.isInteger(x.rulesVersion) || x.rulesVersion < 0 || x.rulesVersion > 2) fail('Invalid rules version.');
+    out.rulesVersion = x.rulesVersion;
+  }
+  if (x.defaultCreditLimit !== undefined) {
+    if (!(x.defaultCreditLimit >= 0 && x.defaultCreditLimit <= 1e12)) fail('Enter a default credit limit of zero or more.');
+    out.defaultCreditLimit = round2(x.defaultCreditLimit);
+  }
+  if (x.defaultCreditDays !== undefined) {
+    if (!Number.isInteger(x.defaultCreditDays) || x.defaultCreditDays < 0 || x.defaultCreditDays > 365) fail('Default credit days must be 0 to 365.');
+    out.defaultCreditDays = x.defaultCreditDays;
+  }
+  if (x.holdOverdueDays !== undefined) {
+    if (!Number.isInteger(x.holdOverdueDays) || x.holdOverdueDays < 0 || x.holdOverdueDays > 365) fail('Overdue hold days must be 0 to 365.');
+    out.holdOverdueDays = x.holdOverdueDays;
+  }
+  if (x.discountApproval !== undefined) {
+    if (!(x.discountApproval >= 0 && x.discountApproval <= 100)) fail('The discount approval level must be 0 to 100%.');
+    out.discountApproval = round2(x.discountApproval);
+  }
+  if (x.hcoOnly !== undefined) out.hcoOnly = !!x.hcoOnly;
+  if (x.repsInvoice !== undefined) out.repsInvoice = !!x.repsInvoice;
+  return out;
+}
+
+const MAX_DISTRIBUTORS = 500;
+
+function checkOrderLines(s: Snapshot, lines: { product: string; qty: number; unitPrice: number; discountPercent?: number }[]) {
+  if (!lines.length || lines.length > MAX_INVOICE_LINES) fail(`An order has 1 to ${MAX_INVOICE_LINES} lines.`);
+  for (const l of lines) {
+    if (!s.products.some((p) => p.name === l.product)) fail(`${l.product} is not a product.`);
+    if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > MAX_UNITS) fail(`Quantity of ${l.product} must be a whole number from 1.`);
+    if (!(l.unitPrice >= 0 && l.unitPrice <= 1e9)) fail(`Enter a price for ${l.product}.`);
+    if (l.discountPercent !== undefined && !(l.discountPercent >= 0 && l.discountPercent <= 100)) fail('Discounts go from 0 to 100%.');
+  }
+}
+
+/** The person may decide for Finance or credit approval, and is not deciding on their own request, unless nobody else can. */
+function checkSeparation(s: Snapshot, actor: User, f: 'finance' | 'creditApprover', requesterId: string, what: string) {
+  if (!can(actor, f)) fail(f === 'finance' ? `Only Finance can ${what}.` : `Only a credit approver can ${what}.`);
+  if (requesterId === actor.id && holdersOf(s.users, f).some((u) => u.id !== actor.id)) fail(`Someone else must ${what}: you made this request.`);
 }
 
 export const MAX_INVOICE_LINES = 50;
@@ -952,10 +1018,26 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       const x = m.invoice;
       if ((s.invoices ?? []).some((i) => i.id === x.id)) return s;
       const seller = s.users.find((u) => u.id === x.ownerId && !u.deletedAt) ?? fail('Seller not found.');
-      if (seller.id !== actor.id && !manages(s.users, actor, seller.id)) fail('You can only sell for yourself or your team.');
+      const v2 = rulesV2(s);
+      const e = erpSettings(s.settings);
+      const invoicer = v2 && can(actor, 'invoicing');
+      if (seller.id !== actor.id && !manages(s.users, actor, seller.id) && !invoicer) fail('You can only sell for yourself or your team.');
       const account = s.accounts.find((a) => a.id === x.accountId && !a.deletedAt) ?? fail('Customer not found.');
-      if (!visible.has(account.ownerId)) fail(`You cannot sell to ${account.name}.`);
+      if (!visible.has(account.ownerId) && !invoicer) fail(`You cannot sell to ${account.name}.`);
       if (!DAY_RE.test(x.date) || !DAY_RE.test(x.dueDate)) fail('Use YYYY-MM-DD dates.');
+      const channel: SalesChannel = x.channel === 'Distributor' ? 'Distributor' : 'Direct';
+      if (v2) {
+        // 2.13: reps place orders; invoices come from the invoicing officer, unless the company lets reps invoice (van sales).
+        if (!invoicer && !e.repsInvoice && actor.role === 'Rep') fail('Place an order instead: the invoicing officer turns it into an invoice.');
+        if (e.hcoOnly && account.type !== 'HCO') fail(`Sell to a business account (HCO), not to ${account.name}.`);
+        if (channel === 'Distributor' && !(s.distributors ?? []).some((d) => d.id === x.distributorId)) fail('Choose the distributor the customer bought through.');
+        if (channel === 'Direct' && !x.orderId) {
+          const limit = creditLimitOf(account, e);
+          const total = invoiceTotals({ lines: x.lines, payments: [], status: 'Issued' }).total;
+          if (limit !== undefined && round2(owedBy(s, account.id) + total) > limit + 0.004 && !can(actor, 'finance')) fail(`${account.name} would go over their credit limit. Place an order instead; Finance can release it.`);
+          if (e.holdOverdueDays !== undefined && oldestOverdueDays(s, account.id, x.date) > e.holdOverdueDays && !can(actor, 'finance')) fail(`${account.name} has overdue debt. Place an order instead; Finance can release it.`);
+        }
+      }
       if (x.dueDate < x.date) fail('The due date cannot be before the invoice date.');
       if (!x.lines.length || x.lines.length > MAX_INVOICE_LINES) fail(`An invoice has 1 to ${MAX_INVOICE_LINES} lines.`);
       for (const l of x.lines) {
@@ -965,13 +1047,19 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
         if (l.discountPercent !== undefined && !(l.discountPercent >= 0 && l.discountPercent <= 100)) fail('Discounts go from 0 to 100%.');
         if (!(l.vatPercent >= 0 && l.vatPercent <= 100)) fail('VAT goes from 0 to 100%.');
       }
-      // Reps sell from their own stock; managers and administrators can also sell from the warehouse.
-      if (x.stockFrom === WAREHOUSE ? actor.role === 'Rep' && !isAdmin : x.stockFrom !== seller.id) fail('Sell from your own stock or the warehouse.');
+      // Reps sell from their own stock; managers, invoicing officers and administrators can also sell from the warehouse.
+      // A sale through a distributor takes nothing from our stock.
+      if (channel === 'Distributor' && v2) {
+        if (x.stockFrom) fail('A sale through a distributor takes no stock.');
+      } else if (x.stockFrom === WAREHOUSE ? actor.role === 'Rep' && !isAdmin && !invoicer : x.stockFrom !== seller.id) fail('Sell from your own stock or the warehouse.');
+      // 2.13: the due date follows the customer's credit days.
+      const dueDate = v2 ? addDays(x.date, channel === 'Distributor' ? 0 : creditDaysOf(account, e)) : x.dueDate;
       const invoice: Invoice = {
-        id: x.id, number: nextInvoiceNumber(s, seller), accountId: account.id, ownerId: seller.id, date: x.date, dueDate: x.dueDate,
+        id: x.id, number: nextInvoiceNumber(s, seller), accountId: account.id, ownerId: seller.id, date: x.date, dueDate,
         lines: x.lines.map((l) => ({ product: l.product, qty: l.qty, unitPrice: round2(l.unitPrice), ...(l.discountPercent ? { discountPercent: round2(l.discountPercent) } : {}), vatPercent: round2(l.vatPercent) })),
         orderRef: x.orderRef?.trim() || undefined, notes: x.notes?.trim() || undefined, stockFrom: x.stockFrom, status: 'Issued', payments: [],
         callId: x.callId && s.calls.some((c) => c.id === x.callId) ? x.callId : undefined, createdAt: nowIso,
+        ...(v2 && channel === 'Distributor' ? { channel, distributorId: x.distributorId } : {}),
       };
       return { ...s, invoices: [...(s.invoices ?? []), invoice] };
     }
@@ -980,7 +1068,11 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       const inv = (s.invoices ?? []).find((i) => i.id === m.invoiceId) ?? fail('Invoice not found.');
       if (inv.payments.some((p) => p.id === m.payment.id)) return s;
       if (inv.status === 'Void') fail('This invoice was cancelled.');
-      if (inv.ownerId !== actor.id && !manages(s.users, actor, inv.ownerId)) fail('You can only record payments for your own or your team’s invoices.');
+      if (rulesV2(s)) {
+        // 2.13: only Finance records money in; reps report it with payment.submit.
+        if (!can(actor, 'finance')) fail('Report the payment: Finance confirms it and issues the receipt.');
+        if (inv.channel === 'Distributor') fail('This sale is paid to the distributor.');
+      } else if (inv.ownerId !== actor.id && !manages(s.users, actor, inv.ownerId)) fail('You can only record payments for your own or your team’s invoices.');
       const p = m.payment;
       const balance = invoiceTotals(inv).balance;
       if (!(p.amount > 0)) fail('Enter the amount received.');
@@ -988,14 +1080,14 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (!PAYMENT_METHODS.includes(p.method)) fail('Choose how they paid.');
       if (!DAY_RE.test(p.date)) fail('Use YYYY-MM-DD for the payment date.');
       if (p.date < inv.date) fail('A payment cannot be before the invoice date.');
-      const payment: Payment = { id: p.id, amount: round2(p.amount), method: p.method, date: p.date, reference: p.reference?.trim() || undefined, receiptNo: `${inv.number}-R${inv.payments.length + 1}`, byId: actor.id, at: nowIso };
+      const payment: Payment = { id: p.id, amount: round2(p.amount), method: p.method, date: p.date, reference: p.reference?.trim() || undefined, receiptNo: `${inv.number}-R${inv.payments.length + 1}`, byId: actor.id, at: nowIso, ...(rulesV2(s) ? { confirmedBy: actor.id } : {}) };
       return { ...s, invoices: (s.invoices ?? []).map((i) => (i.id === inv.id ? { ...i, payments: [...i.payments, payment] } : i)) };
     }
 
     case 'invoice.unpay': {
       const inv = (s.invoices ?? []).find((i) => i.id === m.invoiceId) ?? fail('Invoice not found.');
       if (!inv.payments.some((p) => p.id === m.paymentId)) return s;
-      if (!isAdmin && (inv.ownerId === actor.id || !manages(s.users, actor, inv.ownerId))) fail('Ask your manager to remove a payment.');
+      if (rulesV2(s) ? !can(actor, 'finance') : !isAdmin && (inv.ownerId === actor.id || !manages(s.users, actor, inv.ownerId))) fail(rulesV2(s) ? 'Only Finance can remove a payment.' : 'Ask your manager to remove a payment.');
       if (!m.reason.trim()) fail('Say why the payment is removed.');
       return { ...s, invoices: (s.invoices ?? []).map((i) => (i.id === inv.id ? { ...i, payments: i.payments.filter((p) => p.id !== m.paymentId) } : i)) };
     }
@@ -1005,7 +1097,8 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (inv.status === 'Void') return s;
       // The seller can cancel their own invoice on the day it was made; after that, a manager.
       const sameDay = inv.ownerId === actor.id && inv.createdAt.slice(0, 10) === nowIso.slice(0, 10);
-      if (!sameDay && (inv.ownerId === actor.id ? !isAdmin : !manages(s.users, actor, inv.ownerId))) fail('Ask your manager to cancel this invoice.');
+      const office = rulesV2(s) && (can(actor, 'invoicing') || can(actor, 'finance'));
+      if (!sameDay && !office && (inv.ownerId === actor.id ? !isAdmin : !manages(s.users, actor, inv.ownerId))) fail('Ask your manager to cancel this invoice.');
       if (inv.payments.length) fail('Remove its payments before cancelling the invoice.');
       if (!m.reason.trim() || m.reason.length > 300) fail('Say why the invoice is cancelled.');
       return { ...s, invoices: (s.invoices ?? []).map((i) => (i.id === inv.id ? { ...i, status: 'Void' as const, voidReason: m.reason.trim(), voidedBy: actor.id, voidedAt: nowIso } : i)) };
@@ -1048,6 +1141,209 @@ export function applyMutation(s: Snapshot, m: Mutation, actor: User, now = new D
       if (!isAdmin && (actor.role === 'Rep' || !manages(s.users, actor, a.ownerId))) fail('Only a manager or administrator sets credit limits.');
       if (m.limit !== undefined && !(m.limit >= 0 && m.limit <= 1e12)) fail('Enter a credit limit of zero or more.');
       return { ...s, accounts: s.accounts.map((x) => (x.id === a.id ? (m.limit === undefined ? (({ creditLimit: _drop, ...rest }) => rest)(x) : { ...x, creditLimit: round2(m.limit) }) : x)) };
+    }
+
+    // ----- 2.13 -----
+    case 'distributor.save': {
+      if (!can(actor, 'finance') && !can(actor, 'invoicing')) fail('Only Finance, the invoicing officer or an administrator manages distributors.');
+      const d = m.distributor;
+      const list = s.distributors ?? [];
+      const existing = list.find((x) => x.id === d.id);
+      const name = d.name.trim();
+      if (!name || name.length > 120) fail('Enter the distributor’s name.');
+      if (list.some((x) => x.id !== d.id && x.name.toLowerCase() === name.toLowerCase())) fail(`${name} is already a distributor.`);
+      if (!existing && list.length >= MAX_DISTRIBUTORS) fail(`You can keep up to ${MAX_DISTRIBUTORS} distributors.`);
+      const out: Distributor = { id: d.id, name, city: d.city?.trim() || undefined, phone: d.phone?.trim() || undefined, email: d.email?.trim() || undefined, active: d.active, createdAt: existing?.createdAt ?? nowIso };
+      return { ...s, distributors: replaceOrAdd(list, out) };
+    }
+
+    case 'account.channel': {
+      if (!SALES_CHANNELS.includes(m.channel)) fail('Choose Direct or Distributor.');
+      if (m.channel === 'Distributor' && !(s.distributors ?? []).some((d) => d.id === m.distributorId)) fail('Choose the distributor.');
+      const ids = new Set(m.ids);
+      for (const a of s.accounts) {
+        if (!ids.has(a.id) || a.deletedAt) continue;
+        if (!(can(actor, 'finance') || can(actor, 'invoicing') || a.ownerId === actor.id || manages(s.users, actor, a.ownerId))) fail(`You cannot change ${a.name}.`);
+      }
+      return {
+        ...s,
+        accounts: s.accounts.map((a) => {
+          if (!ids.has(a.id) || a.deletedAt) return a;
+          const { distributorId: _d, ...rest } = a;
+          return m.channel === 'Distributor' ? { ...rest, channel: m.channel, distributorId: m.distributorId } : { ...rest, channel: m.channel };
+        }),
+      };
+    }
+
+    case 'order.create': {
+      const x = m.order;
+      if ((s.orders ?? []).some((o) => o.id === x.id)) return s;
+      const seller = s.users.find((u) => u.id === x.ownerId && !u.deletedAt) ?? fail('Rep not found.');
+      if (seller.id !== actor.id && !manages(s.users, actor, seller.id) && !can(actor, 'invoicing')) fail('You can only order for yourself or your team.');
+      const account = s.accounts.find((a) => a.id === x.accountId && !a.deletedAt) ?? fail('Customer not found.');
+      if (!visible.has(account.ownerId) && !can(actor, 'invoicing')) fail(`You cannot order for ${account.name}.`);
+      const e = erpSettings(s.settings);
+      if (e.hcoOnly && account.type !== 'HCO') fail(`Orders are for business accounts (HCOs), not ${account.name}.`);
+      if (!SALES_CHANNELS.includes(x.channel)) fail('Choose Direct or Distributor.');
+      if (x.channel === 'Distributor' && !(s.distributors ?? []).some((d) => d.id === x.distributorId && d.active)) fail('Choose the distributor the customer buys through.');
+      if (x.deliveryDate !== undefined && !DAY_RE.test(x.deliveryDate)) fail('Use YYYY-MM-DD for the delivery date.');
+      checkOrderLines(s, x.lines);
+      const lines = x.lines.map((l) => ({ product: l.product, qty: l.qty, unitPrice: round2(l.unitPrice), ...(l.discountPercent ? { discountPercent: round2(l.discountPercent) } : {}) }));
+      const holds = holdsFor(s, { id: x.id, accountId: account.id, channel: x.channel, lines }, nowIso.slice(0, 10));
+      const order: Order = {
+        id: x.id, number: nextOrderNumber(s, seller), accountId: account.id, ownerId: seller.id, channel: x.channel, ...(x.channel === 'Distributor' ? { distributorId: x.distributorId } : {}),
+        lines, deliveryDate: x.deliveryDate, orderRef: x.orderRef?.trim() || undefined, notes: x.notes?.trim() || undefined,
+        callId: x.callId && s.calls.some((c) => c.id === x.callId) ? x.callId : undefined,
+        status: holds.length ? 'On hold' : 'Submitted', ...(holds.length ? { holds } : {}),
+        ...(x.channel === 'Direct' && creditDaysOf(account, e) === 0 ? { payFirst: true } : {}),
+        createdAt: nowIso,
+      };
+      return { ...s, orders: [...(s.orders ?? []), order] };
+    }
+
+    case 'order.release': {
+      const o = (s.orders ?? []).find((y) => y.id === m.id) ?? fail('Order not found.');
+      if (o.status !== 'On hold') return s;
+      const mine = (o.holds ?? []).filter((r) => can(actor, HOLD_RELEASER[r]));
+      if (!mine.length) fail((o.holds ?? []).includes('discount') ? 'A credit approver releases discount holds.' : 'Finance releases credit holds.');
+      if (o.ownerId === actor.id && !isAdmin) fail('Someone else must release your own order.');
+      const holds = (o.holds ?? []).filter((r) => !mine.includes(r));
+      const released = [...(o.released ?? []), ...mine.map((reason) => ({ reason, by: actor.id, at: nowIso, ...(m.note?.trim() ? { note: m.note.trim() } : {}) }))];
+      const next: Order = { ...o, holds: holds.length ? holds : undefined, released, status: holds.length ? 'On hold' : 'Submitted' };
+      return { ...s, orders: replaceOrAdd(s.orders ?? [], next) };
+    }
+
+    case 'order.invoice': {
+      const o = (s.orders ?? []).find((y) => y.id === m.id) ?? fail('Order not found.');
+      if (o.status === 'Invoiced' && o.invoiceId === m.invoiceId) return s;
+      if (!can(actor, 'invoicing')) fail('Only the invoicing officer turns orders into invoices.');
+      if (o.status === 'On hold') fail('This order is on hold. Finance or a credit approver must release it first.');
+      if (o.status !== 'Submitted') fail(`This order is ${o.status.toLowerCase()}.`);
+      if (o.channel !== 'Direct') fail('Forward a distributor order to the distributor.');
+      if (!DAY_RE.test(m.date)) fail('Use YYYY-MM-DD for the invoice date.');
+      if ((s.invoices ?? []).some((i) => i.id === m.invoiceId)) fail('Invoice already exists.');
+      const e = erpSettings(s.settings);
+      const lines = orderInvoiceLines(o.lines, s.products, e);
+      const withInvoice = applyMutation(
+        s,
+        { type: 'invoice.create', invoice: { id: m.invoiceId, number: '', accountId: o.accountId, ownerId: o.ownerId, date: m.date, dueDate: addDays(m.date, creditDaysOf(s.accounts.find((x) => x.id === o.accountId) ?? {}, e)), lines, orderRef: o.orderRef ?? o.number, notes: o.notes, stockFrom: m.stockFrom, status: 'Issued', payments: [], callId: o.callId, createdAt: '', orderId: o.id } },
+        actor,
+        now,
+      );
+      const invoices = (withInvoice.invoices ?? []).map((i) => (i.id === m.invoiceId ? { ...i, orderId: o.id } : i));
+      return { ...withInvoice, invoices, orders: replaceOrAdd(s.orders ?? [], { ...o, status: 'Invoiced', invoiceId: m.invoiceId, decidedBy: actor.id, decidedAt: nowIso }) };
+    }
+
+    case 'order.forward': {
+      const o = (s.orders ?? []).find((y) => y.id === m.id) ?? fail('Order not found.');
+      if (o.status === 'Forwarded') return s;
+      if (!can(actor, 'invoicing')) fail('Only the invoicing officer forwards orders.');
+      if (o.channel !== 'Distributor') fail('Only orders through a distributor are forwarded.');
+      if (o.status !== 'Submitted') fail(o.status === 'On hold' ? 'This order is on hold.' : `This order is ${o.status.toLowerCase()}.`);
+      return { ...s, orders: replaceOrAdd(s.orders ?? [], { ...o, status: 'Forwarded', decidedBy: actor.id, decidedAt: nowIso, decisionNote: m.note?.trim() || undefined }) };
+    }
+
+    case 'order.reject': {
+      const o = (s.orders ?? []).find((y) => y.id === m.id) ?? fail('Order not found.');
+      if (o.status === 'Rejected') return s;
+      if (!(can(actor, 'invoicing') || can(actor, 'finance') || can(actor, 'creditApprover'))) fail('Only the office can turn down an order.');
+      if (o.status !== 'Submitted' && o.status !== 'On hold') fail(`This order is ${o.status.toLowerCase()}.`);
+      if (!m.note.trim()) fail('Say why the order is turned down.');
+      return { ...s, orders: replaceOrAdd(s.orders ?? [], { ...o, status: 'Rejected', decidedBy: actor.id, decidedAt: nowIso, decisionNote: m.note.trim() }) };
+    }
+
+    case 'order.cancel': {
+      const o = (s.orders ?? []).find((y) => y.id === m.id) ?? fail('Order not found.');
+      if (o.status === 'Cancelled') return s;
+      if (o.ownerId !== actor.id && !manages(s.users, actor, o.ownerId)) fail('You can only cancel your own or your team’s orders.');
+      if (o.status !== 'Submitted' && o.status !== 'On hold') fail(`This order is already ${o.status.toLowerCase()}.`);
+      return { ...s, orders: replaceOrAdd(s.orders ?? [], { ...o, status: 'Cancelled', decidedBy: actor.id, decidedAt: nowIso }) };
+    }
+
+    case 'payment.submit': {
+      const c = m.claim;
+      if ((s.paymentClaims ?? []).some((x) => x.id === c.id)) return s;
+      const account = s.accounts.find((a) => a.id === c.accountId && !a.deletedAt) ?? fail('Customer not found.');
+      if (!visible.has(account.ownerId) && !can(actor, 'finance')) fail(`You cannot report payments for ${account.name}.`);
+      if (!(c.amount > 0 && c.amount <= 1e12)) fail('Enter the amount received.');
+      if (!PAYMENT_METHODS.includes(c.method)) fail('Choose how they paid.');
+      if (!DAY_RE.test(c.date)) fail('Use YYYY-MM-DD for the payment date.');
+      if (c.date > nowIso.slice(0, 10)) fail('A payment cannot be in the future.');
+      if (c.invoiceId) {
+        const inv = (s.invoices ?? []).find((i) => i.id === c.invoiceId && i.accountId === account.id) ?? fail('Invoice not found.');
+        if (inv.status === 'Void') fail('This invoice was cancelled.');
+      }
+      const owed = round2(owedBy(s, account.id) - (s.paymentClaims ?? []).filter((x) => x.accountId === account.id && x.status === 'Pending').reduce((n, x) => n + x.amount, 0));
+      if (round2(c.amount) > owed + 0.005) fail(owed > 0 ? `That is more than the ${owed.toFixed(2)} still owed (after payments waiting for Finance).` : `${account.name} owes nothing right now.`);
+      const claim: PaymentClaim = {
+        id: c.id, accountId: account.id, ...(c.invoiceId ? { invoiceId: c.invoiceId } : {}), amount: round2(c.amount), method: c.method, date: c.date,
+        reference: c.reference?.trim() || undefined, photo: c.photo, byId: actor.id, at: nowIso, status: 'Pending',
+      };
+      return { ...s, paymentClaims: [...(s.paymentClaims ?? []), claim] };
+    }
+
+    case 'payment.review': {
+      const c = (s.paymentClaims ?? []).find((x) => x.id === m.id) ?? fail('Payment not found.');
+      if (c.status !== 'Pending') return s;
+      checkSeparation(s, actor, 'finance', c.byId, m.approve ? 'confirm this payment' : 'turn down this payment');
+      if (!m.approve) {
+        if (!m.note?.trim()) fail('Say why the payment is turned down.');
+        return { ...s, paymentClaims: replaceOrAdd(s.paymentClaims ?? [], { ...c, status: 'Rejected', decidedBy: actor.id, decidedAt: nowIso, note: m.note!.trim() }) };
+      }
+      const { parts, left } = allocate(s, c);
+      if (!parts.length) fail('Nothing is owed on this customer’s invoices any more.');
+      if (left > 0.004) fail(`Only ${(c.amount - left).toFixed(2)} is still owed. Turn this down and ask the rep to report the right amount.`);
+      const receipts: string[] = [];
+      const invoices = (s.invoices ?? []).map((inv) => {
+        const part = parts.find((p) => p.invoiceId === inv.id);
+        if (!part) return inv;
+        const receiptNo = `${inv.number}-R${inv.payments.length + 1}`;
+        receipts.push(receiptNo);
+        const payment: Payment = { id: `${c.id}-${inv.id}`.slice(0, 80), amount: part.amount, method: c.method, date: c.date < inv.date ? inv.date : c.date, reference: c.reference, receiptNo, byId: c.byId, at: nowIso, claimId: c.id, confirmedBy: actor.id };
+        return { ...inv, payments: [...inv.payments, payment] };
+      });
+      return { ...s, invoices, paymentClaims: replaceOrAdd(s.paymentClaims ?? [], { ...c, status: 'Confirmed', decidedBy: actor.id, decidedAt: nowIso, note: m.note?.trim() || undefined, receipts }) };
+    }
+
+    case 'credit.request': {
+      const r = m.request;
+      if ((s.creditRequests ?? []).some((x) => x.id === r.id)) return s;
+      if (!can(actor, 'finance')) fail('Only Finance asks for credit changes.');
+      const ids = [...new Set(r.accountIds)];
+      if (!ids.length || ids.length > 5000) fail('Choose 1 to 5,000 customers.');
+      if (r.limit === undefined && r.days === undefined) fail('Enter a new credit limit, credit days, or both.');
+      if (r.limit !== undefined && !(r.limit >= 0 && r.limit <= 1e12)) fail('Enter a credit limit of zero or more.');
+      if (r.days !== undefined && (!Number.isInteger(r.days) || r.days < 0 || r.days > 365)) fail('Credit days must be 0 to 365.');
+      if (!r.reason.trim() || r.reason.length > 1000) fail('Say why the credit should change.');
+      const before: Record<string, { limit?: number; days?: number }> = {};
+      for (const id of ids) {
+        const a = s.accounts.find((x) => x.id === id && !x.deletedAt) ?? fail('Customer not found.');
+        before[id] = { ...(a.creditLimit !== undefined ? { limit: a.creditLimit } : {}), ...(a.creditDays !== undefined ? { days: a.creditDays } : {}) };
+      }
+      const req: CreditRequest = { id: r.id, accountIds: ids, ...(r.limit !== undefined ? { limit: round2(r.limit) } : {}), ...(r.days !== undefined ? { days: r.days } : {}), reason: r.reason.trim(), byId: actor.id, at: nowIso, status: 'Pending', before };
+      return { ...s, creditRequests: [...(s.creditRequests ?? []), req] };
+    }
+
+    case 'credit.review': {
+      const r = (s.creditRequests ?? []).find((x) => x.id === m.id) ?? fail('Credit change not found.');
+      if (r.status !== 'Pending') return s;
+      checkSeparation(s, actor, 'creditApprover', r.byId, m.approve ? 'approve this credit change' : 'turn down this credit change');
+      if (!m.approve && !m.note?.trim()) fail('Say why the credit change is turned down.');
+      const decided: CreditRequest = { ...r, status: m.approve ? 'Approved' : 'Rejected', decidedBy: actor.id, decidedAt: nowIso, note: m.note?.trim() || undefined };
+      if (!m.approve) return { ...s, creditRequests: replaceOrAdd(s.creditRequests ?? [], decided) };
+      const ids = new Set(r.accountIds);
+      return {
+        ...s,
+        creditRequests: replaceOrAdd(s.creditRequests ?? [], decided),
+        accounts: s.accounts.map((a) => (ids.has(a.id) ? { ...a, ...(r.limit !== undefined ? { creditLimit: r.limit } : {}), ...(r.days !== undefined ? { creditDays: r.days } : {}) } : a)),
+      };
+    }
+
+    case 'credit.cancel': {
+      const r = (s.creditRequests ?? []).find((x) => x.id === m.id) ?? fail('Credit change not found.');
+      if (r.status !== 'Pending') return s;
+      if (r.byId !== actor.id && !isAdmin) fail('Only the person who asked can withdraw it.');
+      return { ...s, creditRequests: replaceOrAdd(s.creditRequests ?? [], { ...r, status: 'Cancelled', decidedBy: actor.id, decidedAt: nowIso }) };
     }
 
     // ----- reports (2.3) -----
@@ -1144,6 +1440,30 @@ export function describeMutation(m: Mutation): string {
       return `${m.move.kind === 'receive' ? 'Received' : m.move.kind === 'transfer' ? 'Moved' : 'Adjusted'} ${m.move.qty} ${m.move.product}`;
     case 'account.credit':
       return m.limit === undefined ? 'Removed a credit limit' : `Set a credit limit of ${m.limit}`;
+    case 'order.create':
+      return `Placed an order of ${m.order.lines.length} line${m.order.lines.length === 1 ? '' : 's'}`;
+    case 'order.release':
+      return 'Released an order from hold';
+    case 'order.invoice':
+      return 'Invoiced an order';
+    case 'order.forward':
+      return 'Forwarded an order to the distributor';
+    case 'order.reject':
+      return `Turned down an order: ${m.note}`;
+    case 'order.cancel':
+      return 'Cancelled an order';
+    case 'payment.submit':
+      return `Reported a payment of ${m.claim.amount}`;
+    case 'payment.review':
+      return m.approve ? 'Confirmed a payment' : `Turned down a payment${m.note ? `: ${m.note}` : ''}`;
+    case 'credit.request':
+      return `Asked to change credit for ${m.request.accountIds.length} customer${m.request.accountIds.length === 1 ? '' : 's'}`;
+    case 'credit.review':
+      return m.approve ? 'Approved a credit change' : 'Turned down a credit change';
+    case 'distributor.save':
+      return `Saved distributor ${m.distributor.name}`;
+    case 'account.channel':
+      return `Set ${m.ids.length} customer${m.ids.length === 1 ? '' : 's'} to ${m.channel}`;
     default:
       return m.type;
   }

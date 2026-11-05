@@ -9,6 +9,7 @@ import { profileTags } from '@/data/profile';
 import { useMe, useStore } from '@/data/store';
 import { CallRow } from '@/ui/CallRow';
 import { Banner, Button, Card, Empty, ProgressBar, Row, SectionTitle, TierBadge, text } from '@/ui/components';
+import { useErp } from '@/ui/erp';
 import { Grid, useLayout } from '@/ui/layout';
 import { Screen } from '@/ui/Screen';
 import { LicenseBanner } from '@/ui/SyncCard';
@@ -19,6 +20,7 @@ import { AlertsTile, CompanyTile, CyclePlanTile, greeting, HeroButton, HomeHeade
 export function RepHome() {
   const me = useMe();
   const { data, calls, cycle, getAccount, syncNow, sync, erp } = useStore();
+  const { ordersOnly } = useErp();
   const { width, landscape, compact } = useLayout();
   const today = todayKey();
   const mine = calls.filter((c) => c.ownerId === me.id);
@@ -55,7 +57,7 @@ export function RepHome() {
         actions={
           <>
             <HeroButton title="Log a call" icon="add-circle-outline" onPress={() => router.push('/call/edit')} />
-            {erp ? <HeroButton title="New sale" icon="cart-outline" onPress={() => router.push('/erp/sale')} /> : <HeroButton title="My plan" icon="flag-outline" onPress={() => router.navigate('/plan')} />}
+            {erp ? <HeroButton title={ordersOnly ? 'New order' : 'New sale'} icon="cart-outline" onPress={() => router.push(ordersOnly ? { pathname: '/erp/sale', params: { mode: 'order' } } : '/erp/sale')} /> : <HeroButton title="My plan" icon="flag-outline" onPress={() => router.navigate('/plan')} />}
           </>
         }
       />

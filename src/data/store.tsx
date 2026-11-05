@@ -75,7 +75,12 @@ const SETUP_TYPES = new Set<Mutation['type']>([
 ]);
 
 /** Changes that belong to Ava ERP: only made when the company has the module. */
-const ERP_TYPES = new Set<Mutation['type']>(['invoice.create', 'invoice.pay', 'invoice.unpay', 'invoice.void', 'stock.move', 'account.credit']);
+const ERP_TYPES = new Set<Mutation['type']>([
+  'invoice.create', 'invoice.pay', 'invoice.unpay', 'invoice.void', 'stock.move', 'account.credit',
+  // 2.13
+  'distributor.save', 'account.channel', 'order.create', 'order.release', 'order.invoice', 'order.forward', 'order.reject', 'order.cancel',
+  'payment.submit', 'payment.review', 'credit.request', 'credit.review', 'credit.cancel',
+]);
 
 interface Store {
   ready: boolean;

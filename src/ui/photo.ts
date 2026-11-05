@@ -58,3 +58,28 @@ export async function pickSlides(limit = 40): Promise<string[]> {
   }
   return out;
 }
+
+/** 2.13: a photo of a paper (teller, transfer slip, receipt) as a small JPEG data URI that reads well. */
+export async function pickDocPhoto(source: 'camera' | 'library', maxChars = 250_000): Promise<string | null> {
+  const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1 };
+  let res: ImagePicker.ImagePickerResult;
+  if (source === 'camera') {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) throw new Error('Camera access is off for Ava CRM. Allow it in your phone’s settings, or choose a photo instead.');
+    res = await ImagePicker.launchCameraAsync(options);
+  } else {
+    res = await ImagePicker.launchImageLibraryAsync(options);
+  }
+  if (res.canceled || !res.assets?.length) return null;
+  const a = res.assets[0];
+  for (const [side, compress] of [[1000, 0.55], [800, 0.45], [640, 0.4]] as const) {
+    const ctx = ImageManipulator.manipulate(a.uri);
+    if (a.width && a.height && Math.max(a.width, a.height) > side) ctx.resize(a.width >= a.height ? { width: side } : { height: side });
+    const img = await ctx.renderAsync();
+    const saved = await img.saveAsync({ format: SaveFormat.JPEG, compress, base64: true });
+    if (!saved.base64) throw new Error('Could not read that image.');
+    const uri = `data:image/jpeg;base64,${saved.base64}`;
+    if (uri.length <= maxChars) return uri;
+  }
+  throw new Error('That photo is too large. Try again closer to the paper.');
+}

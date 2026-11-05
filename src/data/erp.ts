@@ -1,4 +1,4 @@
-import { ERP_DEFAULTS, WAREHOUSE, type Account, type ErpSettings, type Invoice, type InvoiceLine, type Product, type Settings, type Snapshot, type StockPlace, type User } from './types';
+import { ERP_DEFAULTS, WAREHOUSE, type Account, type ErpSettings, type HoldReason, type Invoice, type InvoiceLine, type Order, type OrderLine, type PaymentClaim, type Product, type Settings, type Snapshot, type StockPlace, type User } from './types';
 
 /**
  * Ava ERP (2.11): money and stock worked out from invoices and stock moves. Amounts are kept in
@@ -34,17 +34,20 @@ export interface InvoiceTotals extends LineTotals {
   balance: number;
 }
 
-export function invoiceTotals(inv: Pick<Invoice, 'lines' | 'payments' | 'status'>): InvoiceTotals {
+export function invoiceTotals(inv: Pick<Invoice, 'lines' | 'payments' | 'status'> & { channel?: Invoice['channel'] }): InvoiceTotals {
   const t = inv.lines.map(lineTotals).reduce((a, b) => ({ gross: a.gross + b.gross, discount: a.discount + b.discount, net: a.net + b.net, vat: a.vat + b.vat, total: a.total + b.total }), { gross: 0, discount: 0, net: 0, vat: 0, total: 0 });
   const paid = round2(inv.payments.reduce((n, p) => n + p.amount, 0));
   const total = round2(t.total);
-  return { gross: round2(t.gross), discount: round2(t.discount), net: round2(t.net), vat: round2(t.vat), total, paid, balance: inv.status === 'Void' ? 0 : round2(total - paid) };
+  // 2.13: a sale through a distributor is owed to the distributor, not to us.
+  const owedToUs = inv.status !== 'Void' && inv.channel !== 'Distributor';
+  return { gross: round2(t.gross), discount: round2(t.discount), net: round2(t.net), vat: round2(t.vat), total, paid, balance: owedToUs ? round2(total - paid) : 0 };
 }
 
-export type PayState = 'Paid' | 'Part paid' | 'Unpaid' | 'Overdue' | 'Void';
+export type PayState = 'Paid' | 'Part paid' | 'Unpaid' | 'Overdue' | 'Void' | 'Via distributor';
 
 export function payState(inv: Invoice, today = todayIso()): PayState {
   if (inv.status === 'Void') return 'Void';
+  if (inv.channel === 'Distributor') return 'Via distributor';
   const t = invoiceTotals(inv);
   if (t.balance <= 0.004) return 'Paid';
   if (inv.dueDate < today) return 'Overdue';
@@ -112,7 +115,7 @@ export function stockAt(s: Pick<Snapshot, 'stockMoves' | 'invoices'>, place: Sto
     if (m.from === place) add(m.product, -m.qty);
   }
   for (const inv of s.invoices ?? []) {
-    if (inv.status === 'Void' || inv.stockFrom !== place) continue;
+    if (inv.status === 'Void' || inv.channel === 'Distributor' || inv.stockFrom !== place) continue;
     for (const l of inv.lines) add(l.product, -l.qty);
   }
   return out;
@@ -246,4 +249,135 @@ export function salesSummary(invoices: Invoice[], from: string, to: string, toda
 export function priceList(products: Product[]): Product[] {
   const active = products.filter((p) => p.active);
   return active.some((p) => p.price !== undefined) ? active.filter((p) => p.price !== undefined) : active;
+}
+
+
+// ----- 2.13: credit rules, orders, payment confirmation, debt age -----
+
+/** True once the company runs on the 2.13 rules (set once by an administrator's app). */
+export const rulesV2 = (s: Pick<Snapshot, 'settings'>) => (erpSettings(s.settings).rulesVersion ?? 0) >= 2;
+
+/** The most the customer may owe: their own limit, or the company default. Undefined: no limit. */
+export const creditLimitOf = (a: Pick<Account, 'creditLimit'>, e: ErpSettings): number | undefined => a.creditLimit ?? e.defaultCreditLimit;
+
+/** Days the customer has to pay: their own, or the company default; 0 is cash and carry. */
+export const creditDaysOf = (a: Pick<Account, 'creditDays'>, e: ErpSettings): number => a.creditDays ?? e.defaultCreditDays ?? e.termsDays;
+
+export const creditTermsLabel = (days: number) => (days === 0 ? 'Cash and carry' : `${days} day${days === 1 ? '' : 's'} credit`);
+
+/** An invoice for an order: lines with VAT from the product, priced as ordered. */
+export function orderInvoiceLines(lines: OrderLine[], products: Product[], e: ErpSettings): InvoiceLine[] {
+  return lines.map((l) => ({ product: l.product, qty: l.qty, unitPrice: l.unitPrice, ...(l.discountPercent ? { discountPercent: l.discountPercent } : {}), vatPercent: products.find((p) => p.name === l.product)?.vatExempt ? 0 : e.vatPercent }));
+}
+
+export const orderTotal = (lines: OrderLine[], products: Product[], e: ErpSettings) => invoiceTotals({ lines: orderInvoiceLines(lines, products, e), payments: [], status: 'Issued' }).total;
+
+export function nextOrderNumber(s: Snapshot, seller: User): string {
+  const mine = (s.orders ?? []).filter((o) => o.ownerId === seller.id).length;
+  return `ORD-${sellerCode(seller)}-${String(mine + 1).padStart(4, '0')}`;
+}
+
+/** Direct orders not yet invoiced, for the credit check: what the customer will owe once they are. */
+export function openOrdersValue(s: Pick<Snapshot, 'orders' | 'products'>, accountId: string, e: ErpSettings, exceptId?: string): number {
+  return round2((s.orders ?? []).filter((o) => o.accountId === accountId && o.id !== exceptId && o.channel === 'Direct' && (o.status === 'Submitted' || o.status === 'On hold')).reduce((n, o) => n + orderTotal(o.lines, s.products, e), 0));
+}
+
+/** Days the customer's oldest unpaid invoice is past its due date (0 when nothing is overdue). */
+export function oldestOverdueDays(s: Pick<Snapshot, 'invoices'>, accountId: string, today = todayIso()): number {
+  let worst = 0;
+  for (const inv of s.invoices ?? []) {
+    if (inv.accountId !== accountId || invoiceTotals(inv).balance <= 0.004) continue;
+    worst = Math.max(worst, daysBetween(inv.dueDate, today));
+  }
+  return worst;
+}
+
+/**
+ * Why an order must wait before it can be invoiced: the customer would go over their credit limit,
+ * has debt overdue by more than the company allows, or a line has a discount above the approval level.
+ * Orders through a distributor only check the discount: they add nothing to what is owed to us.
+ */
+export function holdsFor(s: Snapshot, o: Pick<Order, 'id' | 'accountId' | 'channel' | 'lines'>, today = todayIso()): HoldReason[] {
+  const e = erpSettings(s.settings);
+  const out: HoldReason[] = [];
+  const account = s.accounts.find((a) => a.id === o.accountId);
+  if (o.channel === 'Direct' && account) {
+    const limit = creditLimitOf(account, e);
+    const exposure = round2(owedBy(s, account.id) + openOrdersValue(s, account.id, e, o.id) + orderTotal(o.lines, s.products, e));
+    if (limit !== undefined && exposure > limit + 0.004) out.push('credit');
+    if (e.holdOverdueDays !== undefined && oldestOverdueDays(s, account.id, today) > e.holdOverdueDays) out.push('overdue');
+  }
+  if (e.discountApproval !== undefined && o.lines.some((l) => (l.discountPercent ?? 0) > e.discountApproval! + 1e-9)) out.push('discount');
+  return out;
+}
+
+/** Who may release a hold: Finance for credit and debt, a credit approver for discounts. */
+export const HOLD_RELEASER: Record<HoldReason, 'finance' | 'creditApprover'> = { credit: 'finance', overdue: 'finance', discount: 'creditApprover' };
+
+/**
+ * How a confirmed payment is spread: over the invoice it names, or the customer's oldest unpaid
+ * direct invoices first. Returns what goes on each invoice and anything left over.
+ */
+export function allocate(s: Pick<Snapshot, 'invoices'>, claim: Pick<PaymentClaim, 'accountId' | 'invoiceId' | 'amount'>): { parts: { invoiceId: string; amount: number }[]; left: number } {
+  const open = (s.invoices ?? [])
+    .filter((i) => i.accountId === claim.accountId && (!claim.invoiceId || i.id === claim.invoiceId) && invoiceTotals(i).balance > 0.004)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.date.localeCompare(b.date) || a.number.localeCompare(b.number));
+  let left = round2(claim.amount);
+  const parts: { invoiceId: string; amount: number }[] = [];
+  for (const inv of open) {
+    if (left <= 0.004) break;
+    const take = round2(Math.min(left, invoiceTotals(inv).balance));
+    parts.push({ invoiceId: inv.id, amount: take });
+    left = round2(left - take);
+  }
+  return { parts, left };
+}
+
+/** Reported payments waiting for Finance, per customer. */
+export function pendingClaimsBy(s: Pick<Snapshot, 'paymentClaims'>, accountId: string): number {
+  return round2((s.paymentClaims ?? []).filter((c) => c.accountId === accountId && c.status === 'Pending').reduce((n, c) => n + c.amount, 0));
+}
+
+// ----- debt age -----
+
+export const AGE_BANDS = ['Not yet due', '1-30', '31-60', '61-90', '91-120', '120+'] as const;
+export type AgeBand = (typeof AGE_BANDS)[number];
+
+export function ageBand(daysPastDue: number): AgeBand {
+  if (daysPastDue <= 0) return 'Not yet due';
+  if (daysPastDue <= 30) return '1-30';
+  if (daysPastDue <= 60) return '31-60';
+  if (daysPastDue <= 90) return '61-90';
+  if (daysPastDue <= 120) return '91-120';
+  return '120+';
+}
+
+export type AgeRow = Record<AgeBand, number> & { total: number; overdue: number };
+export const emptyAge = (): AgeRow => ({ 'Not yet due': 0, '1-30': 0, '31-60': 0, '61-90': 0, '91-120': 0, '120+': 0, total: 0, overdue: 0 });
+
+/** What is owed, in age bands from the due date, grouped by `key` (a customer, a rep, a team...). */
+export function debtAge(invoices: Invoice[], key: (inv: Invoice) => string, today = todayIso()): Map<string, AgeRow> {
+  const out = new Map<string, AgeRow>();
+  for (const inv of invoices) {
+    const b = invoiceTotals(inv).balance;
+    if (b <= 0.004) continue;
+    const k = key(inv);
+    const row = out.get(k) ?? emptyAge();
+    const band = ageBand(daysBetween(inv.dueDate, today));
+    row[band] = round2(row[band] + b);
+    row.total = round2(row.total + b);
+    if (band !== 'Not yet due') row.overdue = round2(row.overdue + b);
+    out.set(k, row);
+  }
+  return out;
+}
+
+/** Days sales outstanding: what is owed now over the average day's direct sales in the last 90 days. */
+export function dso(invoices: Invoice[], today = todayIso()): number | undefined {
+  const from = addDays(today, -89);
+  const live = invoices.filter((i) => i.status !== 'Void' && i.channel !== 'Distributor');
+  const sales = live.filter((i) => i.date >= from && i.date <= today).reduce((n, i) => n + invoiceTotals(i).total, 0);
+  const owed = live.reduce((n, i) => n + invoiceTotals(i).balance, 0);
+  if (sales <= 0) return undefined;
+  return Math.round(owed / (sales / 90));
 }

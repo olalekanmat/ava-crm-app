@@ -109,6 +109,14 @@ function RootNav() {
         <Stack.Screen name="erp/customer/[id]" options={{ title: 'Customer' }} />
         <Stack.Screen name="erp/stock" options={{ title: 'Stock' }} />
         <Stack.Screen name="erp/settings" options={{ title: 'Prices & invoices' }} />
+        <Stack.Screen name="erp/orders" options={{ title: 'Orders' }} />
+        <Stack.Screen name="erp/order/[id]" options={{ title: 'Order' }} />
+        <Stack.Screen name="erp/payment" options={{ title: 'Report a payment', presentation: 'modal' }} />
+        <Stack.Screen name="erp/finance" options={{ title: 'Finance desk' }} />
+        <Stack.Screen name="erp/debt" options={{ title: 'Debt summary' }} />
+        <Stack.Screen name="erp/credit" options={{ title: 'Credit limits & days' }} />
+        <Stack.Screen name="erp/distributors" options={{ title: 'Distributors' }} />
+        <Stack.Screen name="suggest" options={{ title: 'Suggest a feature', presentation: 'modal' }} />
       </Stack.Protected>
       {/* Administrators subscribe here, also after a free trial has ended. */}
       <Stack.Protected guard={!!session}>

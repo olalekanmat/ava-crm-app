@@ -46,6 +46,19 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.13.0',
+    items: [
+      { icon: 'cart-outline', title: 'Orders from the field', body: 'Ava ERP: place an order for a customer during a visit. It goes to the invoicing officer, with your line manager copied, and you see when it is invoiced.', who: 'rep' },
+      { icon: 'cash-outline', title: 'Report payments, Finance confirms', body: 'When a customer pays, report it with a photo of the slip. Finance confirms it and issues the receipt; only then the balance goes down.' },
+      { icon: 'git-network-outline', title: 'Direct or through a distributor', body: 'Tag each order and sale as bought from you directly or through a distributor. Distributor sales count for targets but add no debt.' },
+      { icon: 'hourglass-outline', title: 'Debt summary and age', body: 'What every customer, rep, team and region owes, by how long it is overdue, with days sales outstanding and export.', who: 'manager' },
+      { icon: 'speedometer-outline', title: 'Credit limits that hold', body: 'Customers start on cash and carry with a ₦2m limit. Finance asks for changes, one or many at once, and the country manager or named approver approves them. Orders over the limit or with old debt wait on hold.', who: 'manager' },
+      { icon: 'briefcase-outline', title: 'New back-office roles', body: 'Give people Finance, Invoicing officer, Credit approver or Product manager / Marketing jobs in Users & roles. Administrators can do all of them.', who: 'admin' },
+      { icon: 'checkmark-done-outline', title: 'One Approvals inbox', body: 'Payments, orders, credit changes, leave and account corrections that wait for you are together under Approvals.' },
+      { icon: 'bulb-outline', title: 'Suggest a feature', body: 'Administrators can send ideas straight to the Ava CRM team from More.', who: 'admin' },
+    ],
+  },
+  {
     version: '2.12.2',
     items: [
       { icon: 'map-outline', title: 'New map', body: 'The accounts map now uses TomTom maps, which load reliably however many people use them.' },

@@ -27,11 +27,22 @@ const ICON: Record<AlertItem['kind'], IconName> = {
   'change-decided': 'git-pull-request-outline',
   'task-assigned': 'checkbox-outline',
   'event-soon': 'people-outline',
+  'order-invoice': 'cart-outline',
+  'order-hold': 'hand-left-outline',
+  'payment-confirm': 'cash-outline',
+  'credit-approve': 'speedometer-outline',
+  'order-decided': 'cart-outline',
+  'payment-decided': 'cash-outline',
+  'credit-decided': 'speedometer-outline',
 };
 
 /** Where an alert leads. */
 export function openAlert(a: AlertItem) {
-  if (a.callId) router.push({ pathname: '/call/[id]', params: { id: a.callId } });
+  if (a.orderId) router.push({ pathname: '/erp/order/[id]', params: { id: a.orderId } });
+  else if (a.kind === 'payment-confirm' || a.kind === 'credit-approve') router.push('/approvals');
+  else if (a.kind === 'payment-decided' && a.accountId) router.push({ pathname: '/erp/customer/[id]', params: { id: a.accountId } });
+  else if (a.kind === 'credit-decided') router.push('/erp/credit');
+  else if (a.callId) router.push({ pathname: '/call/[id]', params: { id: a.callId } });
   else if (a.kind === 'plan-review' && a.planId) router.push({ pathname: '/plan/[id]', params: { id: a.planId } });
   else if (a.kind === 'leave-review' || a.kind === 'leave-decided') router.push('/leave');
   else if (a.kind === 'account-review' || a.kind === 'account-new') router.push('/approvals');

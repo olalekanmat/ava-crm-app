@@ -1,10 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import { useLayoutEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { addDays, invoiceTotals, owedBy, priceList, round2, shortages, stockAt, todayIso, trackedProducts } from '@/data/erp';
+import { addDays, creditDaysOf, creditLimitOf, creditTermsLabel, holdsFor, invoiceTotals, owedBy, priceList, round2, shortages, stockAt, todayIso, trackedProducts } from '@/data/erp';
+import { notifyOrder } from '@/ui/notify';
 import { newId } from '@/data/ids';
-import { WAREHOUSE, PAYMENT_METHODS, type Account, type InvoiceLine, type PaymentMethod } from '@/data/types';
+import { HOLD_LABEL, WAREHOUSE, PAYMENT_METHODS, type Account, type InvoiceLine, type PaymentMethod, type SalesChannel } from '@/data/types';
 import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SearchBox, SectionTitle, Segmented, text } from '@/ui/components';
 import { notify } from '@/ui/confirm';
 import { ErpOff, useErp } from '@/ui/erp';
@@ -18,9 +19,16 @@ type PaidNow = 'Not yet' | 'In full' | 'Part';
  * numbered and can be shared straight away. Built for a rep standing at a pharmacy counter.
  */
 export default function NewSaleScreen() {
-  const params = useLocalSearchParams<{ accountId?: string; callId?: string }>();
-  const { me, data, accounts, products, erp, run, settings, money, manager, getAccount } = useErp();
+  const params = useLocalSearchParams<{ accountId?: string; callId?: string; mode?: string }>();
+  const { me, data, accounts, products, erp, run, settings, money, manager, getAccount, v2, ordersOnly, finance, getUser } = useErp();
+  // 2.13: reps place orders (the office invoices them) unless the company allows invoicing on the spot.
+  const orderMode = ordersOnly || params.mode === 'order';
+  const navigation = useNavigation();
+  useLayoutEffect(() => navigation.setOptions({ title: orderMode ? 'New order' : 'New sale' }), [navigation, orderMode]);
   const [accountId, setAccountId] = useState(params.accountId);
+  const [channel, setChannel] = useState<SalesChannel | undefined>(undefined);
+  const [distributorId, setDistributorId] = useState<string | undefined>(undefined);
+  const [delivery, setDelivery] = useState('');
   const [search, setSearch] = useState('');
   const [find, setFind] = useState('');
   const [qty, setQty] = useState<Record<string, number>>({});
@@ -36,7 +44,13 @@ export default function NewSaleScreen() {
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const account = accountId ? getAccount(accountId) : undefined;
+  const picked = accountId ? getAccount(accountId) : undefined;
+  // HCOs only: an order started from a doctor goes to one of the places they work.
+  const needsHco = v2 && settings.hcoOnly && picked?.type === 'HCP';
+  const account = needsHco ? undefined : picked;
+  const ch: SalesChannel = channel ?? account?.channel ?? 'Direct';
+  const dist = distributorId ?? account?.distributorId;
+  const distributors = (data.distributors ?? []).filter((d) => d.active);
   const list = priceList(products);
   const stock = useMemo(() => stockAt(data, from), [data, from]);
   const tracked = useMemo(() => trackedProducts(data), [data]);
@@ -46,31 +60,65 @@ export default function NewSaleScreen() {
     .map((p) => ({ product: p.name, qty: qty[p.name], unitPrice: p.price ?? 0, ...(disc ? { discountPercent: disc } : {}), vatPercent: p.vatExempt ? 0 : settings.vatPercent }));
   const totals = invoiceTotals({ lines, payments: [], status: 'Issued' });
   const units = lines.reduce((n, l) => n + l.qty, 0);
-  const short = shortages(data, from, lines);
+  const short = ch === 'Distributor' ? [] : shortages(data, from, lines);
   const owed = account ? owedBy(data, account.id) : 0;
-  const overLimit = account?.creditLimit !== undefined && paid !== 'In full' && round2(owed + totals.total - (paid === 'Part' ? Number(amount) || 0 : 0)) > account.creditLimit;
+  const limit = account ? (v2 ? creditLimitOf(account, settings) : account.creditLimit) : undefined;
+  const overLimit = ch === 'Direct' && limit !== undefined && paid !== 'In full' && round2(owed + totals.total - (paid === 'Part' ? Number(amount) || 0 : 0)) > limit;
+  const holds = account && orderMode ? holdsFor(data, { id: '', accountId: account.id, channel: ch, lines }) : [];
+  const days = account && v2 ? creditDaysOf(account, settings) : terms;
   const noPrice = lines.filter((l) => !l.unitPrice);
 
   if (!erp) return <ErpOff />;
 
-  if (!account) return <PickCustomer accounts={accounts} search={search} setSearch={setSearch} onPick={setAccountId} />;
+  if (needsHco && picked) return <PickWorkplace hcp={picked} onPick={setAccountId} />;
+  if (!account) return <PickCustomer accounts={v2 && settings.hcoOnly ? accounts.filter((a) => a.type === 'HCO') : accounts} search={search} setSearch={setSearch} onPick={setAccountId} title={orderMode ? 'Who is ordering?' : undefined} />;
 
   const set = (name: string, n: number) => setQty((q) => ({ ...q, [name]: Math.max(0, Math.min(100000, Math.round(n) || 0)) }));
   const shown = list.filter((p) => !find.trim() || `${p.name} ${p.sku ?? ''}`.toLowerCase().includes(find.trim().toLowerCase()));
 
-  const save = () => {
+  const saveOrder = () => {
     if (!lines.length) return;
+    if (ch === 'Distributor' && !dist) return notify('Choose the distributor', 'Pick the distributor this customer buys through.');
+    setBusy(true);
+    try {
+      const id = newId('ord');
+      const order = {
+        id, number: '', accountId: account.id, ownerId: me.id, channel: ch, ...(ch === 'Distributor' ? { distributorId: dist } : {}),
+        lines: lines.map((l) => ({ product: l.product, qty: l.qty, unitPrice: l.unitPrice, ...(l.discountPercent ? { discountPercent: l.discountPercent } : {}) })),
+        deliveryDate: /^\d{4}-\d{2}-\d{2}$/.test(delivery) ? delivery : undefined, orderRef: orderRef.trim() || undefined, notes: notes.trim() || undefined, callId: params.callId, status: 'Submitted' as const, createdAt: '',
+      };
+      run({ type: 'order.create', order });
+      notifyOrder({ ...order, holds }, { data, me, getUser, getAccount, money });
+      router.replace({ pathname: '/erp/order/[id]', params: { id, created: '1' } });
+    } catch (e) {
+      notify('Not sent', e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  const save = () => {
+    if (orderMode) return saveOrder();
+    if (!lines.length) return;
+    if (v2 && ch === 'Distributor' && !dist) return notify('Choose the distributor', 'Pick the distributor this customer bought through.');
     const pay = paid === 'In full' ? totals.total : paid === 'Part' ? round2(Number(amount) || 0) : 0;
     if (paid === 'Part' && !(pay > 0 && pay < totals.total)) return notify('Check the amount', `Enter how much they paid now, less than ${money(totals.total)}.`);
     setBusy(true);
     try {
       const id = newId('inv');
       const today = todayIso();
+      const viaDistributor = v2 && ch === 'Distributor';
       run({
         type: 'invoice.create',
-        invoice: { id, number: '', accountId: account.id, ownerId: me.id, date: today, dueDate: addDays(today, terms), lines, orderRef: orderRef.trim() || undefined, notes: notes.trim() || undefined, stockFrom: from, status: 'Issued', payments: [], callId: params.callId, createdAt: '' },
+        invoice: {
+          id, number: '', accountId: account.id, ownerId: me.id, date: today, dueDate: addDays(today, days), lines, orderRef: orderRef.trim() || undefined, notes: notes.trim() || undefined,
+          stockFrom: viaDistributor ? '' : from, status: 'Issued', payments: [], callId: params.callId, createdAt: '', ...(viaDistributor ? { channel: 'Distributor' as const, distributorId: dist } : {}),
+        },
       });
-      if (pay > 0) run({ type: 'invoice.pay', invoiceId: id, payment: { id: newId('pay'), amount: pay, method, date: today, reference: payRef.trim() || undefined, receiptNo: '', byId: me.id, at: '' } });
+      // 2.13: Finance records money in; anyone else reports it for Finance to confirm.
+      if (pay > 0 && !viaDistributor) {
+        if (!v2 || finance) run({ type: 'invoice.pay', invoiceId: id, payment: { id: newId('pay'), amount: pay, method, date: today, reference: payRef.trim() || undefined, receiptNo: '', byId: me.id, at: '' } });
+        else run({ type: 'payment.submit', claim: { id: newId('pcl'), accountId: account.id, invoiceId: id, amount: pay, method, date: today, reference: payRef.trim() || undefined, byId: me.id, at: '', status: 'Pending' } });
+      }
       router.replace({ pathname: '/erp/invoice/[id]', params: { id, created: '1' } });
     } catch (e) {
       notify('Not saved', e instanceof Error ? e.message : String(e));
@@ -92,12 +140,31 @@ export default function NewSaleScreen() {
               <Text style={text.muted}>
                 {account.city}
                 {owed > 0 ? ` · owes ${money(owed)}` : ''}
-                {account.creditLimit !== undefined ? ` · limit ${money(account.creditLimit)}` : ''}
+                {limit !== undefined ? ` · limit ${money(limit)}` : ''}
+                {v2 ? ` · ${creditTermsLabel(creditDaysOf(account, settings))}` : ''}
               </Text>
             </View>
             {!params.accountId && <Text style={text.link}>Change</Text>}
           </Row>
         </Card>
+
+        {v2 && (
+          <Card>
+            <Label>{orderMode ? 'The customer buys' : 'The customer bought'}</Label>
+            <Segmented options={['Direct', 'Distributor'] as SalesChannel[]} value={ch} onChange={setChannel} labels={{ Direct: 'From us (direct)', Distributor: 'Through a distributor' }} />
+            {ch === 'Distributor' &&
+              (distributors.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: space.sm }}>
+                  {distributors.map((d) => (
+                    <Chip key={d.id} label={d.name} selected={dist === d.id} onPress={() => setDistributorId(d.id)} />
+                  ))}
+                </View>
+              ) : (
+                <Text style={[text.muted, { marginTop: space.sm }]}>No distributors yet. Finance or the invoicing officer adds them under Ava ERP › Distributors.</Text>
+              ))}
+            {ch === 'Distributor' && <Text style={[text.small, { marginTop: space.sm }]}>Counts towards your sales. Nothing is owed to us and no stock moves: the distributor bills the customer.</Text>}
+          </Card>
+        )}
 
         {/* Products */}
         <SectionTitle right={units ? <Text style={text.muted}>{units} item{units === 1 ? '' : 's'}</Text> : undefined}>Products</SectionTitle>
@@ -140,7 +207,32 @@ export default function NewSaleScreen() {
           </Card>
         )}
 
-        {lines.length > 0 && (
+        {lines.length > 0 && orderMode && (
+          <>
+            <SectionTitle>Order details</SectionTitle>
+            <Card>
+              <Label>Delivery</Label>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                {[0, 1, 2, 7].map((d) => {
+                  const day = addDays(todayIso(), d);
+                  return <Chip key={d} label={d === 0 ? 'Today' : d === 1 ? 'Tomorrow' : d === 7 ? 'Next week' : 'In 2 days'} selected={delivery === day} onPress={() => setDelivery(delivery === day ? '' : day)} />;
+                })}
+              </View>
+              <Field label="Discount on every line (%)" value={discount} onChangeText={(v) => setDiscount(v.replace(/[^\d.]/g, ''))} keyboardType="decimal-pad" placeholder="0" hint={settings.discountApproval !== undefined ? `Above ${settings.discountApproval}% needs a credit approver` : undefined} />
+              <Field label="Customer’s order number (LPO)" value={orderRef} onChangeText={setOrderRef} placeholder="Optional" />
+              <Field label="Notes for the office" value={notes} onChangeText={setNotes} placeholder="Optional" multiline />
+            </Card>
+            {ch === 'Direct' && account && days === 0 && <Banner tone="info" icon="cash-outline">{account.name} is on cash and carry: they pay before delivery.</Banner>}
+            {holds.length > 0 && (
+              <Banner tone="warn" icon="hand-left-outline">
+                This order will wait: {holds.map((h) => HOLD_LABEL[h].toLowerCase()).join(' and ')}. {holds.includes('discount') && holds.length === 1 ? 'A credit approver' : 'Finance'} decides before it is invoiced.
+              </Banner>
+            )}
+            <Text style={[text.small, { marginBottom: space.md }]}>It goes to the invoicing officer, with your line manager copied.</Text>
+          </>
+        )}
+
+        {lines.length > 0 && !orderMode && (
           <>
             <SectionTitle>Payment</SectionTitle>
             <Card>
@@ -157,7 +249,8 @@ export default function NewSaleScreen() {
                   {method !== 'Cash' && <Field label="Reference (optional)" value={payRef} onChangeText={setPayRef} placeholder="Transfer or POS reference" />}
                 </>
               )}
-              {paid !== 'In full' && (
+              {v2 && paid !== 'Not yet' && !finance && <Text style={text.small}>Finance confirms the money before a receipt is issued.</Text>}
+              {paid !== 'In full' && !v2 && (
                 <>
                   <Label>Customer pays within</Label>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
@@ -175,7 +268,7 @@ export default function NewSaleScreen() {
                   <Field label="Discount on every line (%)" value={discount} onChangeText={(v) => setDiscount(v.replace(/[^\d.]/g, ''))} keyboardType="decimal-pad" placeholder="0" />
                   <Field label="Customer’s order number (LPO)" value={orderRef} onChangeText={setOrderRef} placeholder="Optional" />
                   <Field label="Notes on the invoice" value={notes} onChangeText={setNotes} placeholder="Optional" multiline />
-                  {manager && (
+                  {manager && ch === 'Direct' && (
                     <>
                       <Label>Stock leaves</Label>
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
@@ -193,7 +286,7 @@ export default function NewSaleScreen() {
                 Not enough in {from === WAREHOUSE ? 'the warehouse' : 'your stock'}: {short.map((x) => `${x.product} (${x.have} left, selling ${x.want})`).join(', ')}. You can still sell; stock will show below zero until it is topped up.
               </Banner>
             )}
-            {overLimit && <Banner tone="warn">This takes {account.name} over their credit limit of {money(account.creditLimit!)}.</Banner>}
+            {overLimit && <Banner tone={v2 && !finance ? 'danger' : 'warn'}>This takes {account.name} over their credit limit of {money(limit!)}.{v2 && !finance ? ' Place an order instead: Finance can release it.' : ''}</Banner>}
             {noPrice.length > 0 && <Banner tone="warn">{noPrice.map((l) => l.product).join(', ')} {noPrice.length === 1 ? 'has' : 'have'} no price yet and will be invoiced at zero.</Banner>}
           </>
         )}
@@ -212,7 +305,7 @@ export default function NewSaleScreen() {
             <Text style={styles.total}>{money(totals.total)}</Text>
           </View>
           <View style={{ minWidth: 170 }}>
-            <Button title={paid === 'In full' ? 'Sell & take payment' : 'Create invoice'} icon="checkmark-circle-outline" onPress={save} disabled={busy} />
+            <Button title={orderMode ? 'Send order' : paid === 'In full' ? 'Sell & take payment' : 'Create invoice'} icon={orderMode ? 'paper-plane-outline' : 'checkmark-circle-outline'} onPress={save} disabled={busy} />
           </View>
         </View>
       )}
@@ -220,7 +313,33 @@ export default function NewSaleScreen() {
   );
 }
 
-function PickCustomer({ accounts, search, setSearch, onPick }: { accounts: Account[]; search: string; setSearch: (v: string) => void; onPick: (id: string) => void }) {
+/** An order for a doctor goes to an HCO they work at (business accounts only). */
+function PickWorkplace({ hcp, onPick }: { hcp: Account; onPick: (id: string) => void }) {
+  const { accounts } = useErp();
+  const places = accounts.filter((a) => a.type === 'HCO' && (hcp.workplaces?.includes(a.id) || (hcp.affiliation && a.name === hcp.affiliation)));
+  return (
+    <Screen>
+      <Text style={[text.h2, { marginBottom: space.sm }]}>Which business is buying?</Text>
+      <Text style={[text.muted, { marginBottom: space.md }]}>Orders and invoices go to business accounts (HCOs), not to doctors. Pick where {hcp.name} works.</Text>
+      <Card style={{ padding: 0 }}>
+        {places.map((a) => (
+          <Pressable key={a.id} onPress={() => onPick(a.id)} style={({ pressed }) => [styles.cust, pressed && { opacity: 0.7 }]}>
+            <Ionicons name="business-outline" size={18} color={colors.muted} />
+            <View style={{ flex: 1 }}>
+              <Text style={text.title}>{a.name}</Text>
+              <Text style={text.muted}>{a.city}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.faint} />
+          </Pressable>
+        ))}
+        {!places.length && <Text style={[text.muted, { padding: space.lg }]}>{hcp.name} has no workplace on file.</Text>}
+      </Card>
+      <Button title="Choose another business" variant="ghost" icon="search-outline" onPress={() => onPick('')} />
+    </Screen>
+  );
+}
+
+function PickCustomer({ accounts, search, setSearch, onPick, title }: { accounts: Account[]; search: string; setSearch: (v: string) => void; onPick: (id: string) => void; title?: string }) {
   const { data } = useErp();
   const q = search.trim().toLowerCase();
   // Customers bought from recently come first.
@@ -232,8 +351,8 @@ function PickCustomer({ accounts, search, setSearch, onPick }: { accounts: Accou
     .slice(0, 60);
   return (
     <Screen>
-      <Text style={[text.h2, { marginBottom: space.sm }]}>Who is buying?</Text>
-      <SearchBox placeholder="Pharmacy, hospital or doctor" value={search} onChangeText={setSearch} autoFocus />
+      <Text style={[text.h2, { marginBottom: space.sm }]}>{title ?? 'Who is buying?'}</Text>
+      <SearchBox placeholder={accounts.every((a) => a.type === 'HCO') ? 'Pharmacy, hospital or clinic' : 'Pharmacy, hospital or doctor'} value={search} onChangeText={setSearch} autoFocus />
       <Card style={{ padding: 0, marginTop: space.md }}>
         <ScrollView keyboardShouldPersistTaps="handled">
           {list.map((a) => (

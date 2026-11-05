@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
 import { Text, View } from 'react-native';
 import { repsUnder } from '@/data/access';
-import { erpSettings, formatMoney, invoiceTotals, payState, todayIso, type PayState } from '@/data/erp';
+import { creditDaysOf, creditLimitOf, creditTermsLabel, erpSettings, formatMoney, invoiceTotals, payState, rulesV2, todayIso, type PayState } from '@/data/erp';
+import { can } from '@/data/roles';
 import { useMe, useStore } from '@/data/store';
 import { WAREHOUSE, type Account, type Invoice, type User } from '@/data/types';
 import { Badge, Button, Card, Empty, ListRow, text } from '@/ui/components';
@@ -18,7 +19,14 @@ export function useErp() {
   const manager = me.role !== 'Rep' || store.admin;
   // Reps keep their own stock; managers and administrators also run the warehouse.
   const places = [me.id, ...(manager ? [WAREHOUSE] : []), ...team.filter((u) => u.id !== me.id).map((u) => u.id)];
-  return { ...store, me, settings, money, team, manager, places, ctx: (inv?: Pick<Invoice, 'accountId' | 'ownerId'>) => ({ company: store.company, erp: settings, account: inv ? store.getAccount(inv.accountId) : undefined, seller: inv ? store.getUser(inv.ownerId) : undefined }) };
+  // 2.13: who does which back-office step, and whether reps order rather than invoice.
+  const v2 = rulesV2(store.data);
+  const finance = can(me, 'finance');
+  const invoicer = can(me, 'invoicing');
+  const approver = can(me, 'creditApprover');
+  const office = finance || invoicer || approver;
+  const ordersOnly = v2 && !invoicer && !settings.repsInvoice && me.role === 'Rep';
+  return { ...store, me, settings, money, team, manager: manager || invoicer, places: invoicer && !places.includes(WAREHOUSE) ? [...places, WAREHOUSE] : places, v2, finance, invoicer, approver, office, ordersOnly, ctx: (inv?: Pick<Invoice, 'accountId' | 'ownerId'> & { distributorId?: string }) => ({ company: store.company, erp: settings, account: inv ? store.getAccount(inv.accountId) : undefined, seller: inv ? store.getUser(inv.ownerId) : undefined, distributor: inv?.distributorId ? store.data.distributors?.find((d) => d.id === inv.distributorId)?.name : undefined }) };
 }
 
 const PAY_COLORS: Record<PayState, { fg: string; bg: string }> = {
@@ -27,6 +35,7 @@ const PAY_COLORS: Record<PayState, { fg: string; bg: string }> = {
   Unpaid: { fg: colors.primaryInk, bg: colors.primarySoft },
   Overdue: { fg: colors.danger, bg: colors.dangerSoft },
   Void: { fg: colors.muted, bg: colors.sunken },
+  'Via distributor': { fg: colors.muted, bg: colors.sunken },
 };
 
 export function PayBadge({ state }: { state: PayState }) {
@@ -58,8 +67,18 @@ export function InvoiceRow({ inv, showSeller }: { inv: Invoice; showSeller?: boo
 
 /** On an account page (Ava ERP only): what the customer owes and a New sale button. */
 export function AccountSales({ account }: { account: Account }) {
-  const { erp, data, money } = useErp();
+  const { erp, data, money, v2, ordersOnly, finance, settings } = useErp();
   if (!erp) return null;
+  // 2.13: doctors are not billed; their page offers an order for one of their workplaces.
+  if (v2 && settings.hcoOnly && account.type === 'HCP')
+    return (
+      <Card style={{ padding: space.md }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+          <Text style={[text.muted, { flex: 1 }]}>Orders go to the hospital or pharmacy this doctor works at.</Text>
+          <Button small title={ordersOnly ? 'New order' : 'New sale'} icon="cart-outline" onPress={() => router.push({ pathname: '/erp/sale', params: { accountId: account.id, ...(ordersOnly ? { mode: 'order' } : {}) } })} />
+        </View>
+      </Card>
+    );
   const invoices = (data.invoices ?? []).filter((i) => i.accountId === account.id && i.status !== 'Void');
   const owed = invoices.reduce((n, i) => n + invoiceTotals(i).balance, 0);
   const overdue = invoices.filter((i) => payState(i) === 'Overdue').length;
@@ -69,12 +88,20 @@ export function AccountSales({ account }: { account: Account }) {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
         <View style={{ flex: 1 }}>
           <Text style={text.title}>{owed > 0 ? `Owes ${money(owed)}` : invoices.length ? 'Paid up' : 'No sales yet'}</Text>
+          {v2 && (
+            <Text style={text.small}>
+              {creditTermsLabel(creditDaysOf(account, settings))}
+              {creditLimitOf(account, settings) !== undefined ? ` · limit ${money(creditLimitOf(account, settings)!)}` : ''}
+              {account.channel === 'Distributor' ? ` · buys through ${data.distributors?.find((d) => d.id === account.distributorId)?.name ?? 'a distributor'}` : ''}
+            </Text>
+          )}
           <Text style={[text.muted, overdue > 0 && { color: colors.danger }]}>
             {overdue > 0 ? `${overdue} overdue invoice${overdue === 1 ? '' : 's'}` : last ? `Last sale ${new Date(`${last}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : 'Sell to this customer in a few taps'}
           </Text>
         </View>
         {invoices.length > 0 && <Button small variant="ghost" title="Statement" onPress={() => router.push({ pathname: '/erp/customer/[id]', params: { id: account.id } })} />}
-        <Button small title="New sale" icon="cart-outline" onPress={() => router.push({ pathname: '/erp/sale', params: { accountId: account.id } })} />
+        {v2 && !finance && owed > 0 && <Button small variant="ghost" title="Payment" icon="cash-outline" onPress={() => router.push({ pathname: '/erp/payment', params: { accountId: account.id } })} />}
+        <Button small title={ordersOnly ? 'New order' : 'New sale'} icon="cart-outline" onPress={() => router.push({ pathname: '/erp/sale', params: { accountId: account.id, ...(ordersOnly ? { mode: 'order' } : {}) } })} />
       </View>
     </Card>
   );
