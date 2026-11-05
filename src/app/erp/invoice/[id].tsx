@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -9,6 +10,8 @@ import { PAYMENT_METHODS, type PaymentMethod } from '@/data/types';
 import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SectionTitle, text } from '@/ui/components';
 import { notify } from '@/ui/confirm';
 import { ErpOff, PayBadge, useErp } from '@/ui/erp';
+import { can } from '@/data/roles';
+import { SignatureView } from '@/ui/SignaturePad';
 import { dayLabel, invoiceHtml, receiptHtml, shareDocument, whatsappInvoice } from '@/ui/erpDocs';
 import { Screen } from '@/ui/Screen';
 import { colors, radius, space } from '@/ui/theme';
@@ -39,6 +42,10 @@ export default function InvoiceScreen() {
   const claims = (data.paymentClaims ?? []).filter((c) => c.invoiceId === inv.id && c.status !== 'Confirmed');
   const viaDistributor = inv.channel === 'Distributor';
   const distributor = viaDistributor ? data.distributors?.find((d) => d.id === inv.distributorId) : undefined;
+  const returns = (data.returns ?? []).filter((r) => r.invoiceId === inv.id);
+  const canDeliver = mine || manages(data.users, me, inv.ownerId) || can(me, 'warehouse') || invoicer;
+  const canReturn = (mine || manages(data.users, me, inv.ownerId) || finance || can(me, 'warehouse') || invoicer) && inv.lines.some((l) => l.qty > returns.filter((r) => r.status === 'Pending' || r.status === 'Approved').flatMap((r) => r.lines).filter((x) => x.product === l.product).reduce((n, x) => n + x.qty, 0));
+  const erpSettingsRequire = !!data.settings.erp?.requireDelivery;
   const share = (html: string, name: string) => shareDocument(html, name).catch((e) => notify('Could not share', e instanceof Error ? e.message : String(e)));
 
   const recordPayment = () => {
@@ -110,8 +117,41 @@ export default function InvoiceScreen() {
           {!!t.discount && <Sum label="Discount" value={`−${money(t.discount)}`} />}
           <Sum label="VAT" value={money(t.vat)} />
           <Sum label="Total" value={money(t.total)} bold />
+          {!!t.credited && <Sum label="Credit notes" value={`−${money(t.credited)}`} />}
         </View>
       </Card>
+
+      {/* 2.14: credit notes, returns and proof of delivery */}
+      {(inv.credits ?? []).map((c) => (
+        <Banner key={c.id} tone="info" icon="return-down-back-outline">
+          Credit note {c.number}: {money(c.amount)}. {c.reason}
+        </Banner>
+      ))}
+      {returns.filter((r) => r.status === 'Pending').map((r) => (
+        <Banner key={r.id} tone="warn" icon="hourglass-outline">
+          Return of {r.lines.map((l) => `${l.qty} ${l.product}`).join(', ')} ({r.condition.toLowerCase()}) waiting for Finance, asked by {getUser(r.byId)?.name ?? 'a rep'}.
+        </Banner>
+      ))}
+      {inv.status !== 'Void' && !viaDistributor && (
+        <>
+          <SectionTitle right={!inv.delivery && canDeliver ? <Button small title="Record delivery" icon="checkmark-done-outline" onPress={() => router.push({ pathname: '/erp/deliver', params: { invoiceId: inv.id } })} /> : undefined}>Delivery</SectionTitle>
+          {inv.delivery ? (
+            <Card>
+              <Text style={text.title}>Received by {inv.delivery.receivedBy}</Text>
+              <Text style={text.muted}>
+                {new Date(inv.delivery.at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · recorded by {getUser(inv.delivery.byId)?.name ?? '—'}
+                {inv.delivery.lat !== undefined ? ' · location saved' : ''}
+              </Text>
+              {!!inv.delivery.note && <Text style={text.body}>{inv.delivery.note}</Text>}
+              {inv.delivery.signature && <SignatureView signature={inv.delivery.signature} />}
+              {!!inv.delivery.photo && <Image source={{ uri: inv.delivery.photo }} style={{ width: '100%', height: 200, borderRadius: radius.md, marginTop: space.sm }} contentFit="contain" />}
+            </Card>
+          ) : (
+            <Text style={[text.muted, { marginBottom: space.md }]}>{erpSettingsRequire ? 'Proof of delivery is required: the customer signs, or you photograph the signed delivery note.' : 'Not recorded yet.'}</Text>
+          )}
+          {canReturn && <Button title="Return goods" icon="return-down-back-outline" variant="ghost" onPress={() => router.push({ pathname: '/erp/return', params: { invoiceId: inv.id } })} />}
+        </>
+      )}
 
       {/* Payments */}
       {viaDistributor && <Banner tone="info" icon="git-network-outline">Bought through {distributor?.name ?? 'a distributor'}: the customer pays the distributor. It counts towards sales; nothing is owed to us and no stock moved.</Banner>}

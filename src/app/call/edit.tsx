@@ -7,6 +7,7 @@ import { CallNoteAssist } from '@/ai/CallNoteAssist';
 import { addDays, formatDate, parseLocal, timeKey, toDateKey } from '@/data/dates';
 import { distanceM, formatDistance, hasLocation } from '@/data/geo';
 import { newId } from '@/data/ids';
+import { deckAllowed } from '@/data/ops';
 import { callProblems, managersOf } from '@/data/mutations';
 import { batchStock, sampleStock } from '@/data/samples';
 import { useMe, useStore } from '@/data/store';
@@ -32,13 +33,15 @@ const clock = () => Date.now();
 
 /** Create a call (optionally for ?accountId=, or ?plan=1 to schedule one) or edit an unsubmitted one (?id=). */
 export default function EditCallScreen() {
-  const params = useLocalSearchParams<{ id?: string; accountId?: string; plan?: string; repeat?: string }>();
+  const params = useLocalSearchParams<{ id?: string; accountId?: string; plan?: string; repeat?: string; date?: string }>();
   const me = useMe();
   const { accounts, products, data, getAccount, getCall, run, callsForAccount, session } = useStore();
   const existing = params.id ? getCall(params.id) : undefined;
   // 2.9: ?repeat=<callId> starts a new call from an earlier one (products, key messages, objectives).
   const template = !existing && params.repeat ? getCall(params.repeat) : undefined;
-  const start = existing ? new Date(existing.datetime) : params.plan ? new Date(addDays(new Date(), 1).setHours(9, 0, 0, 0)) : new Date();
+  // 2.15: ?date=YYYY-MM-DD (from the calendar) plans the visit for that day at 09:00.
+  const onDay = params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? new Date(`${params.date}T09:00:00`) : undefined;
+  const start = existing ? new Date(existing.datetime) : onDay ?? (params.plan ? new Date(addDays(new Date(), 1).setHours(9, 0, 0, 0)) : new Date());
 
   const [accountId, setAccountId] = useState(existing?.accountId ?? params.accountId ?? template?.accountId);
   const [accountQuery, setAccountQuery] = useState('');
@@ -82,7 +85,8 @@ export default function EditCallScreen() {
   // Batches of a product still in stock and not expired, soonest expiry first.
   const usableBatches = (p: string) => batches.filter((b) => b.product === p && b.balance > 0 && b.batch && (!b.expiry || b.expiry >= thisMonth));
   const expiredBatches = (p: string) => batches.filter((b) => b.product === p && b.balance > 0 && b.expiry && b.expiry < thisMonth);
-  const decks = productsWithDecks(products);
+  // 2.15: with content approval on, only presentations Medical approved (and not expired) can be shown.
+  const decks = productsWithDecks(products).filter((p) => deckAllowed(data, p.deck?.hash, toDateKey(new Date())));
   const deckOrder = [...decks].sort((a, b) => (chosen.indexOf(a.name) + 1 || 99) - (chosen.indexOf(b.name) + 1 || 99));
   const carried = account && !existing ? openObjectives(callsForAccount(account.id).filter((c) => c.ownerId === me.id)).map((o) => o.text) : [];
   const signRule = data.settings.sampleSignature ?? 'optional';

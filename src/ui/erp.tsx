@@ -24,9 +24,11 @@ export function useErp() {
   const finance = can(me, 'finance');
   const invoicer = can(me, 'invoicing');
   const approver = can(me, 'creditApprover');
+  // 2.15: the warehouse role runs the warehouse stock.
+  const warehouse = can(me, 'warehouse');
   const office = finance || invoicer || approver;
   const ordersOnly = v2 && !invoicer && !settings.repsInvoice && me.role === 'Rep';
-  return { ...store, me, settings, money, team, manager: manager || invoicer, places: invoicer && !places.includes(WAREHOUSE) ? [...places, WAREHOUSE] : places, v2, finance, invoicer, approver, office, ordersOnly, ctx: (inv?: Pick<Invoice, 'accountId' | 'ownerId'> & { distributorId?: string }) => ({ company: store.company, erp: settings, account: inv ? store.getAccount(inv.accountId) : undefined, seller: inv ? store.getUser(inv.ownerId) : undefined, distributor: inv?.distributorId ? store.data.distributors?.find((d) => d.id === inv.distributorId)?.name : undefined }) };
+  return { ...store, me, settings, money, team, manager: manager || invoicer || warehouse, warehouse, places: (invoicer || warehouse) && !places.includes(WAREHOUSE) ? [...places, WAREHOUSE] : places, v2, finance, invoicer, approver, office, ordersOnly, ctx: (inv?: Pick<Invoice, 'accountId' | 'ownerId'> & { distributorId?: string }) => ({ company: store.company, erp: settings, account: inv ? store.getAccount(inv.accountId) : undefined, seller: inv ? store.getUser(inv.ownerId) : undefined, distributor: inv?.distributorId ? store.data.distributors?.find((d) => d.id === inv.distributorId)?.name : undefined }) };
 }
 
 const PAY_COLORS: Record<PayState, { fg: string; bg: string }> = {

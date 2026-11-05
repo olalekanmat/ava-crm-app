@@ -46,6 +46,24 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '2.15.0',
+    items: [
+      { icon: 'calendar-outline', title: 'Plan visits by dragging', body: 'The Month and Week calendars list the doctors in your cycle plan with the visits still to book. Drag a doctor onto a day to plan a visit, or drag a visit to another day or time. On a phone, hold first, then drag.', who: 'rep' },
+      { icon: 'apps-outline', title: 'Your desk on Home', body: 'Finance, Marketing, Medical, Warehouse and distributor users open on their own desk, and switch to their field home with one tap.' },
+      { icon: 'return-down-back-outline', title: 'Returns and credit notes', body: 'Ava ERP: return goods from an invoice. Finance approves and a numbered credit note lowers the balance; resaleable stock goes back to the warehouse.' },
+      { icon: 'create-outline', title: 'Proof of delivery', body: 'Record who received an invoice’s goods, with a signature or photo and the place.' },
+      { icon: 'pricetags-outline', title: 'Price lists and repeat orders', body: 'Hospitals, pharmacies and distributors can each have their own prices. Repeat a customer’s last order in one tap; split an order to deliver part later.' },
+      { icon: 'hourglass-outline', title: 'Batches and expiry', body: 'Receive stock with batch and expiry. Stock is used first-expiry-first-out and you are warned before it expires.' },
+      { icon: 'call-outline', title: 'Collections', body: 'Overdue and due-soon customers, WhatsApp reminders, promises to pay (kept or broken) and your collection target.' },
+      { icon: 'flag-outline', title: 'Targets', body: 'Monthly sales, collection and call targets per person, with progress.' },
+      { icon: 'wallet-outline', title: 'Expenses', body: 'Claim expenses with a receipt photo. Your manager approves and Finance pays.' },
+      { icon: 'warning-outline', title: 'Report a safety issue', body: 'Report an adverse event, product complaint or medical question from a call or More. Medical/Compliance is emailed at once.' },
+      { icon: 'albums-outline', title: 'Content library and campaigns', body: 'Approved brochures and detail aids with versions and expiry, approved by Medical when switched on; campaigns with reach and frequency.' },
+      { icon: 'people-outline', title: 'More roles', body: 'Medical, Warehouse, Key account manager, Read-only viewer and Distributor users, set in Users & roles.', who: 'admin' },
+      { icon: 'git-network-outline', title: 'Distributor sales and accounting export', body: 'Distributors upload monthly sell-out to compare with what you sold them. Finance exports invoices, receipts and credit notes for the accountant.', who: 'manager' },
+    ],
+  },
+  {
     version: '2.13.0',
     items: [
       { icon: 'cart-outline', title: 'Orders from the field', body: 'Ava ERP: place an order for a customer during a visit. It goes to the invoicing officer, with your line manager copied, and you see when it is invoiced.', who: 'rep' },

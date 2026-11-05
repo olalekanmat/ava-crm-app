@@ -7,7 +7,11 @@ import { activeCycleLength, cyclesInMonth } from '@/data/cycles';
 import { formatDate, timeKey, toDateKey } from '@/data/dates';
 import { useStore } from '@/data/store';
 import type { Call } from '@/data/types';
+import { canMoveCall } from '@/data/calendarPlan';
 import { Card, Empty, text } from './components';
+import { Draggable, useDropTarget, type DragItem } from './dnd';
+import { PlanDoctors, useCalendarDrop } from './PlanDoctors';
+import { useWeekends } from './weekends';
 import { calendarColors, colors, radius, space } from './theme';
 
 const LABEL: Record<CalendarState, string> = { submitted: 'Submitted', planned: 'Planned', overdue: 'Overdue' };
@@ -26,12 +30,27 @@ export function CalendarLegend() {
   );
 }
 
-/** Month view of call plans and submitted calls, with the selected day's calls below. */
-export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: boolean }) {
-  const { getAccount, getUser, data } = useStore();
+/** One day of the month grid; with drag and drop on, a call or doctor can be dropped on it. */
+function DayCell({ k, onDrop, ...rest }: { k: string; onDrop: (item: DragItem, day: string) => void } & React.ComponentProps<typeof Pressable>) {
+  const { ref, over } = useDropTarget(`day:${k}`, (item) => onDrop(item, k));
+  return <Pressable ref={ref} {...rest} style={[rest.style as object, over && styles.cellOver]} />;
+}
+
+/**
+ * Month view of call plans and submitted calls, with the selected day's calls below. With `plan`
+ * (a rep), the doctors in the cycle plan sit beside or above the month and can be dragged onto a
+ * day, and the rep's own unsubmitted visits can be dragged to another day.
+ */
+export function CallCalendar({ calls, showRep, plan }: { calls: Call[]; showRep?: boolean; plan?: boolean }) {
+  const { getAccount, getUser, data, me } = useStore();
+  const { drop, bar } = useCalendarDrop();
+  const meId = me?.id ?? '';
+  const [weekends, toggleWeekends] = useWeekends(me?.id);
+  const cols = weekends ? 7 : 5;
   // Wide screens (landscape phones, tablets, computers) show who is being visited inside each day.
   const { width } = useWindowDimensions();
   const roomy = width >= 640;
+  const side = !!plan && width >= 1000;
   const maxNames = width >= 1000 ? 4 : 3;
   const today = toDateKey(new Date());
   const [cursor, setCursor] = useState(() => {
@@ -40,7 +59,7 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
   });
   const [selected, setSelected] = useState(today);
   const days = useMemo(() => byDay(calls), [calls]);
-  const weeks = monthGrid(cursor.y, cursor.m);
+  const weeks = monthGrid(cursor.y, cursor.m).map((w) => w.slice(0, cols));
   const monthKey = `${cursor.y}-${String(cursor.m + 1).padStart(2, '0')}`;
   const title = new Date(cursor.y, cursor.m, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   const shift = (d: number) => setCursor(({ y, m }) => ({ y: m + d < 0 ? y - 1 : m + d > 11 ? y + 1 : y, m: (m + d + 12) % 12 }));
@@ -50,8 +69,9 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
     .map((c) => `${c.name} · ${formatDate(c.start)} – ${formatDate(c.end)}`)
     .join('   ');
 
-  return (
-    <View>
+  const month = (
+    <View style={side ? { flex: 1 } : undefined}>
+      {plan && !side && <PlanDoctors day={selected} layout="strip" />}
       <Card style={{ padding: space.sm }}>
         <View style={styles.header}>
           <Pressable onPress={() => shift(-1)} accessibilityLabel="Previous month" hitSlop={10}>
@@ -72,7 +92,7 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
         </View>
         {!!cycleNote && <Text style={[text.small, { textAlign: 'center', marginBottom: space.xs }]}>{cycleNote}</Text>}
         <View style={styles.week}>
-          {WEEKDAYS.map((w) => (
+          {WEEKDAYS.slice(0, cols).map((w) => (
             <Text key={w} style={[text.small, styles.weekday]}>
               {w}
             </Text>
@@ -86,8 +106,13 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
               const inMonth = k.startsWith(monthKey);
               const isSel = k === selected;
               return (
-                <Pressable
+                <DayCell
                   key={k}
+                  k={k}
+                  onDrop={(item, day) => {
+                    drop(item, day);
+                    setSelected(day);
+                  }}
                   onPress={() => setSelected(k)}
                   style={[styles.cell, roomy && styles.cellRoomy, edge && { borderColor: edge, borderWidth: 2 }, isSel && styles.cellSelected]}
                   accessibilityLabel={`${k}${d ? `: ${d.submitted} submitted, ${d.planned} planned, ${d.overdue} overdue` : ''}`}
@@ -97,11 +122,14 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
                     <View style={styles.names}>
                       {d.calls.slice(0, maxNames).map((c) => {
                         const st = calendarState(c);
+                        const name = getAccount(c.accountId)?.name ?? 'Account';
                         return (
-                          <Text key={c.id} numberOfLines={1} style={[styles.name, { borderLeftColor: calendarColors[st], color: colors.text }]}>
-                            {getAccount(c.accountId)?.name ?? 'Account'}
-                            {showRep ? ` · ${(getUser(c.ownerId)?.name ?? '').split(' ')[0]}` : ''}
-                          </Text>
+                          <Draggable key={c.id} item={{ kind: 'call', call: c }} label={name} disabled={!plan || !canMoveCall(c, meId)} onTap={() => setSelected(k)}>
+                            <Text numberOfLines={1} style={[styles.name, { borderLeftColor: calendarColors[st], color: colors.text }]}>
+                              {name}
+                              {showRep ? ` · ${(getUser(c.ownerId)?.name ?? '').split(' ')[0]}` : ''}
+                            </Text>
+                          </Draggable>
                         );
                       })}
                       {d.calls.length > maxNames && <Text style={[text.small, { fontSize: 10 }]}>+{d.calls.length - maxNames} more</Text>}
@@ -118,13 +146,22 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
                       )}
                     </View>
                   )}
-                </Pressable>
+                </DayCell>
               );
             })}
           </View>
         ))}
-        <CalendarLegend />
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ flex: 1 }}>
+            <CalendarLegend />
+          </View>
+          <Pressable onPress={toggleWeekends} style={styles.weekendBtn} accessibilityRole="switch" accessibilityState={{ checked: weekends }} accessibilityLabel="Show Saturday and Sunday">
+            <Ionicons name={weekends ? 'checkbox' : 'square-outline'} size={16} color={weekends ? colors.primary : colors.muted} />
+            <Text style={[text.small, { color: weekends ? colors.primary : colors.muted, fontWeight: '700' }]}>Weekends</Text>
+          </Pressable>
+        </View>
       </Card>
+      {bar}
 
       <Text style={[text.title, { marginTop: space.md, marginBottom: space.sm }]}>
         {new Date(`${selected}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -133,7 +170,8 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
       {day?.calls.map((c) => {
         const s = calendarState(c);
         return (
-          <Pressable key={c.id} onPress={() => router.push({ pathname: '/call/[id]', params: { id: c.id } })} style={({ pressed }) => [styles.item, { borderLeftColor: calendarColors[s] }, pressed && { opacity: 0.7 }]}>
+          <Draggable key={c.id} item={{ kind: 'call', call: c }} label={getAccount(c.accountId)?.name ?? 'Visit'} disabled={!plan || !canMoveCall(c, meId)}>
+            <Pressable onPress={() => router.push({ pathname: '/call/[id]', params: { id: c.id } })} style={({ pressed }) => [styles.item, { borderLeftColor: calendarColors[s] }, pressed && { opacity: 0.7 }]}>
             <Text style={[text.title, { width: 52 }]}>{timeKey(new Date(c.datetime))}</Text>
             <View style={{ flex: 1 }}>
               <Text style={text.title} numberOfLines={1}>
@@ -146,9 +184,20 @@ export function CallCalendar({ calls, showRep }: { calls: Call[]; showRep?: bool
               </Text>
             </View>
             <Text style={[styles.state, { color: calendarColors[s], borderColor: calendarColors[s] }]}>{LABEL[s]}</Text>
-          </Pressable>
+            </Pressable>
+          </Draggable>
         );
       })}
+    </View>
+  );
+
+  if (!side) return month;
+  return (
+    <View style={{ flexDirection: 'row', gap: space.md, alignItems: 'flex-start' }}>
+      <View style={{ height: 640 }}>
+        <PlanDoctors day={selected} layout="side" />
+      </View>
+      {month}
     </View>
   );
 }
@@ -159,6 +208,7 @@ const styles = StyleSheet.create({
   weekday: { flex: 1, textAlign: 'center' },
   cell: { flex: 1, minHeight: 52, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: 3, alignItems: 'center', backgroundColor: colors.card },
   cellSelected: { backgroundColor: colors.primarySoft },
+  cellOver: { borderColor: colors.primary, borderWidth: 2, borderStyle: 'dashed', backgroundColor: colors.primarySoft },
   cellRoomy: { minHeight: 92, alignItems: 'stretch', padding: 4 },
   names: { gap: 2, marginTop: 3, width: '100%' },
   name: { fontSize: 10, lineHeight: 13, borderLeftWidth: 3, paddingLeft: 3, backgroundColor: colors.bg, borderRadius: 2, overflow: 'hidden' },
@@ -167,6 +217,7 @@ const styles = StyleSheet.create({
   dots: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 2, marginTop: 3 },
   count: { minWidth: 14, height: 14, borderRadius: 7, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   countText: { color: '#fff', fontSize: 9, fontWeight: '800' },
+  weekendBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space.sm, paddingTop: space.sm },
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.sm, paddingTop: space.sm },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendSwatch: { width: 14, height: 14, borderRadius: 3, borderWidth: 2, backgroundColor: colors.card },

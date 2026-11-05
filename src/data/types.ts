@@ -18,6 +18,8 @@ export interface User {
   admin?: boolean;
   /** 2.13: back-office jobs on top of the line role, e.g. Finance. Administrators can do all of them. */
   functions?: FunctionRole[];
+  /** 2.15: for a distributor user, the distributor they sign in for. */
+  distributorId?: string;
   /** The company's own ID for this person, e.g. an employee number. Unique when set. */
   employeeId?: string;
   managerId?: string;
@@ -98,6 +100,10 @@ export interface Account {
   channel?: SalesChannel;
   /** 2.13: their usual distributor, when they buy through one. */
   distributorId?: string;
+  /** 2.14: the price list the customer buys on (a name from the company's price lists). Absent: the product's list price. */
+  priceGroup?: string;
+  /** 2.15: the key account manager who looks after this customer across territories. */
+  kamId?: string;
 }
 
 /** Account details a rep can ask to change; a manager or administrator approves (2.7). */
@@ -437,6 +443,8 @@ export interface Settings {
   sampleSignature?: SignatureRule;
   /** Ava ERP (2.11): invoicing rules. Absent means the defaults (ERP_DEFAULTS). */
   erp?: ErpSettings;
+  /** 2.15: marketing content needs Medical/Compliance approval before reps can use it. */
+  contentApproval?: boolean;
 }
 
 // ----- Ava ERP (2.11): selling, invoicing, payments and stock. Only used when the company has the ERP module. -----
@@ -469,6 +477,16 @@ export interface ErpSettings {
   discountApproval?: number;
   /** Reps may still make invoices on the spot (van sales), not only orders. */
   repsInvoice?: boolean;
+  // ----- 2.14 -----
+  /** Price lists by name (e.g. "Hospitals", "Distributor"): product name to price before VAT. */
+  priceLists?: Record<string, Record<string, number>>;
+  /** Stock expiring within this many days is flagged (default 90). */
+  nearExpiryDays?: number;
+  /** Reps must record proof of delivery for their invoices. */
+  requireDelivery?: boolean;
+  // ----- 2.15 -----
+  /** What incentives are paid on: cash collected (default) or invoiced sales. */
+  incentiveOn?: 'collected' | 'sales';
 }
 
 export const ERP_DEFAULTS: ErpSettings = { currency: 'NGN', vatPercent: 7.5, prefix: 'INV', termsDays: 30, lowStock: 10 };
@@ -482,21 +500,33 @@ export const ERP_RULES_V2 = { rulesVersion: 2, defaultCreditLimit: 2_000_000, de
  * Back-office jobs a person can hold on top of their line role (Rep, FLM, SLM). Administrators can
  * do all of them. A small company can give one person several.
  */
-export type FunctionRole = 'finance' | 'invoicing' | 'creditApprover' | 'marketing';
-export const FUNCTION_ROLES: FunctionRole[] = ['finance', 'invoicing', 'creditApprover', 'marketing'];
+export type FunctionRole = 'finance' | 'invoicing' | 'creditApprover' | 'marketing' | 'medical' | 'warehouse' | 'kam' | 'viewer' | 'distributor';
+export const FUNCTION_ROLES: FunctionRole[] = ['finance', 'invoicing', 'creditApprover', 'marketing', 'medical', 'warehouse', 'kam', 'viewer', 'distributor'];
 /** Function roles that see the whole company's data (customers, sales, debt), not only a reporting line. */
-export const COMPANY_WIDE_FUNCTIONS: FunctionRole[] = ['finance', 'invoicing', 'creditApprover', 'marketing'];
+export const COMPANY_WIDE_FUNCTIONS: FunctionRole[] = ['finance', 'invoicing', 'creditApprover', 'marketing', 'medical', 'warehouse', 'viewer'];
+/** Function roles that only make sense with the ERP module. */
+export const ERP_FUNCTIONS: FunctionRole[] = ['finance', 'invoicing', 'creditApprover', 'warehouse', 'distributor'];
 export const FUNCTION_LABEL: Record<FunctionRole, string> = {
   finance: 'Finance',
   invoicing: 'Invoicing officer',
   creditApprover: 'Credit approver',
   marketing: 'Product manager / Marketing',
+  medical: 'Medical / Compliance',
+  warehouse: 'Warehouse / Logistics',
+  kam: 'Key account manager',
+  viewer: 'Read-only viewer',
+  distributor: 'Distributor user',
 };
 export const FUNCTION_HINT: Record<FunctionRole, string> = {
-  finance: 'Confirms payments, asks for credit changes, releases credit holds, sees all debt',
+  finance: 'Confirms payments, asks for credit changes, releases credit holds, sees all debt, pays expenses',
   invoicing: 'Receives reps’ orders and turns them into invoices',
   creditApprover: 'Country manager or named person: approves credit changes and big discounts',
-  marketing: 'Products, key messages, brochures and detail aids, objectives and segments',
+  marketing: 'Products, key messages, content, campaigns and launch pads, objectives and segments',
+  medical: 'Approves marketing content; receives adverse events, complaints and medical questions',
+  warehouse: 'Receives stock with batches and expiry, dispatches orders, records deliveries and returns',
+  kam: 'Looks after key accounts (big hospitals, chains) across territories',
+  viewer: 'Sees the whole company’s reports and data but changes nothing (directors, HR, auditors)',
+  distributor: 'A distributor’s own sign-in: sees orders sent to it and uploads its monthly sales and stock',
 };
 
 export type SalesChannel = 'Direct' | 'Distributor';
@@ -622,6 +652,8 @@ export interface StockMove {
   from?: StockPlace;
   to?: StockPlace;
   batch?: string;
+  /** 2.14: expiry date of the batch, YYYY-MM-DD (received stock). */
+  expiry?: string;
   note?: string;
   byId: string;
   at: string;
@@ -692,6 +724,201 @@ export interface Invoice {
   distributorId?: string;
   /** 2.13: the rep's order this invoice was made from. */
   orderId?: string;
+  /** 2.14: credit notes against this invoice (returns, corrections); they lower what is owed. */
+  credits?: CreditNote[];
+  /** 2.14: proof the goods arrived. */
+  delivery?: Delivery;
+}
+
+/** 2.14: money taken off an invoice, e.g. for goods returned. Numbered INV-...-C1, C2. */
+export interface CreditNote {
+  id: string;
+  number: string;
+  amount: number;
+  reason: string;
+  returnId?: string;
+  byId: string;
+  at: string;
+}
+
+/** 2.14: proof of delivery: who received the goods, their signature or a photo, and where. */
+export interface Delivery {
+  at: string;
+  byId: string;
+  receivedBy: string;
+  signature?: Signature;
+  photo?: string;
+  lat?: number;
+  lng?: number;
+  note?: string;
+}
+
+export type ReturnCondition = 'Resaleable' | 'Expired' | 'Damaged';
+export const RETURN_CONDITIONS: ReturnCondition[] = ['Resaleable', 'Expired', 'Damaged'];
+
+/** 2.14: goods a customer sends back. Finance approves; then a credit note lowers the balance and resaleable stock goes back to the warehouse. */
+export interface ReturnRequest {
+  id: string;
+  invoiceId: string;
+  accountId: string;
+  lines: { product: string; qty: number }[];
+  condition: ReturnCondition;
+  reason: string;
+  byId: string;
+  at: string;
+  status: RequestStatus;
+  decidedBy?: string;
+  decidedAt?: string;
+  note?: string;
+  /** Value credited (incl. VAT), set when approved. */
+  amount?: number;
+  creditNo?: string;
+}
+
+/** 2.14: a customer's promise to pay an amount by a date, logged by the rep. */
+export interface PayPromise {
+  id: string;
+  accountId: string;
+  amount: number;
+  /** YYYY-MM-DD. */
+  date: string;
+  note?: string;
+  byId: string;
+  at: string;
+  cancelled?: boolean;
+}
+
+/** 2.15: a person's monthly targets: sales value, cash collected, calls. */
+export interface Target {
+  id: string;
+  userId: string;
+  /** YYYY-MM. */
+  month: string;
+  sales?: number;
+  collection?: number;
+  calls?: number;
+  setBy: string;
+  at: string;
+}
+
+/** 2.15: one row of a distributor's monthly report: what it sold on (sell-out) and holds. */
+export interface SecondarySale {
+  id: string;
+  distributorId: string;
+  /** YYYY-MM. */
+  month: string;
+  product: string;
+  qty: number;
+  value?: number;
+  /** Units the distributor holds at month end. */
+  stock?: number;
+  territory?: string;
+  accountId?: string;
+  uploadId: string;
+  byId: string;
+  at: string;
+}
+
+export type CampaignStatus = 'Draft' | 'Live' | 'Ended';
+
+/** 2.15: a launch pad: key messages, objectives, target list and samples for a period. */
+export interface Campaign {
+  id: string;
+  name: string;
+  product?: string;
+  keyMessages: string[];
+  objectives: string[];
+  /** Explicit target customers; when empty, the target list is the segment and tiers below. */
+  targetIds: string[];
+  segment?: string;
+  tiers?: string[];
+  /** Planned calls per target in the period. */
+  frequency?: number;
+  samples?: { product: string; qty: number }[];
+  /** YYYY-MM-DD, inclusive. */
+  start: string;
+  end: string;
+  status: CampaignStatus;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ContentKind = 'Detail aid' | 'Brochure' | 'Leave piece' | 'Video' | 'Other';
+export const CONTENT_KINDS: ContentKind[] = ['Detail aid', 'Brochure', 'Leave piece', 'Video', 'Other'];
+export type ContentStatus = 'Draft' | 'Pending' | 'Approved' | 'Rejected' | 'Retired';
+
+/** 2.15: marketing material. Medical/Compliance approves it before reps can use it; it disappears after its end date. */
+export interface ContentDoc {
+  id: string;
+  title: string;
+  product?: string;
+  kind: ContentKind;
+  /** A web link to the material. */
+  url?: string;
+  /** For a detail aid: the product presentation it approves (its file hash). */
+  deckHash?: string;
+  version: number;
+  status: ContentStatus;
+  /** YYYY-MM-DD; after this day reps no longer see it. */
+  endDate?: string;
+  /** The approval code printed on the material, e.g. NG-AMX-0425. */
+  code?: string;
+  byId: string;
+  at: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+}
+
+export type SafetyKind = 'Adverse event' | 'Product complaint' | 'Medical question';
+export const SAFETY_KINDS: SafetyKind[] = ['Adverse event', 'Product complaint', 'Medical question'];
+export type SafetyStatus = 'New' | 'Acknowledged' | 'Closed';
+
+/** 2.15: an adverse event, product complaint or medical question from the field, for Medical within 24 hours. */
+export interface SafetyReport {
+  id: string;
+  kind: SafetyKind;
+  product: string;
+  accountId?: string;
+  callId?: string;
+  description: string;
+  /** Adverse events: patient age and sex, when it started, serious or not. No patient names. */
+  patientAge?: string;
+  patientSex?: 'Female' | 'Male' | 'Unknown';
+  onset?: string;
+  serious?: boolean;
+  batch?: string;
+  byId: string;
+  at: string;
+  status: SafetyStatus;
+  handledBy?: string;
+  handledAt?: string;
+  response?: string;
+}
+
+export const EXPENSE_CATEGORIES = ['Transport', 'Fuel', 'Meals', 'Accommodation', 'Airtime & data', 'Meeting', 'Other'] as const;
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+export type ExpenseStatus = 'Pending' | 'Approved' | 'Rejected' | 'Paid' | 'Cancelled';
+
+/** 2.15: money a person spent for work. The line manager approves; Finance pays it. */
+export interface Expense {
+  id: string;
+  userId: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  category: ExpenseCategory;
+  amount: number;
+  note?: string;
+  /** Photo of the receipt. */
+  photo?: string;
+  status: ExpenseStatus;
+  at: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  decisionNote?: string;
+  paidBy?: string;
+  paidAt?: string;
 }
 
 export type SignatureRule = 'optional' | 'required' | 'off';
@@ -783,6 +1010,16 @@ export interface Snapshot {
   orders?: Order[];
   paymentClaims?: PaymentClaim[];
   creditRequests?: CreditRequest[];
+  // 2.14
+  returns?: ReturnRequest[];
+  promises?: PayPromise[];
+  // 2.15
+  targets?: Target[];
+  secondarySales?: SecondarySale[];
+  campaigns?: Campaign[];
+  content?: ContentDoc[];
+  safetyReports?: SafetyReport[];
+  expenses?: Expense[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -816,4 +1053,12 @@ export const emptySnapshot = (company: Company = { name: '' }): Snapshot => ({
   orders: [],
   paymentClaims: [],
   creditRequests: [],
+  returns: [],
+  promises: [],
+  targets: [],
+  secondarySales: [],
+  campaigns: [],
+  content: [],
+  safetyReports: [],
+  expenses: [],
 });

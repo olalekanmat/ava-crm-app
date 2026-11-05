@@ -26,6 +26,8 @@ export default function UserEditScreen() {
   const [role, setRole] = useState<Role>(existing?.role ?? 'Rep');
   const [alsoAdmin, setAlsoAdmin] = useState(!!existing?.admin);
   const [functions, setFunctions] = useState<FunctionRole[]>(existing?.functions ?? []);
+  // 2.15: a distributor user signs in for one distributor.
+  const [distributorId, setDistributorId] = useState(existing?.distributorId ?? '');
   const [employeeId, setEmployeeId] = useState(existing?.employeeId ?? '');
   const [managerId, setManagerId] = useState(existing?.managerId);
   const [territory, setTerritory] = useState(existing?.territory ?? '');
@@ -95,6 +97,7 @@ export default function UserEditScreen() {
           // Sent even when empty or off, so clearing them is saved (a missing field keeps the old value).
           admin: role !== 'Admin' && alsoAdmin,
           functions,
+          distributorId: functions.includes('distributor') ? distributorId : '',
           employeeId: employeeId.trim(),
           managerId: wantManager && managers.some((m) => m.id === managerId) ? managerId : undefined,
           territory: territory.trim() || undefined,
@@ -176,6 +179,17 @@ export default function UserEditScreen() {
       {FUNCTION_ROLES.map((f) => (
         <ToggleRow key={f} label={FUNCTION_LABEL[f]} value={functions.includes(f)} onChange={(on) => setFunctions((list) => (on ? [...list, f] : list.filter((x) => x !== f)))} hint={FUNCTION_HINT[f]} />
       ))}
+      {functions.includes('distributor') && (
+        <>
+          <Label>Which distributor</Label>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: space.sm }}>
+            {(data.distributors ?? []).filter((d) => d.active).map((d) => (
+              <Chip key={d.id} label={d.name} selected={d.id === distributorId} onPress={() => setDistributorId(d.id)} />
+            ))}
+          </View>
+          {!(data.distributors ?? []).some((d) => d.active) && <Text style={[text.small, { color: colors.danger }]}>Add the distributor under Finance desk › Distributors first.</Text>}
+        </>
+      )}
       {wantManager && (
         <>
           <Label>Reports to ({wantManager})</Label>

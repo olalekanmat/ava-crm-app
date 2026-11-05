@@ -1,5 +1,6 @@
 import { RuleError, type Mutation, type SettingsKey } from './mutations';
 import { REPORT_COLUMNS } from './reports';
+import { sanitizeOps } from './opsSanitize';
 import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, CHANNELS, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, FUNCTION_ROLES, SALES_CHANNELS, type CreditRequest, type Distributor, type Order, type PaymentClaim, type Account, type AccountChange, type AccountChanges, type Call, type CallObjective, type Coaching, type Company, type Cycle, type ErpSettings, type Invoice, type Payment, type StockMove, PAYMENT_METHODS, STOCK_MOVE_KINDS, type CyclePlan, type DeckRef, type GeoTag, type Leave, type MeetingEvent, type Product, type ReportDef, type ReportFilters, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type SlideView, type Task, type TierDef, type User } from './types';
 
 /**
@@ -177,6 +178,8 @@ function user(v: unknown, now: string): User {
     functions: !('functions' in u) || u.functions === undefined ? undefined : u.functions === null ? [] : arr(u.functions, 'function roles', 20).filter((f) => FUNCTION_ROLES.includes(f as never)).map((f) => f as (typeof FUNCTION_ROLES)[number]),
     managerId: optStr(u.managerId, 'manager', 80), territory: optStr(u.territory, 'territory', 200), active: bool(u.active, 'active flag'),
     createdAt: u.createdAt ? iso(u.createdAt, 'date') : now,
+    // 2.15: absent keeps it; empty clears it.
+    distributorId: !('distributorId' in u) || u.distributorId === undefined ? undefined : (optStr(u.distributorId, 'distributor', 80) ?? ''),
   };
 }
 
@@ -211,6 +214,8 @@ function settings(v: unknown): Partial<Pick<Settings, SettingsKey>> {
   if ('sampleSignature' in s && s.sampleSignature !== undefined) out.sampleSignature = oneOf(s.sampleSignature, ['optional', 'required', 'off'] as const, 'signature setting');
   // 2.11
   if ('erp' in s && s.erp !== undefined) out.erp = erp(s.erp);
+  // 2.15
+  if ('contentApproval' in s && s.contentApproval !== undefined) out.contentApproval = bool(s.contentApproval, 'content approval setting');
   return out;
 }
 
@@ -223,7 +228,23 @@ function erp(v: unknown): ErpSettings {
     rulesVersion: optNum(e.rulesVersion, 'rules version'), defaultCreditLimit: optNum(e.defaultCreditLimit, 'default credit limit'), defaultCreditDays: optNum(e.defaultCreditDays, 'default credit days'),
     hcoOnly: e.hcoOnly === undefined || e.hcoOnly === null ? undefined : bool(e.hcoOnly, 'HCO setting'), holdOverdueDays: optNum(e.holdOverdueDays, 'overdue hold days'),
     discountApproval: optNum(e.discountApproval, 'discount approval level'), repsInvoice: e.repsInvoice === undefined || e.repsInvoice === null ? undefined : bool(e.repsInvoice, 'rep invoicing setting'),
+    // 2.14
+    priceLists: e.priceLists === undefined || e.priceLists === null ? undefined : priceLists(e.priceLists),
+    nearExpiryDays: optNum(e.nearExpiryDays, 'near-expiry days'), requireDelivery: e.requireDelivery === undefined || e.requireDelivery === null ? undefined : bool(e.requireDelivery, 'delivery setting'),
+    incentiveOn: e.incentiveOn === undefined || e.incentiveOn === null ? undefined : oneOf(e.incentiveOn, ['collected', 'sales'] as const, 'incentive basis'),
   };
+}
+
+function priceLists(v: unknown): Record<string, Record<string, number>> {
+  const o = obj(v, 'price lists');
+  const out: Record<string, Record<string, number>> = {};
+  for (const [k, list] of Object.entries(o).slice(0, 30)) {
+    const l = obj(list, 'price list');
+    const prices: Record<string, number> = {};
+    for (const [p, n] of Object.entries(l).slice(0, 1000)) prices[str(p, 'product', 120)] = numb(n, 'price');
+    out[str(k, 'price list name', 40)] = prices;
+  }
+  return out;
 }
 
 // ----- 2.11, Ava ERP -----
@@ -288,7 +309,7 @@ function stockMove(v: unknown, now: string): StockMove {
   const x = obj(v, 'stock change');
   return {
     id: str(x.id, 'id', 80), kind: oneOf(x.kind, STOCK_MOVE_KINDS, 'stock change'), product: str(x.product, 'product', 120), qty: numb(x.qty, 'quantity'),
-    from: optStr(x.from, 'stock place', 80), to: optStr(x.to, 'stock place', 80), batch: optStr(x.batch, 'batch', 60), note: optStr(x.note, 'note', 300), byId: '', at: now,
+    from: optStr(x.from, 'stock place', 80), to: optStr(x.to, 'stock place', 80), batch: optStr(x.batch, 'batch', 60), expiry: x.expiry === undefined || x.expiry === null || x.expiry === '' ? undefined : day(x.expiry, 'expiry date'), note: optStr(x.note, 'note', 300), byId: '', at: now,
   };
 }
 
@@ -540,7 +561,9 @@ export function sanitizeMutation(raw: unknown, at: Date): Mutation {
       return { type: m.type, id: str(m.id, 'id', 80), approve: bool(m.approve, 'decision'), note: optStr(m.note, 'note', 1000) };
     case 'credit.request':
       return { type: m.type, request: creditRequest(m.request, now) };
-    default:
-      return bad('change type');
+    default: {
+      const ops = sanitizeOps(m, now);
+      return ops ?? bad('change type');
+    }
   }
 }

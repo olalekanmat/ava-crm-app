@@ -17,17 +17,19 @@ import { confirm, notify } from '@/ui/confirm';
 import { Grid } from '@/ui/layout';
 import { currentFix } from '@/ui/location';
 import { AccountSales } from '@/ui/erp';
+import { HcoSales } from '@/ui/HcoSales';
+import { KeyAccountPicker } from '@/ui/opsCards';
 import { Screen } from '@/ui/Screen';
 import { StatSplit } from '@/ui/Tiles';
 import { formatDate } from '@/data/dates';
 import { colors, space, tone } from '@/ui/theme';
 
-type Tab = 'Detail' | 'Timeline' | 'Calls' | 'Location';
+type Tab = 'Detail' | 'Timeline' | 'Calls' | 'Location' | 'Sales';
 
 export default function AccountScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const me = useMe();
-  const { data, getAccount, getUser, callsForAccount, accounts, cycle, run, admin } = useStore();
+  const { data, getAccount, getUser, callsForAccount, accounts, cycle, run, admin, erp } = useStore();
   const [locating, setLocating] = useState(false);
   const [tab, setTab] = useState<Tab>('Detail');
   const account = getAccount(id);
@@ -199,7 +201,7 @@ export default function AccountScreen() {
       )}
 
       <Segmented
-        options={(deleted ? ['Detail', 'Timeline', 'Calls'] : ['Detail', 'Timeline', 'Calls', 'Location']) as Tab[]}
+        options={(deleted ? ['Detail', 'Timeline', 'Calls'] : [...(erp && account.type === 'HCO' ? ['Sales'] : []), 'Detail', 'Timeline', 'Calls', 'Location']) as Tab[]}
         value={tab}
         onChange={setTab}
         labels={{ Calls: `Calls (${calls.length})` }}
@@ -275,6 +277,12 @@ export default function AccountScreen() {
       {tab === 'Detail' && <AccountBrief accountId={account.id} />}
 
       {tab === 'Detail' && <AccountEvents accountId={account.id} />}
+
+      {tab === 'Sales' && <HcoSales account={account} people={people} />}
+      {tab === 'Detail' && !deleted && <KeyAccountPicker accountId={account.id} />}
+      {tab === 'Detail' && !deleted && (
+        <Button small variant="ghost" title="Report a safety issue" icon="warning-outline" onPress={() => router.push({ pathname: '/safety', params: { accountId: account.id } })} />
+      )}
 
       {tab === 'Detail' && people.length > 0 && (
         <>

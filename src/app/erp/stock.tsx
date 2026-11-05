@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
-import { placeName, stockLevels, trackedProducts } from '@/data/erp';
+import { expiringLots, placeName, stockLevels, stockLots, todayIso, trackedProducts } from '@/data/erp';
 import { formatDateTime } from '@/data/dates';
 import { newId } from '@/data/ids';
 import { WAREHOUSE, type StockMoveKind, type StockPlace } from '@/data/types';
@@ -26,6 +26,10 @@ export default function StockScreen() {
   if (!erp) return <ErpOff />;
 
   const moves = (data.stockMoves ?? []).filter((m) => m.from === place || m.to === place).slice(-40).reverse();
+  // 2.14: batches with expiry dates, first-expiry-first-out.
+  const today = todayIso();
+  const lots = (stockLots(data).get(place) ?? []).filter((l) => l.qty > 0 && (l.batch || l.expiry));
+  const expiring = expiringLots(lots, today, settings.nearExpiryDays ?? 90);
   const sold = (data.invoices ?? []).filter((i) => i.stockFrom === place && i.status !== 'Void');
   const shown = levels.filter((l) => tracked.has(l.product) || l.qty !== 0);
   const units = shown.reduce((n, l) => n + l.qty, 0);
@@ -82,6 +86,31 @@ export default function StockScreen() {
         </Empty>
       )}
 
+      {lots.length > 0 && (
+        <>
+          <SectionTitle>Batches (first to expire is sold first)</SectionTitle>
+          <Card style={{ padding: 0 }}>
+            {lots.map((l) => {
+              const bad = l.expiry && l.expiry < today;
+              const near = !bad && l.expiry && expiring.soon.includes(l);
+              return (
+                <Row key={`${l.product}-${l.batch}`} style={{ paddingVertical: space.sm, paddingHorizontal: space.lg, borderBottomWidth: 1, borderBottomColor: colors.hairline }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={text.title}>{l.product}</Text>
+                    <Text style={[text.small, bad ? { color: colors.danger } : near ? { color: colors.warn } : null]}>
+                      Batch {l.batch || 'not recorded'}
+                      {l.expiry ? ` · expires ${l.expiry}` : ''}
+                      {bad ? ' · EXPIRED' : near ? ' · expiring soon' : ''}
+                    </Text>
+                  </View>
+                  <Text style={[text.h2, { fontVariant: ['tabular-nums'] }]}>{l.qty}</Text>
+                </Row>
+              );
+            })}
+          </Card>
+        </>
+      )}
+
       {moves.length > 0 && (
         <>
           <SectionTitle>Movements</SectionTitle>
@@ -120,6 +149,7 @@ function MoveForm({ action, place, onDone }: { action: Action; place: StockPlace
   const [to, setTo] = useState<StockPlace | undefined>(place === WAREHOUSE ? team[0]?.id : undefined);
   const [dir, setDir] = useState<'Add' | 'Take away'>('Add');
   const [batch, setBatch] = useState('');
+  const [expiry, setExpiry] = useState('');
   const [note, setNote] = useState('');
   const n = parseInt(qty, 10);
 
@@ -132,7 +162,7 @@ function MoveForm({ action, place, onDone }: { action: Action; place: StockPlace
     else if (action === 'return') [kind, from, dest] = ['transfer', place, WAREHOUSE];
     else [kind, from, dest] = dir === 'Add' ? ['adjust', undefined, place] : ['adjust', place, undefined];
     try {
-      run({ type: 'stock.move', move: { id: newId('stk'), kind, product, qty: n, from, to: dest, batch: batch.trim() || undefined, note: note.trim() || undefined, byId: me.id, at: '' } });
+      run({ type: 'stock.move', move: { id: newId('stk'), kind, product, qty: n, from, to: dest, batch: batch.trim() || undefined, ...(action === 'receive' && /^\d{4}-\d{2}-\d{2}$/.test(expiry.trim()) ? { expiry: expiry.trim() } : {}), note: note.trim() || undefined, byId: me.id, at: '' } });
       notify('Saved', `${n} ${product} ${action === 'receive' ? 'received into the warehouse' : action === 'adjust' ? (dir === 'Add' ? 'added' : 'taken away') : `moved to ${dest === WAREHOUSE ? 'the warehouse' : (getUser(dest)?.name ?? 'them')}`}.`);
       onDone();
     } catch (e) {
@@ -167,6 +197,11 @@ function MoveForm({ action, place, onDone }: { action: Action; place: StockPlace
         {action === 'receive' && (
           <View style={{ flex: 1 }}>
             <Field label="Batch" value={batch} onChangeText={setBatch} placeholder="Optional" />
+          </View>
+        )}
+        {action === 'receive' && (
+          <View style={{ flex: 1 }}>
+            <Field label="Expiry (YYYY-MM-DD)" value={expiry} onChangeText={setExpiry} placeholder="Optional" />
           </View>
         )}
       </Row>

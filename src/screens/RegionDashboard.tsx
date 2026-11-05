@@ -31,7 +31,7 @@ export function RegionDashboard({ leader }: { leader: User }) {
     <Screen wide onRefresh={syncNow} refreshing={sync.syncing}>
       <LicenseBanner />
       <HomeHeader
-        eyebrow={`${leader.role === 'Admin' ? 'Organisation overview' : 'Region overview'} · ${cycle.name} · ${daysLeft(cycle)} days left`}
+        eyebrow={`${leader.role === 'Admin' ? 'Organisation overview' : 'Region overview'} · ${cycle.name} · ${daysLeft(cycle)} working days left`}
         title={leader.role === 'Admin' ? company.name : leader.territory ?? 'My region'}
         summary={`${teams.length} teams · ${all.reps.length} reps · ${all.onPlan} of ${all.planned} planned calls done`}
         actions={

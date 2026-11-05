@@ -5,8 +5,8 @@ import { manages } from '@/data/access';
 import { creditDaysOf, creditLimitOf, creditTermsLabel, erpSettings, HOLD_RELEASER, lineTotals, oldestOverdueDays, orderInvoiceLines, orderTotal, owedBy, placeName, shortages, todayIso } from '@/data/erp';
 import { newId } from '@/data/ids';
 import { can } from '@/data/roles';
-import { HOLD_LABEL, WAREHOUSE } from '@/data/types';
-import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SectionTitle, text } from '@/ui/components';
+import { HOLD_LABEL, WAREHOUSE, type Order } from '@/data/types';
+import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SectionTitle, Stepper, text } from '@/ui/components';
 import { notify } from '@/ui/confirm';
 import { ErpOff, useErp } from '@/ui/erp';
 import { dayLabel } from '@/ui/erpDocs';
@@ -165,7 +165,47 @@ export default function OrderScreen() {
         </>
       )}
 
+      {open && (invoicer || canCancel) && (o.lines.length > 1 || o.lines.some((l) => l.qty > 1)) && <SplitOrder o={o} short={short} />}
       {canCancel && !office && <Button title="Cancel this order" variant="ghost" icon="close-circle-outline" onPress={() => attempt(() => run({ type: 'order.cancel', id: o.id }))} />}
     </Screen>
+  );
+}
+
+/** 2.14: moves part of an order to a new one (e.g. what is out of stock now, delivered later). */
+function SplitOrder({ o, short }: { o: Order; short: { product: string; have: number; want: number }[] }) {
+  const { run } = useErp();
+  const [open, setOpen] = useState(false);
+  const [move, setMove] = useState<Record<string, number>>(() => Object.fromEntries(short.map((x) => [x.product, Math.min(x.want - x.have, o.lines.find((l) => l.product === x.product)?.qty ?? 0)])));
+  const [date, setDate] = useState('');
+  const lines = o.lines.map((l) => ({ product: l.product, qty: move[l.product] ?? 0 })).filter((l) => l.qty > 0);
+  const split = () => {
+    try {
+      const newId_ = newId('ord');
+      run({ type: 'order.split', id: o.id, newId: newId_, lines, deliveryDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined });
+      notify('Order split', 'The moved items are on a new order with the same customer.');
+      router.push({ pathname: '/erp/order/[id]', params: { id: newId_ } });
+    } catch (e) {
+      notify('Not split', e instanceof Error ? e.message : String(e));
+    }
+  };
+  if (!open) return <Button title="Split this order" variant="ghost" icon="git-branch-outline" onPress={() => setOpen(true)} />;
+  return (
+    <Card>
+      <Text style={text.title}>Move to a new order</Text>
+      <Text style={[text.small, { marginBottom: space.sm }]}>For example what is out of stock now, to deliver later. The rest stays on this order.</Text>
+      {o.lines.map((l) => (
+        <Row key={l.product} style={{ paddingVertical: space.xs }}>
+          <Text style={[text.body, { flex: 1 }]}>
+            {l.product} <Text style={text.small}>of {l.qty}</Text>
+          </Text>
+          <Stepper value={move[l.product] ?? 0} min={0} max={l.qty} onChange={(v) => setMove({ ...move, [l.product]: v })} />
+        </Row>
+      ))}
+      <Field label="Deliver the new order on (YYYY-MM-DD, optional)" value={date} onChangeText={setDate} />
+      <Row gap={space.sm}>
+        <Button small variant="ghost" title="Cancel" onPress={() => setOpen(false)} />
+        <Button small title="Split" disabled={!lines.length} onPress={split} />
+      </Row>
+    </Card>
   );
 }

@@ -56,6 +56,9 @@ export default function ErpSettingsScreen() {
       <Text style={[text.muted, { marginBottom: space.md }]}>Prices are before VAT. Products without a price are hidden from New sale once any product has one.</Text>
       {products.length ? products.map((p) => <PriceRow key={p.id} product={p} />) : <Banner tone="info">Add products first in Products & rules.</Banner>}
 
+      <PriceLists products={products} />
+      <OperationsRules />
+
       <SectionTitle>Credit and orders</SectionTitle>
       <Card>
         <Row gap={space.md}>
@@ -136,5 +139,87 @@ function PriceRow({ product }: { product: Product }) {
       <ToggleRow label="VAT exempt" value={exempt} onChange={setExempt} />
       {changed && <Button small title="Save" icon="checkmark" onPress={save} />}
     </Card>
+  );
+}
+
+/** 2.14: named price lists (e.g. Hospitals, Pharmacies, Distributor). A customer on a list pays its prices; blanks fall back to the standard price. */
+function PriceLists({ products }: { products: Product[] }) {
+  const { run, settings } = useErp();
+  const [lists, setLists] = useState<Record<string, Record<string, string>>>(() =>
+    Object.fromEntries(Object.entries(settings.priceLists ?? {}).map(([g, m]) => [g, Object.fromEntries(Object.entries(m).map(([p, v]) => [p, String(v)]))])),
+  );
+  const [name, setName] = useState('');
+  const save = () => {
+    const priceLists = Object.fromEntries(
+      Object.entries(lists).map(([g, m]) => [g, Object.fromEntries(Object.entries(m).filter(([, v]) => v.trim() !== '' && Number(v) >= 0).map(([p, v]) => [p, round2(Number(v))]))]),
+    );
+    try {
+      run({ type: 'settings.update', settings: { erp: { ...settings, priceLists } } });
+      notify('Saved', 'Customers on a list are charged its prices on new sales and orders.');
+    } catch (e) {
+      notify('Not saved', e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <>
+      <SectionTitle>Price lists</SectionTitle>
+      <Text style={[text.muted, { marginBottom: space.sm }]}>Different prices for different customers. Finance puts each customer on a list from its customer page. A list named “Distributor” is used for customers who buy through a distributor.</Text>
+      {Object.entries(lists).map(([g, m]) => (
+        <Card key={g}>
+          <Row>
+            <Text style={[text.title, { flex: 1 }]}>{g}</Text>
+            <Button small variant="ghost" title="Remove" onPress={() => setLists(Object.fromEntries(Object.entries(lists).filter(([k]) => k !== g)))} />
+          </Row>
+          {products.map((p) => (
+            <Row key={p.id} style={{ paddingVertical: 2 }}>
+              <Text style={[text.body, { flex: 1 }]}>
+                {p.name} <Text style={text.small}>standard {p.price ?? '–'}</Text>
+              </Text>
+              <View style={{ width: 130 }}>
+                <Field label="" value={m[p.name] ?? ''} onChangeText={(v) => setLists({ ...lists, [g]: { ...m, [p.name]: v.replace(/[^\d.]/g, '') } })} keyboardType="decimal-pad" placeholder="standard" />
+              </View>
+            </Row>
+          ))}
+        </Card>
+      ))}
+      <Row gap={space.sm}>
+        <View style={{ flex: 1 }}>
+          <Field label="New list" value={name} onChangeText={setName} placeholder="e.g. Hospitals" />
+        </View>
+        <Button small variant="ghost" title="Add" disabled={!name.trim() || name.trim() in lists} onPress={() => (setLists({ ...lists, [name.trim()]: {} }), setName(''))} />
+      </Row>
+      <Button title="Save price lists" onPress={save} />
+    </>
+  );
+}
+
+/** 2.14: near-expiry warning, proof of delivery and what incentives count. */
+function OperationsRules() {
+  const { run, settings } = useErp();
+  const [days, setDays] = useState(String(settings.nearExpiryDays ?? 90));
+  const [pod, setPod] = useState(!!settings.requireDelivery);
+  const [incentive, setIncentive] = useState<'collected' | 'sales'>(settings.incentiveOn ?? 'collected');
+  const save = () => {
+    try {
+      run({ type: 'settings.update', settings: { erp: { ...settings, nearExpiryDays: parseInt(days, 10) || 0, requireDelivery: pod, incentiveOn: incentive } } });
+      notify('Saved', 'The new rules apply from now on.');
+    } catch (e) {
+      notify('Not saved', e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <>
+      <SectionTitle>Stock, delivery and incentives</SectionTitle>
+      <Card>
+        <Field label="Warn about stock expiring within (days)" value={days} onChangeText={(v) => setDays(v.replace(/\D/g, ''))} keyboardType="number-pad" />
+        <ToggleRow label="Ask for proof of delivery" value={pod} onChange={setPod} hint="Invoices show Record delivery until the customer signs or a photo is taken." />
+        <Text style={[text.small, { marginTop: space.sm }]}>Incentives count</Text>
+        <Row gap={space.sm}>
+          <Button small variant={incentive === 'collected' ? 'primary' : 'ghost'} title="Money collected" onPress={() => setIncentive('collected')} />
+          <Button small variant={incentive === 'sales' ? 'primary' : 'ghost'} title="Sales invoiced" onPress={() => setIncentive('sales')} />
+        </Row>
+        <Button title="Save" onPress={save} />
+      </Card>
+    </>
   );
 }

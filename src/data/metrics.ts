@@ -36,24 +36,39 @@ export function cycleCalls(calls: Call[], cycle: Cycle): Call[] {
   });
 }
 
+/** Saturday or Sunday (YYYY-MM-DD). 2.15: cycles count working days only. */
+export const isWeekendKey = (day: string) => {
+  const d = new Date(`${day}T12:00:00Z`).getUTCDay();
+  return d === 0 || d === 6;
+};
+
+const nextKey = (day: string) => new Date(Date.parse(`${day}T12:00:00Z`) + 864e5).toISOString().slice(0, 10);
+const prevKey = (day: string) => new Date(Date.parse(`${day}T12:00:00Z`) - 864e5).toISOString().slice(0, 10);
+
+/** Working days (Monday to Friday) from start to end, inclusive (YYYY-MM-DD). */
+export function workDays(start: string, end: string): number {
+  let n = 0;
+  for (let d = start; d <= end; d = nextKey(d)) if (!isWeekendKey(d)) n++;
+  return n;
+}
+
 /**
- * Share of the cycle that has passed, 0..1. Attainment is compared against this pace. With the
- * person's approved leave, days off count neither as passed nor as available, so being on leave
- * does not put them behind (2.5).
+ * Share of the cycle that has passed, 0..1. Attainment is compared against this pace. 2.15: only
+ * working days (Monday to Friday) count, so weekends neither pass nor count as days to visit. With
+ * the person's approved leave, days off count neither as passed nor as available, so being on
+ * leave does not put them behind (2.5).
  */
 export function cycleElapsed(cycle: Cycle, now = new Date(), leave: DayRange[] = []): number {
-  const start = new Date(`${cycle.start}T00:00:00`).getTime();
-  const end = new Date(`${cycle.end}T23:59:59`).getTime();
-  const plain = Math.min(1, Math.max(0, (now.getTime() - start) / (end - start)));
-  if (!leave.length) return plain;
-  const total = spanDays(cycle.start, cycle.end);
-  const off = leaveDaysIn(leave, cycle.start, cycle.end);
-  if (off >= total) return 1;
   const today = toDateKey(now);
-  const passedEnd = today > cycle.end ? cycle.end : today;
-  const passed = today < cycle.start ? 0 : spanDays(cycle.start, passedEnd) - (today <= cycle.end ? 1 : 0) + plainFraction(now);
-  const offPassed = today < cycle.start ? 0 : leaveDaysIn(leave, cycle.start, passedEnd);
-  return Math.min(1, Math.max(0, (passed - Math.min(passed, offPassed)) / (total - off)));
+  if (today < cycle.start) return 0;
+  if (today > cycle.end) return 1;
+  const total = workDays(cycle.start, cycle.end) - leaveDaysIn(leave, cycle.start, cycle.end);
+  if (total <= 0) return 1;
+  const before = today > cycle.start ? prevKey(today) : undefined;
+  const full = before ? workDays(cycle.start, before) - leaveDaysIn(leave, cycle.start, before) : 0;
+  const onLeave = leave.some((l) => l.start <= today && l.end >= today);
+  const part = !isWeekendKey(today) && !onLeave ? plainFraction(now) : 0;
+  return Math.min(1, Math.max(0, (full + part) / total));
 }
 
 /** Part of today that has passed, 0..1. */
@@ -67,14 +82,14 @@ export interface DayRange {
 /** Days from start to end, inclusive (YYYY-MM-DD). */
 export const spanDays = (start: string, end: string) => Math.round((Date.parse(`${end}T12:00:00Z`) - Date.parse(`${start}T12:00:00Z`)) / 864e5) + 1;
 
-/** Leave days that fall between `from` and `to` (inclusive), counting overlapping ranges once. */
+/** Working days of leave between `from` and `to` (inclusive), counting overlapping ranges once (weekends never count). */
 export function leaveDaysIn(leave: DayRange[], from: string, to: string): number {
   const days = new Set<string>();
   for (const l of leave) {
     const a = l.start > from ? l.start : from;
     const b = l.end < to ? l.end : to;
     if (a > b) continue;
-    for (let d = new Date(`${a}T12:00:00Z`); d.toISOString().slice(0, 10) <= b; d.setUTCDate(d.getUTCDate() + 1)) days.add(d.toISOString().slice(0, 10));
+    for (let d = a; d <= b; d = nextKey(d)) if (!isWeekendKey(d)) days.add(d);
   }
   return days.size;
 }
@@ -84,9 +99,11 @@ export function approvedLeave(s: Pick<Snapshot, 'leaves'>, userId: string): DayR
   return (s.leaves ?? []).filter((l) => l.userId === userId && l.status === 'Approved');
 }
 
+/** Working days (Monday to Friday) left in the cycle, today included. */
 export function daysLeft(cycle: Cycle, now = new Date()): number {
-  const end = new Date(`${cycle.end}T23:59:59`).getTime();
-  return Math.max(0, Math.ceil((end - now.getTime()) / 86400000));
+  const today = toDateKey(now);
+  if (today > cycle.end) return 0;
+  return workDays(today < cycle.start ? cycle.start : today, cycle.end);
 }
 
 /**

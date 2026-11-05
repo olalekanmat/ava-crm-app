@@ -1,3 +1,4 @@
+import { ERP_OPS_TYPES } from './ops';
 import * as Network from 'expo-network';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
@@ -80,6 +81,8 @@ const ERP_TYPES = new Set<Mutation['type']>([
   // 2.13
   'distributor.save', 'account.channel', 'order.create', 'order.release', 'order.invoice', 'order.forward', 'order.reject', 'order.cancel',
   'payment.submit', 'payment.review', 'credit.request', 'credit.review', 'credit.cancel',
+  // 2.14 and 2.15
+  ...ERP_OPS_TYPES,
 ]);
 
 interface Store {
