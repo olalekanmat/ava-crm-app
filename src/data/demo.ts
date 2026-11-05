@@ -1,5 +1,6 @@
 import { addDays, toDateKey } from './dates';
 import { buildSeed } from './seed';
+import { ERP_DEFAULTS, ERP_RULES_V2 } from './types';
 import type { Snapshot } from './types';
 
 /** Demo roles offered on the sign-in screen, and the demo person each one signs in as. */
@@ -7,6 +8,7 @@ export const DEMO_ROLES = [
   { key: 'rep', label: 'Sales rep', userId: 'usr_rep1', hint: 'Plan visits, log calls, present, hand out samples' },
   { key: 'flm', label: 'First-line manager', userId: 'usr_flm1', hint: 'Approve plans, coach, the weekly summary' },
   { key: 'slm', label: 'Regional manager', userId: 'usr_slm', hint: 'Teams across the region' },
+  { key: 'finance', label: 'Finance', userId: 'usr_fin', hint: 'Confirm payments, invoice orders, debt age, credit' },
   { key: 'admin', label: 'Administrator', userId: 'usr_admin', hint: 'Users, products, rules, duplicates' },
 ] as const;
 
@@ -54,5 +56,28 @@ export function buildDemo(now = new Date()): Snapshot {
   ];
   for (const x of s.samples ?? []) x.expiry = x.product === 'Cardiovex' ? toDateKey(addDays(now, 50)).slice(0, 7) : toDateKey(addDays(now, 400)).slice(0, 7);
   s.settings = { ...s.settings, reviewNewAccounts: true, sampleSignature: 'optional' };
+
+  // 2.13: the new order and finance flow. A Finance person who also invoices, the regional manager
+  // approves credit, two distributors, orders waiting and on hold, and a payment to confirm.
+  s.settings = { ...s.settings, erp: { ...ERP_DEFAULTS, ...s.settings.erp, ...ERP_RULES_V2 } };
+  s.users.push({ id: 'usr_fin', name: 'Ngozi Udeh', email: 'finance@ava.demo', role: 'SLM', territory: 'Head office', functions: ['finance', 'invoicing'], active: true, createdAt: iso(-200) });
+  const slm = s.users.find((u) => u.id === 'usr_slm');
+  if (slm) slm.functions = ['creditApprover'];
+  s.distributors = [
+    { id: 'dst_demo1', name: 'Mega Lifesciences Distributors', city: 'Lagos', active: true, createdAt: iso(-90) },
+    { id: 'dst_demo2', name: 'Bond Pharma Wholesale', city: 'Ibadan', active: true, createdAt: iso(-60) },
+  ];
+  const price = (name: string) => s.products.find((p) => p.name === name)?.price ?? 0;
+  if (orgs[0]) {
+    s.orders = [
+      { id: 'ord_demo1', number: 'ORD-REP1-0001', accountId: orgs[0].id, ownerId: 'usr_rep1', channel: 'Direct', lines: [{ product: 'Cardiovex', qty: 20, unitPrice: price('Cardiovex') }], deliveryDate: toDateKey(addDays(now, 1)), status: 'Submitted', payFirst: true, createdAt: iso(0, 8) },
+      { id: 'ord_demo2', number: 'ORD-REP1-0002', accountId: orgs[0].id, ownerId: 'usr_rep1', channel: 'Direct', lines: [{ product: 'Glucara XR', qty: 200, unitPrice: price('Glucara XR'), discountPercent: 15 }], status: 'On hold', holds: ['credit', 'discount'], payFirst: true, createdAt: iso(-1, 16) },
+      ...(orgs[1] ? [{ id: 'ord_demo3', number: 'ORD-REP1-0003', accountId: orgs[1].id, ownerId: 'usr_rep1', channel: 'Distributor' as const, distributorId: 'dst_demo1', lines: [{ product: 'Respira Inhaler', qty: 30, unitPrice: price('Respira Inhaler') }], status: 'Submitted' as const, createdAt: iso(-1, 10) }] : []),
+    ];
+    if (orgs[1]) Object.assign(orgs[1], { channel: 'Distributor', distributorId: 'dst_demo1' });
+    const unpaid = (s.invoices ?? []).filter((i) => !i.voidedAt && i.payments.length === 0 && i.ownerId.startsWith('usr_rep'));
+    const owing = unpaid.find((i) => i.ownerId === 'usr_rep1') ?? unpaid[0];
+    if (owing) s.paymentClaims = [{ id: 'pcl_demo1', accountId: owing.accountId, invoiceId: owing.id, amount: Math.min(25000, Math.round(owing.lines.reduce((n, l) => n + l.qty * l.unitPrice, 0) / 2)), method: 'Transfer', date: toDateKey(addDays(now, -1)), reference: 'GTB-TRF-883120', byId: owing.ownerId, at: iso(-1, 17), status: 'Pending' }];
+  }
   return s;
 }

@@ -13,7 +13,7 @@ import { space, tone } from '@/ui/theme';
 /** One customer: balance, credit limit, every invoice, and a statement to send. */
 export default function CustomerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { me, data, erp, run, money, getAccount, admin, settings, company } = useErp();
+  const { me, data, erp, run, money, getAccount, admin, settings, company, ordersOnly } = useErp();
   const account = getAccount(id);
   const [limit, setLimit] = useState(account?.creditLimit !== undefined ? String(account.creditLimit) : '');
   const [editing, setEditing] = useState(false);
@@ -53,7 +53,7 @@ export default function CustomerScreen() {
         </Card>
       )}
       <Row gap={space.sm} style={{ marginBottom: space.md }}>
-        <Button title="New sale" icon="add-circle-outline" onPress={() => router.push({ pathname: '/erp/sale', params: { accountId: account.id } })} />
+        <Button title={ordersOnly ? 'New order' : 'New sale'} icon="add-circle-outline" onPress={() => router.push({ pathname: '/erp/sale', params: { accountId: account.id, ...(ordersOnly ? { mode: 'order' } : {}) } })} />
         <Button
           title="Statement"
           icon="document-text-outline"

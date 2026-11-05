@@ -12,18 +12,21 @@ export interface AlertItem {
   level: AlertLevel;
   kind: 'overdue' | 'draft-late' | 'draft' | 'plan-returned' | 'plan-review' | 'leave-review' | 'leave-decided'
     // 2.7
-    | 'plan-approved' | 'account-review' | 'account-new' | 'change-decided' | 'task-assigned' | 'event-soon';
+    | 'plan-approved' | 'account-review' | 'account-new' | 'change-decided' | 'task-assigned' | 'event-soon'
+    // 2.13
+    | 'order-invoice' | 'order-hold' | 'payment-confirm' | 'credit-approve' | 'order-decided' | 'payment-decided' | 'credit-decided';
   title: string;
   /** The call or plan the alert is about. */
   callId?: string;
   planId?: string;
   accountId?: string;
   eventId?: string;
+  orderId?: string;
   at: string;
 }
 
 /** Alerts that also arrive as a phone notification when they first appear (2.7). */
-export const NOTIFY_KINDS = new Set<AlertItem['kind']>(['plan-returned', 'plan-review', 'plan-approved', 'leave-review', 'leave-decided', 'account-review', 'account-new', 'change-decided', 'task-assigned']);
+export const NOTIFY_KINDS = new Set<AlertItem['kind']>(['plan-returned', 'plan-review', 'plan-approved', 'leave-review', 'leave-decided', 'account-review', 'account-new', 'change-decided', 'task-assigned', 'order-invoice', 'order-hold', 'payment-confirm', 'credit-approve', 'order-decided', 'payment-decided', 'credit-decided']);
 
 export interface AlertSummary {
   items: AlertItem[];
@@ -42,11 +45,13 @@ export interface AlertSummary {
  */
 export function computeAlerts(
   {
-    calls, plans, userId, reviewable = [], accountName = () => 'Account', leaves = [], accountChanges = [], accounts = [], canReviewAccount = () => false, tasks = [], events = [],
+    calls, plans, userId, reviewable = [], accountName = () => 'Account', leaves = [], accountChanges = [], accounts = [], canReviewAccount = () => false, tasks = [], events = [], extra = [],
   }: {
     calls: Call[]; plans: CyclePlan[]; userId: string; reviewable?: string[]; accountName?: (id: string) => string; leaves?: Leave[];
     // 2.7
     accountChanges?: AccountChange[]; accounts?: Account[]; canReviewAccount?: (ownerId: string, byId?: string) => boolean; tasks?: Task[]; events?: MeetingEvent[];
+    /** 2.13: order and finance alerts, worked out by erpAlerts. */
+    extra?: AlertItem[];
   },
   now = new Date(),
 ): AlertSummary {
@@ -87,6 +92,7 @@ export function computeAlerts(
   const today = toDateKey(now);
   const soon = toDateKey(new Date(now.getTime() + 2 * 864e5));
   for (const e of events) if (e.ownerId === userId && e.status === 'Planned' && e.date >= today && e.date <= soon) items.push({ id: `ev:${e.id}`, level: 'normal', kind: 'event-soon', title: `${e.title} on ${e.date}${e.time ? ` at ${e.time}` : ''}`, eventId: e.id, at: `${e.date}T${e.time ?? '09:00'}:00` });
+  items.push(...extra);
   const rank = { urgent: 0, important: 1, normal: 2 } as const;
   items.sort((a, b) => rank[a.level] - rank[b.level] || a.at.localeCompare(b.at));
   return {

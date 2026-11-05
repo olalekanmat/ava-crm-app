@@ -9,7 +9,7 @@ import { Grid } from '@/ui/layout';
 import { Screen } from '@/ui/Screen';
 import { colors, space, tone } from '@/ui/theme';
 
-type RoleFilter = 'All' | Role;
+type RoleFilter = 'All' | Role | 'Back office';
 type Status = 'Active' | 'Inactive' | 'All';
 
 const NEEDS_MANAGER: Partial<Record<Role, boolean>> = { Rep: true, FLM: true };
@@ -24,7 +24,7 @@ export default function UsersScreen() {
   const [noManager, setNoManager] = useState(false);
 
   const inStatus = useMemo(() => data.users.filter((u) => status === 'All' || (status === 'Active' ? u.active : !u.active)), [data.users, status]);
-  const hasRole = (u: User, r: RoleFilter) => r === 'All' || u.role === r || (r === 'Admin' && isAdmin(u));
+  const hasRole = (u: User, r: RoleFilter) => r === 'All' || u.role === r || (r === 'Admin' && isAdmin(u)) || (r === 'Back office' && !!u.functions?.length);
   const match = useMemo(() => {
     const query = q.trim().toLowerCase();
     return inStatus.filter(
@@ -42,8 +42,8 @@ export default function UsersScreen() {
     <Screen wide onRefresh={() => syncNow()} refreshing={sync.syncing}>
       <SearchBox value={q} onChangeText={setQ} placeholder="Search name, email, user ID or territory" />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-        {(['All', ...ROLES] as RoleFilter[]).map((r) => (
-          <Chip key={r} label={`${r === 'All' ? 'Everyone' : r === 'Admin' ? 'Admins' : `${r}s`} ${inStatus.filter((u) => hasRole(u, r)).length}`} selected={role === r} onPress={() => setRole(r)} />
+        {(['All', ...ROLES, 'Back office'] as RoleFilter[]).map((r) => (
+          <Chip key={r} label={`${r === 'All' ? 'Everyone' : r === 'Admin' ? 'Admins' : r === 'Back office' ? 'Back office' : `${r}s`} ${inStatus.filter((u) => hasRole(u, r)).length}`} selected={role === r} onPress={() => setRole(r)} />
         ))}
         {(unmanaged > 0 || noManager) && <Chip label={`No manager ${unmanaged}`} icon="git-network-outline" selected={noManager} onPress={() => setNoManager(!noManager)} />}
       </View>

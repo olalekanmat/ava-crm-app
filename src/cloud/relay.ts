@@ -161,6 +161,10 @@ export const api = {
     call<{ url: string; reference: string }>('POST', 'billing/checkout', { token, body: { ...pick, expectedAmount } }),
   billingVerify: (token: string, reference: string) =>
     call<{ status: string; subscriptionEnd?: string; seats?: number }>('GET', `billing/verify?reference=${encodeURIComponent(reference)}`, { token }),
+  /** 2.13: emails people in the company (by email address on the roster), e.g. a new order to the invoicing officer. */
+  notify: (token: string, msg: { to: string[]; cc?: string[]; subject: string; text: string }) => call<{ sent: number }>('POST', 'notify', { token, body: msg }),
+  /** 2.13: an administrator's idea for Ava CRM, emailed to the Ava CRM team. `screenshot` is a JPEG data URI. */
+  suggestFeature: (token: string, idea: { title: string; details: string; screenshot?: string; appVersion?: string }) => call<{ ok: true; id: string }>('POST', 'ideas/suggest', { token, body: idea }),
 };
 
 /**

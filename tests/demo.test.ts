@@ -36,3 +36,10 @@ test('approval notifications: the manager hears about the correction and the new
   assert.equal(alertRoute({ id: 'x', level: 'normal', kind: 'account-review', title: '', at: '' }), '/approvals');
   assert.equal(alertRoute({ id: 'x', level: 'normal', kind: 'event-soon', title: '', at: '', eventId: 'evt_1' }), '/events/evt_1');
 });
+
+test('demo company (2.13): Finance has a payment to confirm, orders to invoice and one on hold', () => {
+  const s = buildDemo(now);
+  assert.equal(s.paymentClaims?.filter((c) => c.status === 'Pending').length, 1);
+  assert.ok(s.orders?.some((o) => o.status === 'On hold'));
+  assert.ok(s.orders?.some((o) => o.status === 'Submitted'));
+});

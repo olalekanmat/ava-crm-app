@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import { TidyQueueRunner } from '@/ai/TidyQueueRunner';
 import { AlertNotifier } from '@/ui/AlertNotifier';
+import { ErpRulesUpgrade } from '@/ui/ErpRulesUpgrade';
 import { CalendarAutoSync } from '@/ui/CalendarAutoSync';
 import { NotificationTaps } from '@/ui/NotificationTaps';
 import { ReminderSync } from '@/ui/ReminderSync';
@@ -93,6 +94,7 @@ export default function TabsLayout() {
     <NotificationTaps />
     <TidyQueueRunner />
     <WhatsNewCheck />
+    <ErpRulesUpgrade />
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: colors.primary,

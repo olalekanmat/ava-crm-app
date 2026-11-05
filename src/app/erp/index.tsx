@@ -29,7 +29,9 @@ function range(p: Period, today: string): [string, string] {
 
 /** Ava ERP home: what was sold, what came in, who owes, what is low, and the big New sale button. */
 export default function ErpHome() {
-  const { me, data, erp, money, settings, manager, products, getUser, admin } = useErp();
+  const { me, data, erp, money, settings, manager, products, getUser, admin, v2, ordersOnly, office, finance } = useErp();
+  const myOrders = (data.orders ?? []).filter((o) => o.ownerId === me.id && (o.status === 'Submitted' || o.status === 'On hold')).length;
+  const officeQueue = (data.orders ?? []).filter((o) => o.status === 'Submitted' || o.status === 'On hold').length + (finance ? (data.paymentClaims ?? []).filter((c) => c.status === 'Pending').length : 0);
   const [period, setPeriod] = useState<Period>('Month');
   const [filter, setFilter] = useState<Filter>('All');
   const today = todayIso();
@@ -72,9 +74,9 @@ export default function ErpHome() {
             <ProgressBar value={collectedShare} color="#fff" track="rgba(255,255,255,0.25)" height={6} />
           </View>
         </View>
-        <Pressable accessibilityRole="button" onPress={() => router.push('/erp/sale')} style={({ pressed }) => [styles.sellBtn, pressed && { opacity: 0.85 }]}>
-          <Ionicons name="add-circle" size={28} color={colors.primary} />
-          <Text style={styles.sellText}>New sale</Text>
+        <Pressable accessibilityRole="button" onPress={() => router.push(ordersOnly ? { pathname: '/erp/sale', params: { mode: 'order' } } : '/erp/sale')} style={({ pressed }) => [styles.sellBtn, pressed && { opacity: 0.85 }]}>
+          <Ionicons name={ordersOnly ? 'cart' : 'add-circle'} size={28} color={colors.primary} />
+          <Text style={styles.sellText}>{ordersOnly ? 'New order' : 'New sale'}</Text>
         </Pressable>
       </LinearGradient>
 
@@ -87,6 +89,11 @@ export default function ErpHome() {
       </KpiRow>
 
       <Card style={{ padding: 0 }}>
+        {office && <ListRow icon="briefcase-outline" tone={colors.crimson} title="Finance desk" subtitle={officeQueue ? `${officeQueue} waiting: orders, holds, payments` : 'Payments, holds, credit, debt'} onPress={() => router.push('/erp/finance')} />}
+        {v2 && <ListRow icon="cart-outline" title="Orders" subtitle={office ? 'To invoice, on hold, all orders' : myOrders ? `${myOrders} of yours waiting` : 'Orders you placed and what happened to them'} onPress={() => router.push('/erp/orders')} />}
+        {v2 && !ordersOnly && <ListRow icon="cart-outline" tone={colors.success} title="Place an order" subtitle="For the invoicing officer to invoice" onPress={() => router.push({ pathname: '/erp/sale', params: { mode: 'order' } })} />}
+        {v2 && !finance && <ListRow icon="cash-outline" tone={colors.success} title="Report a payment" subtitle="A customer paid: Finance confirms and issues the receipt" onPress={() => router.push('/erp/payment')} />}
+        {v2 && <ListRow icon="hourglass-outline" tone={colors.danger} title="Debt summary" subtitle="What is owed, by age" onPress={() => router.push('/erp/debt')} />}
         <ListRow icon="people-outline" title="Customers & balances" subtitle="Who owes what, statements" onPress={() => router.push('/erp/customers')} />
         <ListRow icon="cube-outline" tone={colors.orange} title="Stock" subtitle={manager ? 'Warehouse and team stock, receive and move' : 'What you hold, return to warehouse'} onPress={() => router.push('/erp/stock')} />
         {admin && <ListRow icon="settings-outline" tone={colors.muted} title="Prices & invoice settings" subtitle={`VAT ${settings.vatPercent}% · ${settings.prefix} numbers · ${settings.termsDays}-day terms`} onPress={() => router.push('/erp/settings')} />}

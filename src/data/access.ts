@@ -1,10 +1,11 @@
-import { ROLE_LABEL, WAREHOUSE, type Snapshot, type User } from './types';
+import { COMPANY_WIDE_FUNCTIONS, FUNCTION_LABEL, ROLE_LABEL, WAREHOUSE, type Snapshot, type User } from './types';
 
 /** True for administrators, including a Rep, FLM or SLM who is also an administrator. */
 export const isAdmin = (u?: User | null): boolean => !!u && (u.role === 'Admin' || u.admin === true);
 
 /** "First-line manager" or, for a dual role, "First-line manager · Administrator". */
-export const roleLabel = (u: User): string => (u.role !== 'Admin' && u.admin ? `${ROLE_LABEL[u.role]} · Administrator` : ROLE_LABEL[u.role]);
+export const roleLabel = (u: User): string =>
+  [u.role !== 'Admin' && u.admin ? `${ROLE_LABEL[u.role]} · Administrator` : ROLE_LABEL[u.role], ...(u.functions ?? []).map((f) => FUNCTION_LABEL[f]).filter(Boolean)].join(' · ');
 
 /** Leaves out deleted people and accounts (they stay in the data only for call history). */
 export function withoutDeleted(s: Snapshot): Snapshot {
@@ -64,7 +65,8 @@ export function manages(users: User[], manager: User, userId: string): boolean {
 
 /** The part of the data a user is allowed to see. The server sends only this. */
 export function scopeSnapshot(s: Snapshot, user: User): Snapshot {
-  if (isAdmin(user)) return s;
+  // Administrators and the back-office roles (Finance, invoicing, credit approval, marketing) see everything.
+  if (isAdmin(user) || user.functions?.some((f) => COMPANY_WIDE_FUNCTIONS.includes(f))) return s;
   const owners = visibleOwnerIds(s.users, user);
   // Names of people in view plus the user's own reporting line.
   const people = new Set(owners);
@@ -88,6 +90,10 @@ export function scopeSnapshot(s: Snapshot, user: User): Snapshot {
     sampleRequests: s.sampleRequests?.filter((x) => owners.has(x.repId)),
     // 2.11: sales of the people in view; stock of their places, and the warehouse for managers.
     invoices: s.invoices?.filter((x) => owners.has(x.ownerId)),
+    // 2.13: orders and reported payments of the people in view; credit changes are Finance's.
+    orders: s.orders?.filter((x) => owners.has(x.ownerId)),
+    paymentClaims: s.paymentClaims?.filter((x) => owners.has(x.byId) || s.accounts.some((a) => a.id === x.accountId && owners.has(a.ownerId))),
+    creditRequests: [],
     stockMoves: s.stockMoves?.filter((x) => [x.from, x.to].some((p) => p !== undefined && (owners.has(p) || (p === WAREHOUSE && user.role !== 'Rep')))),
   };
 }

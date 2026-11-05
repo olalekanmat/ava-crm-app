@@ -16,6 +16,8 @@ export interface User {
   role: Role;
   /** Also has administrator rights (dual role), e.g. an SLM who runs the company's setup. */
   admin?: boolean;
+  /** 2.13: back-office jobs on top of the line role, e.g. Finance. Administrators can do all of them. */
+  functions?: FunctionRole[];
   /** The company's own ID for this person, e.g. an employee number. Unique when set. */
   employeeId?: string;
   managerId?: string;
@@ -88,8 +90,14 @@ export interface Account {
   pendingReview?: boolean;
   /** Set when an administrator merged this duplicate into another account (it is then deleted). */
   mergedInto?: string;
-  /** Ava ERP (2.11): the most this customer may owe; set with account.credit. */
+  /** Ava ERP (2.11): the most this customer may owe; set with account.credit or an approved credit change. Absent: the company default. */
   creditLimit?: number;
+  /** 2.13: days this customer has to pay. 0 is cash and carry. Absent: the company default (cash and carry). */
+  creditDays?: number;
+  /** 2.13: how this customer usually buys: from us (Direct) or through a distributor. */
+  channel?: SalesChannel;
+  /** 2.13: their usual distributor, when they buy through one. */
+  distributorId?: string;
 }
 
 /** Account details a rep can ask to change; a manager or administrator approves (2.7). */
@@ -446,9 +454,153 @@ export interface ErpSettings {
   paymentDetails?: string;
   /** Stock at or below this many units is flagged as low. */
   lowStock: number;
+  // ----- 2.13; absent in settings saved by older versions -----
+  /** 2 once the 2.13 rules apply: reps order (or invoice only if allowed), Finance confirms payments, credit changes need approval. */
+  rulesVersion?: number;
+  /** Credit limit for customers without their own. */
+  defaultCreditLimit?: number;
+  /** Credit days for customers without their own; 0 is cash and carry. */
+  defaultCreditDays?: number;
+  /** Only HCOs (business accounts) can be sold to. */
+  hcoOnly?: boolean;
+  /** Orders from customers with debt overdue by more than this many days go on hold. */
+  holdOverdueDays?: number;
+  /** A discount above this percent puts an order on hold for a credit approver. */
+  discountApproval?: number;
+  /** Reps may still make invoices on the spot (van sales), not only orders. */
+  repsInvoice?: boolean;
 }
 
 export const ERP_DEFAULTS: ErpSettings = { currency: 'NGN', vatPercent: 7.5, prefix: 'INV', termsDays: 30, lowStock: 10 };
+
+/** The 2.13 defaults, applied once by an administrator's app: ₦2m limit, cash and carry, HCOs only. */
+export const ERP_RULES_V2 = { rulesVersion: 2, defaultCreditLimit: 2_000_000, defaultCreditDays: 0, hcoOnly: true, holdOverdueDays: 30, discountApproval: 10, repsInvoice: false } as const;
+
+// ----- 2.13: function roles, orders, payment confirmation and credit approval -----
+
+/**
+ * Back-office jobs a person can hold on top of their line role (Rep, FLM, SLM). Administrators can
+ * do all of them. A small company can give one person several.
+ */
+export type FunctionRole = 'finance' | 'invoicing' | 'creditApprover' | 'marketing';
+export const FUNCTION_ROLES: FunctionRole[] = ['finance', 'invoicing', 'creditApprover', 'marketing'];
+/** Function roles that see the whole company's data (customers, sales, debt), not only a reporting line. */
+export const COMPANY_WIDE_FUNCTIONS: FunctionRole[] = ['finance', 'invoicing', 'creditApprover', 'marketing'];
+export const FUNCTION_LABEL: Record<FunctionRole, string> = {
+  finance: 'Finance',
+  invoicing: 'Invoicing officer',
+  creditApprover: 'Credit approver',
+  marketing: 'Product manager / Marketing',
+};
+export const FUNCTION_HINT: Record<FunctionRole, string> = {
+  finance: 'Confirms payments, asks for credit changes, releases credit holds, sees all debt',
+  invoicing: 'Receives reps’ orders and turns them into invoices',
+  creditApprover: 'Country manager or named person: approves credit changes and big discounts',
+  marketing: 'Products, key messages, brochures and detail aids, objectives and segments',
+};
+
+export type SalesChannel = 'Direct' | 'Distributor';
+export const SALES_CHANNELS: SalesChannel[] = ['Direct', 'Distributor'];
+
+/** A company that customers buy our products through. */
+export interface Distributor {
+  id: string;
+  name: string;
+  city?: string;
+  phone?: string;
+  email?: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface OrderLine {
+  product: string;
+  qty: number;
+  /** Price per unit before VAT, from the price list when the order was made. */
+  unitPrice: number;
+  discountPercent?: number;
+}
+
+/** Why an order waits: over the credit limit, old debt, or a discount above the approval level. */
+export type HoldReason = 'credit' | 'overdue' | 'discount';
+export const HOLD_LABEL: Record<HoldReason, string> = { credit: 'Over credit limit', overdue: 'Overdue debt', discount: 'Discount needs approval' };
+
+export type OrderStatus = 'Submitted' | 'On hold' | 'Invoiced' | 'Forwarded' | 'Rejected' | 'Cancelled';
+
+/**
+ * A rep's order for a customer. It goes to the invoicing officer (the line manager is copied), who
+ * turns it into an invoice, or forwards it to the distributor when the customer buys through one.
+ */
+export interface Order {
+  id: string;
+  /** Set by the rules: ORD-sellerCode-0001. */
+  number: string;
+  accountId: string;
+  /** The rep the order is for. */
+  ownerId: string;
+  channel: SalesChannel;
+  distributorId?: string;
+  lines: OrderLine[];
+  /** YYYY-MM-DD the customer wants it. */
+  deliveryDate?: string;
+  orderRef?: string;
+  notes?: string;
+  callId?: string;
+  status: OrderStatus;
+  /** Reasons still holding it, set by the rules when it was made. */
+  holds?: HoldReason[];
+  released?: { reason: HoldReason; by: string; at: string; note?: string }[];
+  /** The customer pays before delivery (cash and carry). */
+  payFirst?: boolean;
+  invoiceId?: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  decisionNote?: string;
+  createdAt: string;
+}
+
+export type ClaimStatus = 'Pending' | 'Confirmed' | 'Rejected';
+
+/** Money a rep says a customer paid. Finance confirms it; only then it counts and a receipt is issued. */
+export interface PaymentClaim {
+  id: string;
+  accountId: string;
+  /** The invoice it pays; absent pays the oldest invoices first. */
+  invoiceId?: string;
+  amount: number;
+  method: PaymentMethod;
+  date: string;
+  reference?: string;
+  /** Photo of the teller or transfer slip, a small JPEG data URI. */
+  photo?: string;
+  byId: string;
+  at: string;
+  status: ClaimStatus;
+  decidedBy?: string;
+  decidedAt?: string;
+  note?: string;
+  /** Receipt numbers issued when it was confirmed. */
+  receipts?: string[];
+}
+
+export type RequestStatus = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
+
+/** Finance asks to change customers' credit limit and/or days; a credit approver decides. */
+export interface CreditRequest {
+  id: string;
+  accountIds: string[];
+  limit?: number;
+  days?: number;
+  reason: string;
+  byId: string;
+  at: string;
+  status: RequestStatus;
+  /** Each customer's limit and days before, kept by the rules. */
+  before?: Record<string, { limit?: number; days?: number }>;
+  decidedBy?: string;
+  decidedAt?: string;
+  note?: string;
+}
 
 /** Where stock is kept: the company warehouse ("main") or a person's own stock (their user id). */
 export type StockPlace = string;
@@ -500,6 +652,10 @@ export interface Payment {
   receiptNo: string;
   byId: string;
   at: string;
+  /** 2.13: the payment a rep reported, which Finance confirmed to make this receipt. */
+  claimId?: string;
+  /** 2.13: who confirmed the money arrived (Finance). */
+  confirmedBy?: string;
 }
 
 export type InvoiceStatus = 'Issued' | 'Void';
@@ -531,6 +687,11 @@ export interface Invoice {
   /** The visit the sale was made in, if any. */
   callId?: string;
   createdAt: string;
+  /** 2.13: Direct (we bill and are owed) or Distributor (the customer bought through a distributor: no stock, nothing owed to us). Absent is Direct. */
+  channel?: SalesChannel;
+  distributorId?: string;
+  /** 2.13: the rep's order this invoice was made from. */
+  orderId?: string;
 }
 
 export type SignatureRule = 'optional' | 'required' | 'off';
@@ -617,6 +778,11 @@ export interface Snapshot {
   // 2.11, Ava ERP
   invoices?: Invoice[];
   stockMoves?: StockMove[];
+  // 2.13
+  distributors?: Distributor[];
+  orders?: Order[];
+  paymentClaims?: PaymentClaim[];
+  creditRequests?: CreditRequest[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -646,4 +812,8 @@ export const emptySnapshot = (company: Company = { name: '' }): Snapshot => ({
   sampleRequests: [],
   invoices: [],
   stockMoves: [],
+  distributors: [],
+  orders: [],
+  paymentClaims: [],
+  creditRequests: [],
 });

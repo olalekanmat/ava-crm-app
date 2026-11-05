@@ -1,6 +1,6 @@
 import { RuleError, type Mutation, type SettingsKey } from './mutations';
 import { REPORT_COLUMNS } from './reports';
-import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, CHANNELS, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, type Account, type AccountChange, type AccountChanges, type Call, type CallObjective, type Coaching, type Company, type Cycle, type ErpSettings, type Invoice, type Payment, type StockMove, PAYMENT_METHODS, STOCK_MOVE_KINDS, type CyclePlan, type DeckRef, type GeoTag, type Leave, type MeetingEvent, type Product, type ReportDef, type ReportFilters, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type SlideView, type Task, type TierDef, type User } from './types';
+import { ACCOUNT_CHANGE_FIELDS, ATTENDEE_STATUSES, CHANNELS, COACHING_SKILLS, EVENT_KINDS, EVENT_STATUSES, LEAVE_KINDS, POTENTIALS, REACTIONS, REPORT_DATASETS, REPORT_DATE_PRESETS, REPORT_GROUPS, REPORT_METRICS, ROLES, FUNCTION_ROLES, SALES_CHANNELS, type CreditRequest, type Distributor, type Order, type PaymentClaim, type Account, type AccountChange, type AccountChanges, type Call, type CallObjective, type Coaching, type Company, type Cycle, type ErpSettings, type Invoice, type Payment, type StockMove, PAYMENT_METHODS, STOCK_MOVE_KINDS, type CyclePlan, type DeckRef, type GeoTag, type Leave, type MeetingEvent, type Product, type ReportDef, type ReportFilters, type SampleCount, type SampleIssue, type SampleRequest, type Settings, type Signature, type SlideView, type Task, type TierDef, type User } from './types';
 
 /**
  * Rebuilds a mutation from untrusted JSON (a journal file in the company drive), keeping only
@@ -173,6 +173,8 @@ function user(v: unknown, now: string): User {
     admin: !('admin' in u) || u.admin === undefined ? undefined : u.admin === null ? false : bool(u.admin, 'admin flag'),
     employeeId: !('employeeId' in u) || u.employeeId === undefined ? undefined : (optStr(u.employeeId, 'user ID', 60) ?? ''),
     territoryId: !('territoryId' in u) || u.territoryId === undefined ? undefined : (optStr(u.territoryId, 'territory ID', 60) ?? ''),
+    // 2.13: absent keeps the person's function roles; an empty list or null clears them. Unknown names are dropped.
+    functions: !('functions' in u) || u.functions === undefined ? undefined : u.functions === null ? [] : arr(u.functions, 'function roles', 20).filter((f) => FUNCTION_ROLES.includes(f as never)).map((f) => f as (typeof FUNCTION_ROLES)[number]),
     managerId: optStr(u.managerId, 'manager', 80), territory: optStr(u.territory, 'territory', 200), active: bool(u.active, 'active flag'),
     createdAt: u.createdAt ? iso(u.createdAt, 'date') : now,
   };
@@ -217,6 +219,10 @@ function erp(v: unknown): ErpSettings {
   return {
     currency: str(e.currency, 'currency', 3), vatPercent: numb(e.vatPercent, 'VAT'), prefix: str(e.prefix, 'invoice prefix', 8),
     termsDays: numb(e.termsDays, 'payment terms'), lowStock: numb(e.lowStock, 'low stock level'), paymentDetails: optStr(e.paymentDetails, 'payment details', 500),
+    // 2.13
+    rulesVersion: optNum(e.rulesVersion, 'rules version'), defaultCreditLimit: optNum(e.defaultCreditLimit, 'default credit limit'), defaultCreditDays: optNum(e.defaultCreditDays, 'default credit days'),
+    hcoOnly: e.hcoOnly === undefined || e.hcoOnly === null ? undefined : bool(e.hcoOnly, 'HCO setting'), holdOverdueDays: optNum(e.holdOverdueDays, 'overdue hold days'),
+    discountApproval: optNum(e.discountApproval, 'discount approval level'), repsInvoice: e.repsInvoice === undefined || e.repsInvoice === null ? undefined : bool(e.repsInvoice, 'rep invoicing setting'),
   };
 }
 
@@ -233,7 +239,44 @@ function invoice(v: unknown, now: string): Invoice {
     }),
     orderRef: optStr(x.orderRef, 'order reference', 60), notes: optStr(x.notes, 'notes', 1000), stockFrom: str(x.stockFrom, 'stock place', 80),
     status: 'Issued', payments: [], callId: optStr(x.callId, 'call', 80), createdAt: now,
+    // 2.13
+    channel: x.channel === undefined || x.channel === null ? undefined : oneOf(x.channel, SALES_CHANNELS, 'sales channel'), distributorId: optStr(x.distributorId, 'distributor', 80),
   };
+}
+
+// ----- 2.13 -----
+
+function distributor(v: unknown, now: string): Distributor {
+  const d = obj(v, 'distributor');
+  return { id: str(d.id, 'distributor id', 80), name: str(d.name, 'distributor name', 120), city: optStr(d.city, 'city', 120), phone: optStr(d.phone, 'phone', 60), email: optStr(d.email, 'email', 200), active: bool(d.active, 'active flag'), createdAt: now };
+}
+
+function order(v: unknown, now: string): Order {
+  const x = obj(v, 'order');
+  return {
+    id: str(x.id, 'order id', 80), number: '', accountId: str(x.accountId, 'customer', 80), ownerId: str(x.ownerId, 'rep', 80),
+    channel: oneOf(x.channel, SALES_CHANNELS, 'sales channel'), distributorId: optStr(x.distributorId, 'distributor', 80),
+    lines: arr(x.lines, 'order lines', 50).map((l) => {
+      const o = obj(l, 'order line');
+      return { product: str(o.product, 'product', 120), qty: numb(o.qty, 'quantity'), unitPrice: numb(o.unitPrice, 'price'), discountPercent: optNum(o.discountPercent, 'discount') };
+    }),
+    deliveryDate: x.deliveryDate === undefined || x.deliveryDate === null || x.deliveryDate === '' ? undefined : day(x.deliveryDate, 'delivery date'),
+    orderRef: optStr(x.orderRef, 'order reference', 60), notes: optStr(x.notes, 'notes', 1000), callId: optStr(x.callId, 'call', 80), status: 'Submitted', createdAt: now,
+  };
+}
+
+function paymentClaim(v: unknown, now: string): PaymentClaim {
+  const c = obj(v, 'payment');
+  return {
+    id: str(c.id, 'payment id', 80), accountId: str(c.accountId, 'customer', 80), invoiceId: optStr(c.invoiceId, 'invoice', 80), amount: numb(c.amount, 'amount'),
+    method: oneOf(c.method, PAYMENT_METHODS, 'payment method'), date: day(c.date, 'payment date'), reference: optStr(c.reference, 'payment reference', 80),
+    photo: optStr(c.photo, 'photo', 300_000), byId: '', at: now, status: 'Pending',
+  };
+}
+
+function creditRequest(v: unknown, now: string): CreditRequest {
+  const r = obj(v, 'credit change');
+  return { id: str(r.id, 'id', 80), accountIds: ids(r.accountIds, 'customers', 5000), limit: optNum(r.limit, 'credit limit'), days: optNum(r.days, 'credit days'), reason: str(r.reason, 'reason', 1000), byId: '', at: now, status: 'Pending' };
 }
 
 function payment(v: unknown, now: string): Payment {
@@ -473,6 +516,30 @@ export function sanitizeMutation(raw: unknown, at: Date): Mutation {
       return { type: m.type, move: stockMove(m.move, now) };
     case 'account.credit':
       return { type: m.type, id: str(m.id, 'account', 80), limit: optNum(m.limit, 'credit limit') };
+    // ----- 2.13 -----
+    case 'distributor.save':
+      return { type: m.type, distributor: distributor(m.distributor, now) };
+    case 'account.channel':
+      return { type: m.type, ids: ids(m.ids, 'customers', 5000), channel: oneOf(m.channel, SALES_CHANNELS, 'sales channel'), distributorId: optStr(m.distributorId, 'distributor', 80) };
+    case 'order.create':
+      return { type: m.type, order: order(m.order, now) };
+    case 'order.release':
+    case 'order.forward':
+      return { type: m.type, id: str(m.id, 'order', 80), note: optStr(m.note, 'note', 1000) };
+    case 'order.invoice':
+      return { type: m.type, id: str(m.id, 'order', 80), invoiceId: str(m.invoiceId, 'invoice', 80), date: day(m.date, 'invoice date'), stockFrom: str(m.stockFrom, 'stock place', 80) };
+    case 'order.reject':
+      return { type: m.type, id: str(m.id, 'order', 80), note: str(m.note, 'note', 1000) };
+    case 'order.cancel':
+    case 'credit.cancel':
+      return { type: m.type, id: str(m.id, 'id', 80) };
+    case 'payment.submit':
+      return { type: m.type, claim: paymentClaim(m.claim, now) };
+    case 'payment.review':
+    case 'credit.review':
+      return { type: m.type, id: str(m.id, 'id', 80), approve: bool(m.approve, 'decision'), note: optStr(m.note, 'note', 1000) };
+    case 'credit.request':
+      return { type: m.type, request: creditRequest(m.request, now) };
     default:
       return bad('change type');
   }

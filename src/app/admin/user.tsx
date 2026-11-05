@@ -5,7 +5,7 @@ import { api, DEFAULT_PASSWORD, loadToken } from '@/cloud/relay';
 import { isAdmin } from '@/data/access';
 import { newId } from '@/data/ids';
 import { useMe, useStore } from '@/data/store';
-import { ROLES, type Role } from '@/data/types';
+import { FUNCTION_HINT, FUNCTION_LABEL, FUNCTION_ROLES, ROLES, type FunctionRole, type Role } from '@/data/types';
 import { Banner, Button, Card, Chip, Empty, Field, Label, Row, SectionTitle, Segmented, ToggleRow, text } from '@/ui/components';
 import { confirm, notify } from '@/ui/confirm';
 import { InviteButtons } from '@/ui/InviteButtons';
@@ -25,6 +25,7 @@ export default function UserEditScreen() {
   const [email, setEmail] = useState(existing?.email ?? '');
   const [role, setRole] = useState<Role>(existing?.role ?? 'Rep');
   const [alsoAdmin, setAlsoAdmin] = useState(!!existing?.admin);
+  const [functions, setFunctions] = useState<FunctionRole[]>(existing?.functions ?? []);
   const [employeeId, setEmployeeId] = useState(existing?.employeeId ?? '');
   const [managerId, setManagerId] = useState(existing?.managerId);
   const [territory, setTerritory] = useState(existing?.territory ?? '');
@@ -93,6 +94,7 @@ export default function UserEditScreen() {
           role,
           // Sent even when empty or off, so clearing them is saved (a missing field keeps the old value).
           admin: role !== 'Admin' && alsoAdmin,
+          functions,
           employeeId: employeeId.trim(),
           managerId: wantManager && managers.some((m) => m.id === managerId) ? managerId : undefined,
           territory: territory.trim() || undefined,
@@ -169,6 +171,11 @@ export default function UserEditScreen() {
       {role !== 'Admin' && (
         <ToggleRow label="Also an administrator" value={alsoAdmin} onChange={setAlsoAdmin} hint={`Dual role: works as ${role === 'Rep' ? 'a rep' : `an ${role}`} and can also manage users, accounts, products and settings.`} />
       )}
+      <Label>Back-office jobs</Label>
+      <Text style={[text.small, { marginBottom: space.sm }]}>{role === 'Admin' || alsoAdmin ? 'Administrators can already do all of these. Tick a job to make this person the one who does it.' : 'On top of their role. Leave all off for field staff.'}</Text>
+      {FUNCTION_ROLES.map((f) => (
+        <ToggleRow key={f} label={FUNCTION_LABEL[f]} value={functions.includes(f)} onChange={(on) => setFunctions((list) => (on ? [...list, f] : list.filter((x) => x !== f)))} hint={FUNCTION_HINT[f]} />
+      ))}
       {wantManager && (
         <>
           <Label>Reports to ({wantManager})</Label>

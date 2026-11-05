@@ -15,7 +15,7 @@ import { colors, radius, space } from '@/ui/theme';
 
 export default function InvoiceScreen() {
   const { id, created } = useLocalSearchParams<{ id: string; created?: string }>();
-  const { me, data, erp, run, money, getAccount, getUser, admin, ctx } = useErp();
+  const { me, data, erp, run, money, getAccount, getUser, admin, ctx, v2, finance, invoicer } = useErp();
   const [paying, setPaying] = useState(false);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('Transfer');
@@ -32,9 +32,13 @@ export default function InvoiceScreen() {
   const state = payState(inv);
   const account = getAccount(inv.accountId);
   const mine = inv.ownerId === me.id;
-  const canManage = mine || manages(data.users, me, inv.ownerId);
-  const canVoid = inv.status !== 'Void' && !inv.payments.length && ((mine && inv.createdAt.slice(0, 10) === new Date().toISOString().slice(0, 10)) || admin || (!mine && manages(data.users, me, inv.ownerId)));
-  const canUnpay = admin || (!mine && manages(data.users, me, inv.ownerId));
+  const canManage = v2 ? finance : mine || manages(data.users, me, inv.ownerId);
+  const canVoid = inv.status !== 'Void' && !inv.payments.length && ((mine && inv.createdAt.slice(0, 10) === new Date().toISOString().slice(0, 10)) || admin || (v2 && (finance || invoicer)) || (!mine && manages(data.users, me, inv.ownerId)));
+  const canUnpay = v2 ? finance : admin || (!mine && manages(data.users, me, inv.ownerId));
+  // 2.13: payments reps reported for this invoice, waiting for Finance.
+  const claims = (data.paymentClaims ?? []).filter((c) => c.invoiceId === inv.id && c.status !== 'Confirmed');
+  const viaDistributor = inv.channel === 'Distributor';
+  const distributor = viaDistributor ? data.distributors?.find((d) => d.id === inv.distributorId) : undefined;
   const share = (html: string, name: string) => shareDocument(html, name).catch((e) => notify('Could not share', e instanceof Error ? e.message : String(e)));
 
   const recordPayment = () => {
@@ -110,7 +114,25 @@ export default function InvoiceScreen() {
       </Card>
 
       {/* Payments */}
-      <SectionTitle right={inv.status !== 'Void' && t.balance > 0 && canManage && !paying ? <Button small title="Record payment" icon="cash-outline" onPress={() => { setAmount(String(t.balance)); setPaying(true); }} /> : undefined}>Payments</SectionTitle>
+      {viaDistributor && <Banner tone="info" icon="git-network-outline">Bought through {distributor?.name ?? 'a distributor'}: the customer pays the distributor. It counts towards sales; nothing is owed to us and no stock moved.</Banner>}
+      <SectionTitle
+        right={
+          inv.status !== 'Void' && t.balance > 0 && !paying ? (
+            canManage ? (
+              <Button small title="Record payment" icon="cash-outline" onPress={() => { setAmount(String(t.balance)); setPaying(true); }} />
+            ) : v2 ? (
+              <Button small title="Report payment" icon="paper-plane-outline" onPress={() => router.push({ pathname: '/erp/payment', params: { accountId: inv.accountId, invoiceId: inv.id } })} />
+            ) : undefined
+          ) : undefined
+        }
+      >
+        Payments
+      </SectionTitle>
+      {claims.map((c) => (
+        <Banner key={c.id} tone={c.status === 'Rejected' ? 'danger' : 'warn'} icon={c.status === 'Rejected' ? 'close-circle-outline' : 'hourglass-outline'}>
+          {money(c.amount)} by {c.method.toLowerCase()} on {dayLabel(c.date)}, reported by {getUser(c.byId)?.name ?? 'a rep'}: {c.status === 'Rejected' ? `turned down by Finance${c.note ? ` (${c.note})` : ''}.` : 'waiting for Finance to confirm.'}
+        </Banner>
+      ))}
       {paying && (
         <Card>
           <Field label="Amount received" value={amount} onChangeText={(v) => setAmount(v.replace(/[^\d.]/g, ''))} keyboardType="decimal-pad" hint={`Balance ${money(t.balance)}`} />
@@ -144,6 +166,7 @@ export default function InvoiceScreen() {
                 <Text style={text.muted}>
                   {dayLabel(p.date)} · {p.method}
                   {p.reference ? ` · ${p.reference}` : ''} · {p.receiptNo}
+                  {p.confirmedBy ? ` · confirmed by ${getUser(p.confirmedBy)?.name ?? 'Finance'}` : ''}
                 </Text>
               </View>
               <Pressable accessibilityRole="button" accessibilityLabel="Share receipt" onPress={() => share(receiptHtml(inv, p, ctx(inv)), `Receipt ${p.receiptNo}.pdf`)} style={styles.iconBtn}>
@@ -177,7 +200,8 @@ export default function InvoiceScreen() {
       <Card>
         <Detail label="Customer" value={account?.name ?? 'Customer'} onPress={account ? () => router.push({ pathname: '/erp/customer/[id]', params: { id: account.id } }) : undefined} />
         <Detail label="Sold by" value={getUser(inv.ownerId)?.name ?? '—'} />
-        <Detail label="Stock from" value={placeName(inv.stockFrom, getUser)} />
+        {viaDistributor ? <Detail label="Bought through" value={distributor?.name ?? 'A distributor'} /> : <Detail label="Stock from" value={placeName(inv.stockFrom, getUser)} />}
+        {!!inv.orderId && <Detail label="From order" value={(data.orders ?? []).find((o) => o.id === inv.orderId)?.number ?? 'Order'} onPress={() => router.push({ pathname: '/erp/order/[id]', params: { id: inv.orderId! } })} />}
         {!!inv.orderRef && <Detail label="Customer’s order" value={inv.orderRef} />}
         {!!inv.notes && <Detail label="Notes" value={inv.notes} />}
       </Card>

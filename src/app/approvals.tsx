@@ -2,6 +2,10 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
 import { manages } from '@/data/access';
+import { HOLD_RELEASER } from '@/data/erp';
+import { can } from '@/data/roles';
+import { ClaimCard, CreditCard } from '@/ui/financeCards';
+import { OrderRow } from '@/ui/orders';
 import { formatDate } from '@/data/dates';
 import { useMe, useStore } from '@/data/store';
 import type { Account, AccountChange, AccountChanges } from '@/data/types';
@@ -46,10 +50,22 @@ export default function ApprovalsScreen() {
   const confirmAll = () =>
     confirm(`Confirm ${newAccounts.length} new account${newAccounts.length > 1 ? 's' : ''}?`, 'They become normal accounts for everyone.', () => attempt(() => run({ type: 'account.verify', ids: newAccounts.map((a) => a.id), approve: true })), 'Confirm all');
 
-  const { cycle } = useStore();
+  const { cycle, erp } = useStore();
   const tierReview = me.role !== 'Rep' && inReviewWindow(cycle);
   const restock = useRestockToReview().filter((r) => r.repId !== me.id || admin);
-  const nothing = !toReview.length && !newAccounts.length && !mine.length && !restock.length && !tierReview;
+  // 2.13: one inbox for every yes-or-no: payments, orders, credit changes and leave.
+  const f = can(me, 'finance');
+  const inv = can(me, 'invoicing');
+  const ap = can(me, 'creditApprover');
+  const claims = erp ? (data.paymentClaims ?? []).filter((c) => c.status === 'Pending' && f) : [];
+  const holds = erp ? (data.orders ?? []).filter((o) => o.status === 'On hold' && (o.holds ?? []).some((h) => can(me, HOLD_RELEASER[h]))) : [];
+  const toInvoice = erp && inv ? (data.orders ?? []).filter((o) => o.status === 'Submitted') : [];
+  const credit = erp && ap ? (data.creditRequests ?? []).filter((r) => r.status === 'Pending') : [];
+  const myOrders = erp ? (data.orders ?? []).filter((o) => o.ownerId === me.id && (o.status === 'Submitted' || o.status === 'On hold')) : [];
+  const myClaims = erp ? (data.paymentClaims ?? []).filter((c) => c.byId === me.id && c.status === 'Pending') : [];
+  const leaveToReview = (data.leaves ?? []).filter((l) => l.status === 'Pending' && l.userId !== me.id && (admin || manages(data.users, me, l.userId))).length;
+  const erpCount = claims.length + holds.length + toInvoice.length + credit.length + myOrders.length + myClaims.length + leaveToReview;
+  const nothing = !toReview.length && !newAccounts.length && !mine.length && !restock.length && !tierReview && !erpCount;
 
   return (
     <Screen>
@@ -67,6 +83,75 @@ export default function ApprovalsScreen() {
           </Row>
           <Text style={text.muted}>The cycle is ending. See which doctors Ava suggests moving up or down a tier.</Text>
         </Card>
+      )}
+
+      {leaveToReview > 0 && (
+        <Card onPress={() => router.push('/leave')}>
+          <Row>
+            <Text style={[text.title, { flex: 1 }]}>Leave to approve ({leaveToReview})</Text>
+            <Text style={text.link}>Open</Text>
+          </Row>
+        </Card>
+      )}
+
+      {claims.length > 0 && (
+        <>
+          <SectionTitle>Payments to confirm ({claims.length})</SectionTitle>
+          <Grid>
+            {claims.map((c) => (
+              <ClaimCard key={c.id} c={c} />
+            ))}
+          </Grid>
+        </>
+      )}
+
+      {credit.length > 0 && (
+        <>
+          <SectionTitle>Credit changes to approve ({credit.length})</SectionTitle>
+          <Grid>
+            {credit.map((r) => (
+              <CreditCard key={r.id} r={r} />
+            ))}
+          </Grid>
+        </>
+      )}
+
+      {holds.length > 0 && (
+        <>
+          <SectionTitle>Orders on hold ({holds.length})</SectionTitle>
+          <Card style={{ padding: 0 }}>
+            {holds.map((o) => (
+              <OrderRow key={o.id} o={o} />
+            ))}
+          </Card>
+        </>
+      )}
+
+      {toInvoice.length > 0 && (
+        <>
+          <SectionTitle>Orders to invoice ({toInvoice.length})</SectionTitle>
+          <Card style={{ padding: 0 }}>
+            {toInvoice.map((o) => (
+              <OrderRow key={o.id} o={o} />
+            ))}
+          </Card>
+        </>
+      )}
+
+      {(myOrders.length > 0 || myClaims.length > 0) && (
+        <>
+          <SectionTitle>Waiting on the office</SectionTitle>
+          {myOrders.length > 0 && (
+            <Card style={{ padding: 0 }}>
+              {myOrders.map((o) => (
+                <OrderRow key={o.id} o={o} />
+              ))}
+            </Card>
+          )}
+          {myClaims.map((c) => (
+            <ClaimCard key={c.id} c={c} />
+          ))}
+        </>
       )}
 
       {restock.length > 0 && me.role !== 'Rep' && (

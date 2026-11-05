@@ -5,6 +5,8 @@ import { Linking, Platform, Text, View } from 'react-native';
 import { providerLabel } from '@/cloud/drive';
 import { APP_VERSION } from '@/cloud/relay';
 import { roleLabel } from '@/data/access';
+import { rulesV2 } from '@/data/erp';
+import { can } from '@/data/roles';
 import { canViewReports } from '@/data/reports';
 import { feedbackMail, PLAY_URL } from '@/data/reviewPrompt';
 import { useMe, useStore } from '@/data/store';
@@ -18,7 +20,8 @@ import { colors, space } from '@/ui/theme';
 
 export default function MoreScreen() {
   const me = useMe();
-  const { session, sync, signOut, getUser, company, admin, erp } = useStore();
+  const { session, sync, signOut, getUser, company, admin, erp, data } = useStore();
+  const settingsRepsInvoice = !!data.settings.erp?.repsInvoice;
   const manager = getUser(me.managerId);
   const drive = providerLabel(session?.folder.provider);
 
@@ -55,7 +58,12 @@ export default function MoreScreen() {
         <>
           <SectionTitle>Ava ERP</SectionTitle>
           <Card style={{ padding: 0 }}>
-            <ListRow icon="add-circle-outline" title="New sale" subtitle="Sell and invoice in a few taps" onPress={() => router.push('/erp/sale')} />
+            {rulesV2(data) && !settingsRepsInvoice && me.role === 'Rep' && !can(me, 'invoicing') ? (
+              <ListRow icon="cart-outline" title="New order" subtitle="Order for a customer: the office invoices it" onPress={() => router.push({ pathname: '/erp/sale', params: { mode: 'order' } })} />
+            ) : (
+              <ListRow icon="add-circle-outline" title="New sale" subtitle="Sell and invoice in a few taps" onPress={() => router.push('/erp/sale')} />
+            )}
+            {(can(me, 'finance') || can(me, 'invoicing') || can(me, 'creditApprover')) && <ListRow icon="briefcase-outline" tone={colors.crimson} title="Finance desk" subtitle="Payments to confirm, orders, holds, credit, debt" onPress={() => router.push('/erp/finance')} />}
             <ListRow icon="stats-chart-outline" tone={colors.success} title="Sales & invoices" subtitle="What was sold, collected and is owed" onPress={() => router.push('/erp')} />
             <ListRow icon="people-outline" tone={colors.primaryInk} title="Customers & balances" subtitle="Who owes what, statements" onPress={() => router.push('/erp/customers')} />
             <ListRow icon="cube-outline" tone={colors.orange} title="Stock" subtitle={me.role === 'Rep' ? 'What you hold' : 'Warehouse and team stock'} onPress={() => router.push('/erp/stock')} />
@@ -83,6 +91,7 @@ export default function MoreScreen() {
         <ListRow icon="sparkles-outline" tone={colors.orange} title="What’s new" subtitle="What changed in this version" onPress={() => router.push('/whats-new')} />
         <ListRow icon="compass-outline" tone={colors.primary} title="Take the tour" subtitle="A quick look at what Ava can do" onPress={() => router.push('/tour')} />
         {Platform.OS !== 'ios' && <ListRow icon="star-outline" tone={colors.orange} title="Rate Ava CRM" subtitle="Tell others what you think on Google Play" onPress={() => Linking.openURL(PLAY_URL)} />}
+        {admin && <ListRow icon="bulb-outline" tone={colors.orange} title="Suggest a feature" subtitle="Your idea goes straight to the Ava CRM team" onPress={() => router.push('/suggest')} />}
         <ListRow icon="chatbubble-ellipses-outline" tone={colors.success} title="Send feedback" subtitle="Ideas or problems? Tell us directly" onPress={() => Linking.openURL(feedbackMail(APP_VERSION, Platform.OS))} />
       </Card>
 

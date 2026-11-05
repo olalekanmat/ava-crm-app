@@ -17,6 +17,8 @@ interface Ctx {
   erp: ErpSettings;
   account?: Account;
   seller?: User;
+  /** 2.13: the distributor's name, for a sale through one. */
+  distributor?: string;
 }
 
 const STYLE = `
@@ -98,6 +100,7 @@ export function invoiceHtml(inv: Invoice, ctx: Ctx): string {
     ${inv.status === 'Void' ? `<div class="box">Cancelled: ${esc(inv.voidReason)}</div>` : ''}
     ${ctx.erp.paymentDetails && t.balance > 0 ? `<div class="box"><div class="label">How to pay</div>${esc(ctx.erp.paymentDetails)}</div>` : ''}
     ${inv.notes ? `<div class="box">${esc(inv.notes)}</div>` : ''}
+    ${inv.channel === 'Distributor' ? `<div class="box">Supplied through ${esc(ctx.distributor ?? 'our distributor')}. Please pay the distributor.</div>` : ''}
     <div class="foot">Thank you for your business.</div>`,
     `Invoice ${inv.number}`,
   );
