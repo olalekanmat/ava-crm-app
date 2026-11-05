@@ -85,7 +85,7 @@ export function CompanyTile({ cycle }: { cycle?: Cycle }) {
       </Text>
       {cycle && (
         <Text style={[text.muted, { textAlign: 'center' }]}>
-          {cycle.name} · {daysLeft(cycle)} days left
+          {cycle.name} · {daysLeft(cycle)} working days left
         </Text>
       )}
     </Card>

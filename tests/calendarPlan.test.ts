@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { canMoveCall, cycleOn, droppedCall, movedDatetime, planDoctors, snapHour } from '../src/data/calendarPlan';
 import { toDateKey } from '../src/data/dates';
+import { cycleElapsed, daysLeft, isWeekendKey, leaveDaysIn, workDays } from '../src/data/metrics';
 import { applyMutation } from '../src/data/mutations';
 import { buildSeed } from '../src/data/seed';
 
@@ -60,4 +61,19 @@ test('plan doctors count what is done, booked and left; a dropped doctor becomes
   const all = planDoctors(s, rep!, day, true).doctors;
   assert.ok(all.length >= before.doctors.length);
   assert.ok(all.slice(before.doctors.length).every((d) => !d.inPlan && d.account.ownerId === rep));
+});
+
+test('cycles count working days only: weekends neither pass nor count as days left', () => {
+  const nov = { id: 'm2026-11', name: 'Nov', start: '2026-11-01', end: '2026-11-30' };
+  assert.equal(isWeekendKey('2026-11-07'), true);
+  assert.equal(isWeekendKey('2026-11-09'), false);
+  assert.equal(workDays(nov.start, nov.end), 21);
+  // A weekend passes no time: Saturday and Monday morning have the same pace.
+  const sat = cycleElapsed(nov, new Date('2026-11-07T12:00:00'));
+  const mon = cycleElapsed(nov, new Date('2026-11-09T00:00:00'));
+  assert.ok(Math.abs(sat - mon) < 1e-9);
+  assert.ok(Math.abs(mon - 5 / 21) < 1e-9);
+  assert.equal(daysLeft(nov, new Date('2026-11-28T10:00:00')), 1, 'only Monday 30th is left');
+  // Leave over a weekend costs only the weekdays.
+  assert.equal(leaveDaysIn([{ start: '2026-11-06', end: '2026-11-09' }], nov.start, nov.end), 2);
 });

@@ -5,6 +5,7 @@ import { manages } from '@/data/access';
 import { HOLD_RELEASER } from '@/data/erp';
 import { can } from '@/data/roles';
 import { ClaimCard, CreditCard } from '@/ui/financeCards';
+import { approvesExpenses, ContentCard, ExpenseCard, ReturnCard, SafetyCard } from '@/ui/opsCards';
 import { OrderRow } from '@/ui/orders';
 import { formatDate } from '@/data/dates';
 import { useMe, useStore } from '@/data/store';
@@ -64,7 +65,13 @@ export default function ApprovalsScreen() {
   const myOrders = erp ? (data.orders ?? []).filter((o) => o.ownerId === me.id && (o.status === 'Submitted' || o.status === 'On hold')) : [];
   const myClaims = erp ? (data.paymentClaims ?? []).filter((c) => c.byId === me.id && c.status === 'Pending') : [];
   const leaveToReview = (data.leaves ?? []).filter((l) => l.status === 'Pending' && l.userId !== me.id && (admin || manages(data.users, me, l.userId))).length;
-  const erpCount = claims.length + holds.length + toInvoice.length + credit.length + myOrders.length + myClaims.length + leaveToReview;
+  // 2.14 and 2.15: returns (Finance), expenses (managers approve, Finance pays), content and safety (Medical).
+  const returns = erp && f ? (data.returns ?? []).filter((r) => r.status === 'Pending') : [];
+  const expenses = (data.expenses ?? []).filter((e) => (e.status === 'Pending' && approvesExpenses(data, me, e.userId)) || (e.status === 'Approved' && f));
+  const content = can(me, 'medical') ? (data.content ?? []).filter((d) => d.status === 'Pending') : [];
+  const safety = can(me, 'medical') ? (data.safetyReports ?? []).filter((r) => r.status !== 'Closed') : [];
+  const opsCount = returns.length + expenses.length + content.length + safety.length;
+  const erpCount = claims.length + holds.length + toInvoice.length + credit.length + myOrders.length + myClaims.length + leaveToReview + opsCount;
   const nothing = !toReview.length && !newAccounts.length && !mine.length && !restock.length && !tierReview && !erpCount;
 
   return (
@@ -92,6 +99,50 @@ export default function ApprovalsScreen() {
             <Text style={text.link}>Open</Text>
           </Row>
         </Card>
+      )}
+
+      {safety.length > 0 && (
+        <>
+          <SectionTitle>Safety reports ({safety.length})</SectionTitle>
+          <Grid>
+            {safety.map((r) => (
+              <SafetyCard key={r.id} r={r} />
+            ))}
+          </Grid>
+        </>
+      )}
+
+      {content.length > 0 && (
+        <>
+          <SectionTitle>Material to approve ({content.length})</SectionTitle>
+          <Grid>
+            {content.map((d) => (
+              <ContentCard key={d.id} d={d} />
+            ))}
+          </Grid>
+        </>
+      )}
+
+      {returns.length > 0 && (
+        <>
+          <SectionTitle>Returns to approve ({returns.length})</SectionTitle>
+          <Grid>
+            {returns.map((r) => (
+              <ReturnCard key={r.id} r={r} />
+            ))}
+          </Grid>
+        </>
+      )}
+
+      {expenses.length > 0 && (
+        <>
+          <SectionTitle>Expenses ({expenses.length})</SectionTitle>
+          <Grid>
+            {expenses.map((e) => (
+              <ExpenseCard key={e.id} e={e} />
+            ))}
+          </Grid>
+        </>
       )}
 
       {claims.length > 0 && (

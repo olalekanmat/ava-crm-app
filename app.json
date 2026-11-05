@@ -2,14 +2,14 @@
   "expo": {
     "name": "Ava CRM",
     "slug": "ava",
-    "version": "2.13.0",
+    "version": "2.15.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.avacrm.app",
-      "buildNumber": "16",
+      "buildNumber": "17",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -30,7 +30,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.avacrm.app",
-      "versionCode": 23,
+      "versionCode": 24,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",

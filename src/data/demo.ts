@@ -9,6 +9,8 @@ export const DEMO_ROLES = [
   { key: 'flm', label: 'First-line manager', userId: 'usr_flm1', hint: 'Approve plans, coach, the weekly summary' },
   { key: 'slm', label: 'Regional manager', userId: 'usr_slm', hint: 'Teams across the region' },
   { key: 'finance', label: 'Finance', userId: 'usr_fin', hint: 'Confirm payments, invoice orders, debt age, credit' },
+  { key: 'marketing', label: 'Marketing', userId: 'usr_mkt', hint: 'Campaigns, content library, products' },
+  { key: 'medical', label: 'Medical', userId: 'usr_med', hint: 'Safety reports, approve marketing material' },
   { key: 'admin', label: 'Administrator', userId: 'usr_admin', hint: 'Users, products, rules, duplicates' },
 ] as const;
 
@@ -78,6 +80,31 @@ export function buildDemo(now = new Date()): Snapshot {
     const unpaid = (s.invoices ?? []).filter((i) => !i.voidedAt && i.payments.length === 0 && i.ownerId.startsWith('usr_rep'));
     const owing = unpaid.find((i) => i.ownerId === 'usr_rep1') ?? unpaid[0];
     if (owing) s.paymentClaims = [{ id: 'pcl_demo1', accountId: owing.accountId, invoiceId: owing.id, amount: Math.min(25000, Math.round(owing.lines.reduce((n, l) => n + l.qty * l.unitPrice, 0) / 2)), method: 'Transfer', date: toDateKey(addDays(now, -1)), reference: 'GTB-TRF-883120', byId: owing.ownerId, at: iso(-1, 17), status: 'Pending' }];
+    // 2.14: a return waiting for Finance and a promise to pay.
+    const paidInv = (s.invoices ?? []).find((i) => i.ownerId === 'usr_rep1' && i.payments.length);
+    if (paidInv) s.returns = [{ id: 'rtn_demo1', invoiceId: paidInv.id, accountId: paidInv.accountId, lines: [{ product: paidInv.lines[0].product, qty: Math.min(2, paidInv.lines[0].qty) }], condition: 'Damaged', reason: 'Cartons crushed in delivery', byId: 'usr_rep1', at: iso(-1, 12), status: 'Pending' }];
+    if (owing) s.promises = [{ id: 'prm_demo1', accountId: owing.accountId, amount: 50000, date: toDateKey(addDays(now, 4)), note: 'Pharmacist promised after month-end', byId: owing.ownerId, at: iso(-2, 15) }];
   }
+
+  // 2.14 and 2.15: batches with expiry, a Marketing and a Medical person, a campaign, approved and
+  // waiting material, a safety report, an expense, targets, and a key account manager.
+  for (const [i, m] of (s.stockMoves ?? []).filter((x) => x.kind === 'receive').entries()) m.expiry = toDateKey(addDays(now, i === 0 ? 60 : 420 + i * 30));
+  s.users.push(
+    { id: 'usr_mkt', name: 'Bisi Adeyemi', email: 'marketing@ava.demo', role: 'SLM', territory: 'Head office', functions: ['marketing'], active: true, createdAt: iso(-180) },
+    { id: 'usr_med', name: 'Dr. Tobi Ogunleye', email: 'medical@ava.demo', role: 'SLM', territory: 'Head office', functions: ['medical'], active: true, createdAt: iso(-180) },
+  );
+  const month = toDateKey(now).slice(0, 7);
+  s.targets = ['usr_rep1', 'usr_rep2', 'usr_rep3'].map((u, i) => ({ id: `tgt_demo${i + 1}`, userId: u, month, sales: 1500000 + i * 250000, collection: 1200000, calls: 60, setBy: 'usr_flm1', at: iso(-20) }));
+  s.content = [
+    { id: 'cnt_demo1', title: 'Cardiovex detail aid', product: 'Cardiovex', kind: 'Detail aid', url: 'https://avahealthcareltd.com/AvaCRM/', version: 2, status: 'Approved', endDate: toDateKey(addDays(now, 200)), code: 'NG-CVX-2026-014', byId: 'usr_mkt', at: iso(-30), reviewedBy: 'usr_med', reviewedAt: iso(-28) },
+    { id: 'cnt_demo2', title: 'Glucara XR patient leaflet', product: 'Glucara XR', kind: 'Leave piece', url: 'https://avahealthcareltd.com/AvaCRM/', version: 1, status: 'Pending', byId: 'usr_mkt', at: iso(-1, 10) },
+  ];
+  const all = s.accounts.filter((a) => a.type === 'HCP' && !a.deletedAt);
+  s.campaigns = [{ id: 'cmp_demo1', name: 'Glucara XR diabetes push', product: 'Glucara XR', keyMessages: ['Once daily', 'HbA1c down 1.2% in 12 weeks'], objectives: [], targetIds: all.filter((a) => a.tier === 'ST' || a.tier === 'T1').map((a) => a.id), tiers: ['ST', 'T1'], frequency: 2, start: toDateKey(addDays(now, -20)), end: toDateKey(addDays(now, 40)), status: 'Live', ownerId: 'usr_mkt', createdAt: iso(-21), updatedAt: iso(-21) }];
+  if (hcps[0]) s.safetyReports = [{ id: 'pv_demo1', kind: 'Adverse event', product: 'Cardiovex', accountId: hcps[0].id, description: 'Patient (F, 58) reported dizziness two days after starting Cardiovex 10 mg; dose reduced, recovering.', patientAge: '58', patientSex: 'Female', onset: toDateKey(addDays(now, -4)), serious: false, byId: 'usr_rep1', at: iso(-2, 14), status: 'New' }];
+  s.expenses = [
+    { id: 'exp_demo1', userId: 'usr_rep1', date: toDateKey(addDays(now, -2)), category: 'Transport', amount: 6500, note: 'Taxi to Lagos Island hospitals', status: 'Pending', at: iso(-2, 18) },
+    { id: 'exp_demo2', userId: 'usr_rep2', date: toDateKey(addDays(now, -6)), category: 'Meals', amount: 12000, note: 'Lunch meeting with pharmacists', status: 'Approved', at: iso(-6, 18), decidedBy: 'usr_flm1', decidedAt: iso(-5) },
+  ];
   return s;
 }

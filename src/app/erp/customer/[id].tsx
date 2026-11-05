@@ -7,6 +7,7 @@ import { Button, Card, Empty, Field, Kpi, KpiRow, Row, SectionTitle, text } from
 import { notify } from '@/ui/confirm';
 import { ErpOff, InvoiceRow, useErp } from '@/ui/erp';
 import { shareDocument, statementHtml } from '@/ui/erpDocs';
+import { KeyAccountPicker, PriceGroupPicker } from '@/ui/opsCards';
 import { Screen } from '@/ui/Screen';
 import { space, tone } from '@/ui/theme';
 
@@ -61,6 +62,8 @@ export default function CustomerScreen() {
           onPress={() => shareDocument(statementHtml(account, invoices, { company, erp: settings }, today), `Statement ${account.name}.pdf`).catch((e) => notify('Could not share', e instanceof Error ? e.message : String(e)))}
         />
       </Row>
+      <PriceGroupPicker accountId={account.id} />
+      <KeyAccountPicker accountId={account.id} />
       <SectionTitle>Invoices</SectionTitle>
       {invoices.length ? (
         <Card style={{ padding: 0 }}>

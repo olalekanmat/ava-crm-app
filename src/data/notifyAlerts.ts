@@ -1,6 +1,6 @@
 import { isAdmin, manages, scopeSnapshot } from './access';
 import { computeAlerts, NOTIFY_KINDS, type AlertItem } from './alerts';
-import { erpAlerts } from './erpAlerts';
+import { erpAlerts, opsAlerts } from './erpAlerts';
 import type { Snapshot, User } from './types';
 
 /** The alerts worth a phone notification for this person (approvals and decisions), from the whole company's data. */
@@ -12,7 +12,7 @@ export function notifiableAlerts(full: Snapshot, user: User, now = new Date()): 
     {
       calls: s.calls, plans: s.plans, userId: user.id, reviewable: s.users.filter((u) => u.managerId === user.id).map((u) => u.id), accountName, leaves: s.leaves ?? [],
       accountChanges: s.accountChanges ?? [], accounts: s.accounts, canReviewAccount: (ownerId) => admin || manages(s.users, user, ownerId), tasks: s.tasks ?? [], events: s.events ?? [],
-      extra: erpAlerts(s, user, accountName, now),
+      extra: [...erpAlerts(s, user, accountName, now), ...opsAlerts(s, user, accountName, true, now)],
     },
     now,
   );
@@ -25,6 +25,10 @@ export function alertRoute(i: AlertItem): string {
     case 'account-review':
     case 'account-new':
     case 'change-decided':
+    case 'return-approve':
+    case 'expense-approve':
+    case 'content-approve':
+    case 'safety-new':
       return '/approvals';
     case 'task-assigned':
       return '/tasks';

@@ -6,7 +6,7 @@ import { PlanAssist } from '@/ai/PlanAssist';
 import { manages } from '@/data/access';
 import { formatDate } from '@/data/dates';
 import { newId } from '@/data/ids';
-import { approvedLeave, callsByAccount, cycleCalls, cycleElapsed, daysLeft, leaveDaysIn, pct, spanDays } from '@/data/metrics';
+import { approvedLeave, callsByAccount, cycleCalls, cycleElapsed, daysLeft, leaveDaysIn, pct, workDays } from '@/data/metrics';
 import { useMe, useStore } from '@/data/store';
 import { profileBoost } from '@/data/profile';
 import { lengthOfCycle, previousCycle, scaleFrequency } from '@/data/cycles';
@@ -43,7 +43,7 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
   const elapsed = cycleElapsed(cycle, new Date(), leave);
   const leaveDays = leaveDaysIn(leave, cycle.start, cycle.end);
   // Share of the cycle the person is available; suggested plans shrink to match approved leave.
-  const available = Math.max(0, 1 - leaveDays / spanDays(cycle.start, cycle.end));
+  const available = Math.max(0, 1 - leaveDays / Math.max(1, workDays(cycle.start, cycle.end)));
   const done = callsByAccount(cycleCalls(calls.filter((c) => c.ownerId === ownerId), cycle));
   const territory = accounts.filter((a) => a.ownerId === ownerId);
 
@@ -141,7 +141,7 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
     <View>
       {leaveDays > 0 && (
         <Banner tone="info" icon="airplane-outline">
-          {isOwner ? 'You have' : `${owner?.name ?? 'This rep'} has`} {leaveDays} day{leaveDays === 1 ? '' : 's'} of approved leave in {cycle.name}. The pace marker leaves those days out, so leave does not count as falling behind.
+          {isOwner ? 'You have' : `${owner?.name ?? 'This rep'} has`} {leaveDays} working day{leaveDays === 1 ? '' : 's'} of approved leave in {cycle.name}. The pace marker leaves those days out, so leave does not count as falling behind.
         </Banner>
       )}
       {!isOwner && owner && (
@@ -162,7 +162,7 @@ export function PlanView({ ownerId, cycle }: { ownerId: string; cycle: Cycle }) 
           <View>
             <Text style={text.h2}>{cycle.name}</Text>
             <Text style={text.muted}>
-              {formatDate(cycle.start)} – {formatDate(cycle.end)} · {daysLeft(cycle)} days left
+              {formatDate(cycle.start)} – {formatDate(cycle.end)} · {daysLeft(cycle)} working days left
             </Text>
           </View>
           {isOwner && <PlanBadge status={plan.status} />}

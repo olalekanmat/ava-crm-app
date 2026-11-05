@@ -11,6 +11,7 @@ import { canMoveCall } from '@/data/calendarPlan';
 import { Card, Empty, text } from './components';
 import { Draggable, useDropTarget, type DragItem } from './dnd';
 import { PlanDoctors, useCalendarDrop } from './PlanDoctors';
+import { useWeekends } from './weekends';
 import { calendarColors, colors, radius, space } from './theme';
 
 const LABEL: Record<CalendarState, string> = { submitted: 'Submitted', planned: 'Planned', overdue: 'Overdue' };
@@ -44,6 +45,8 @@ export function CallCalendar({ calls, showRep, plan }: { calls: Call[]; showRep?
   const { getAccount, getUser, data, me } = useStore();
   const { drop, bar } = useCalendarDrop();
   const meId = me?.id ?? '';
+  const [weekends, toggleWeekends] = useWeekends(me?.id);
+  const cols = weekends ? 7 : 5;
   // Wide screens (landscape phones, tablets, computers) show who is being visited inside each day.
   const { width } = useWindowDimensions();
   const roomy = width >= 640;
@@ -56,7 +59,7 @@ export function CallCalendar({ calls, showRep, plan }: { calls: Call[]; showRep?
   });
   const [selected, setSelected] = useState(today);
   const days = useMemo(() => byDay(calls), [calls]);
-  const weeks = monthGrid(cursor.y, cursor.m);
+  const weeks = monthGrid(cursor.y, cursor.m).map((w) => w.slice(0, cols));
   const monthKey = `${cursor.y}-${String(cursor.m + 1).padStart(2, '0')}`;
   const title = new Date(cursor.y, cursor.m, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   const shift = (d: number) => setCursor(({ y, m }) => ({ y: m + d < 0 ? y - 1 : m + d > 11 ? y + 1 : y, m: (m + d + 12) % 12 }));
@@ -89,7 +92,7 @@ export function CallCalendar({ calls, showRep, plan }: { calls: Call[]; showRep?
         </View>
         {!!cycleNote && <Text style={[text.small, { textAlign: 'center', marginBottom: space.xs }]}>{cycleNote}</Text>}
         <View style={styles.week}>
-          {WEEKDAYS.map((w) => (
+          {WEEKDAYS.slice(0, cols).map((w) => (
             <Text key={w} style={[text.small, styles.weekday]}>
               {w}
             </Text>
@@ -148,7 +151,15 @@ export function CallCalendar({ calls, showRep, plan }: { calls: Call[]; showRep?
             })}
           </View>
         ))}
-        <CalendarLegend />
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ flex: 1 }}>
+            <CalendarLegend />
+          </View>
+          <Pressable onPress={toggleWeekends} style={styles.weekendBtn} accessibilityRole="switch" accessibilityState={{ checked: weekends }} accessibilityLabel="Show Saturday and Sunday">
+            <Ionicons name={weekends ? 'checkbox' : 'square-outline'} size={16} color={weekends ? colors.primary : colors.muted} />
+            <Text style={[text.small, { color: weekends ? colors.primary : colors.muted, fontWeight: '700' }]}>Weekends</Text>
+          </Pressable>
+        </View>
       </Card>
       {bar}
 
@@ -206,6 +217,7 @@ const styles = StyleSheet.create({
   dots: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 2, marginTop: 3 },
   count: { minWidth: 14, height: 14, borderRadius: 7, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   countText: { color: '#fff', fontSize: 9, fontWeight: '800' },
+  weekendBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space.sm, paddingTop: space.sm },
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.sm, paddingTop: space.sm },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendSwatch: { width: 14, height: 14, borderRadius: 3, borderWidth: 2, backgroundColor: colors.card },

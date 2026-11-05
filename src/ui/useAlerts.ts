@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { manages } from '@/data/access';
 import { computeAlerts, openTodos } from '@/data/alerts';
-import { erpAlerts } from '@/data/erpAlerts';
+import { erpAlerts, opsAlerts } from '@/data/erpAlerts';
 import { useStore } from '@/data/store';
 
 /** The signed-in person's alerts (header bell and the My alerts tile) and open tasks and follow-ups (My tasks). */
@@ -15,7 +15,7 @@ export function useAlerts() {
     const alerts = computeAlerts({
       calls, plans: data.plans, userId, reviewable, accountName, leaves: data.leaves ?? [],
       accountChanges: data.accountChanges ?? [], accounts: data.accounts, canReviewAccount, tasks: data.tasks ?? [], events: data.events ?? [],
-      extra: erp && me ? erpAlerts(data, me, accountName) : [],
+      extra: me ? [...(erp ? erpAlerts(data, me, accountName) : []), ...opsAlerts(data, me, accountName, erp)] : [],
     });
     const tasks = openTodos(data.tasks ?? [], calls, userId, new Date(), 7, accountName);
     return { alerts, tasks };

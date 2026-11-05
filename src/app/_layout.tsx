@@ -116,6 +116,17 @@ function RootNav() {
         <Stack.Screen name="erp/debt" options={{ title: 'Debt summary' }} />
         <Stack.Screen name="erp/credit" options={{ title: 'Credit limits & days' }} />
         <Stack.Screen name="erp/distributors" options={{ title: 'Distributors' }} />
+        <Stack.Screen name="erp/return" options={{ title: 'Return goods', presentation: 'modal' }} />
+        <Stack.Screen name="erp/deliver" options={{ title: 'Record delivery', presentation: 'modal' }} />
+        <Stack.Screen name="erp/collections" options={{ title: 'Collections' }} />
+        <Stack.Screen name="erp/secondary" options={{ title: 'Distributor sales' }} />
+        <Stack.Screen name="erp/accounting" options={{ title: 'Accounting export' }} />
+        <Stack.Screen name="targets" options={{ title: 'Targets' }} />
+        <Stack.Screen name="expenses" options={{ title: 'Expenses' }} />
+        <Stack.Screen name="safety" options={{ title: 'Safety report' }} />
+        <Stack.Screen name="content" options={{ title: 'Content library' }} />
+        <Stack.Screen name="campaigns" options={{ title: 'Campaigns' }} />
+        <Stack.Screen name="admin/index" options={{ title: 'Administration' }} />
         <Stack.Screen name="suggest" options={{ title: 'Suggest a feature', presentation: 'modal' }} />
       </Stack.Protected>
       {/* Administrators subscribe here, also after a free trial has ended. */}

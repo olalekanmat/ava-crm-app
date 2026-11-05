@@ -177,6 +177,11 @@ export default function CallScreen() {
           <Button title="Repeat this call" icon="repeat-outline" variant="secondary" onPress={() => router.push({ pathname: '/call/edit', params: { repeat: call.id } })} />
         </View>
       )}
+      {mine && call.status === 'Submitted' && (
+        <View style={{ marginTop: space.sm, alignItems: 'center' }}>
+          <Button small variant="ghost" title="Report a side effect or complaint" icon="warning-outline" onPress={() => router.push({ pathname: '/safety', params: { accountId: call.accountId, callId: call.id, product: call.products[0]?.product ?? '' } })} />
+        </View>
+      )}
       {locked ? null : mine ? (
         <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.lg }}>
           <Button title={call.status === 'Planned' ? 'Record this call' : 'Edit'} icon="create-outline" onPress={() => router.push({ pathname: '/call/edit', params: { id: call.id } })} />

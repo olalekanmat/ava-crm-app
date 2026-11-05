@@ -34,12 +34,20 @@ const ICON: Record<AlertItem['kind'], IconName> = {
   'order-decided': 'cart-outline',
   'payment-decided': 'cash-outline',
   'credit-decided': 'speedometer-outline',
+  'return-approve': 'return-down-back-outline',
+  'expense-approve': 'wallet-outline',
+  'expense-pay': 'wallet-outline',
+  'content-approve': 'albums-outline',
+  'safety-new': 'warning-outline',
+  'stock-expiring': 'hourglass-outline',
 };
 
 /** Where an alert leads. */
 export function openAlert(a: AlertItem) {
   if (a.orderId) router.push({ pathname: '/erp/order/[id]', params: { id: a.orderId } });
-  else if (a.kind === 'payment-confirm' || a.kind === 'credit-approve') router.push('/approvals');
+  else if (a.kind === 'payment-confirm' || a.kind === 'credit-approve' || a.kind === 'return-approve' || a.kind === 'expense-approve' || a.kind === 'content-approve' || a.kind === 'safety-new') router.push('/approvals');
+  else if (a.kind === 'expense-pay') router.push('/expenses');
+  else if (a.kind === 'stock-expiring') router.push('/erp/stock');
   else if (a.kind === 'payment-decided' && a.accountId) router.push({ pathname: '/erp/customer/[id]', params: { id: a.accountId } });
   else if (a.kind === 'credit-decided') router.push('/erp/credit');
   else if (a.callId) router.push({ pathname: '/call/[id]', params: { id: a.callId } });

@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { useLayoutEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { addDays, creditDaysOf, creditLimitOf, creditTermsLabel, holdsFor, invoiceTotals, owedBy, priceList, round2, shortages, stockAt, todayIso, trackedProducts } from '@/data/erp';
+import { addDays, creditDaysOf, creditLimitOf, creditTermsLabel, holdsFor, invoiceTotals, owedBy, priceFor, priceList, round2, shortages, stockAt, todayIso, trackedProducts } from '@/data/erp';
 import { notifyOrder } from '@/ui/notify';
 import { newId } from '@/data/ids';
 import { HOLD_LABEL, WAREHOUSE, PAYMENT_METHODS, type Account, type InvoiceLine, type PaymentMethod, type SalesChannel } from '@/data/types';
@@ -55,9 +55,15 @@ export default function NewSaleScreen() {
   const stock = useMemo(() => stockAt(data, from), [data, from]);
   const tracked = useMemo(() => trackedProducts(data), [data]);
   const disc = Math.min(100, Math.max(0, Number(discount) || 0));
+  // 2.14: the customer's price list (Hospitals, Pharmacies, Distributor) wins over the standard price.
+  const priceOf = (p: (typeof list)[number]) => priceFor(p, account ? { ...account, channel: ch } : undefined, settings);
+  // 2.14: the customer's last order or invoice, to repeat in one tap.
+  const lastBuy = account
+    ? [...(data.orders ?? []).filter((o) => o.accountId === account.id && o.status !== 'Cancelled').map((o) => ({ at: o.createdAt, lines: o.lines })), ...(data.invoices ?? []).filter((i) => i.accountId === account.id && i.status !== 'Void').map((i) => ({ at: i.createdAt, lines: i.lines }))].sort((a, b) => b.at.localeCompare(a.at))[0]
+    : undefined;
   const lines: InvoiceLine[] = list
     .filter((p) => (qty[p.name] ?? 0) > 0)
-    .map((p) => ({ product: p.name, qty: qty[p.name], unitPrice: p.price ?? 0, ...(disc ? { discountPercent: disc } : {}), vatPercent: p.vatExempt ? 0 : settings.vatPercent }));
+    .map((p) => ({ product: p.name, qty: qty[p.name], unitPrice: priceOf(p) ?? 0, ...(disc ? { discountPercent: disc } : {}), vatPercent: p.vatExempt ? 0 : settings.vatPercent }));
   const totals = invoiceTotals({ lines, payments: [], status: 'Issued' });
   const units = lines.reduce((n, l) => n + l.qty, 0);
   const short = ch === 'Distributor' ? [] : shortages(data, from, lines);
@@ -168,6 +174,15 @@ export default function NewSaleScreen() {
 
         {/* Products */}
         <SectionTitle right={units ? <Text style={text.muted}>{units} item{units === 1 ? '' : 's'}</Text> : undefined}>Products</SectionTitle>
+        {lastBuy && !units && (
+          <Button
+            small
+            variant="ghost"
+            icon="repeat-outline"
+            title={`Repeat last order (${lastBuy.lines.map((l) => `${l.qty} ${l.product}`).join(', ').slice(0, 60)})`}
+            onPress={() => setQty(Object.fromEntries(lastBuy.lines.filter((l) => list.some((p) => p.name === l.product)).map((l) => [l.product, l.qty])))}
+          />
+        )}
         {list.length > 8 && <SearchBox placeholder="Find a product" value={find} onChangeText={setFind} />}
         {!list.length ? (
           <Empty icon="pricetags-outline" title="No products to sell">
@@ -183,7 +198,8 @@ export default function NewSaleScreen() {
                   <Pressable style={{ flex: 1 }} onPress={() => set(p.name, n + 1)} accessibilityRole="button" accessibilityLabel={`Add one ${p.name}`}>
                     <Text style={text.title}>{p.name}</Text>
                     <Text style={text.muted}>
-                      {p.price !== undefined ? money(p.price) : 'No price yet'}
+                      {priceOf(p) !== undefined ? money(priceOf(p)!) : 'No price yet'}
+                      {account?.priceGroup && priceOf(p) !== p.price ? ` · ${account.priceGroup} price` : ''}
                       {p.vatExempt ? ' · VAT exempt' : ''}
                       {tracked.has(p.name) ? ` · ${have} in stock` : ''}
                     </Text>

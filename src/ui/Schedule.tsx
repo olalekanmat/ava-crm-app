@@ -1,5 +1,4 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -13,6 +12,7 @@ import { canMoveCall } from '@/data/calendarPlan';
 import { CalendarLegend } from './CallCalendar';
 import { DndScrollView, Draggable, useDropTarget, type DragItem } from './dnd';
 import { PlanDoctors, useCalendarDrop } from './PlanDoctors';
+import { useWeekends } from './weekends';
 import { Empty, IconButton, SearchBox, TierBadge, text } from './components';
 import { calendarColors, colors, radius, shadow, space } from './theme';
 
@@ -56,27 +56,6 @@ function lanes(calls: Call[]): { call: Call; lane: number; of: number }[] {
   }
   flush();
   return out;
-}
-
-/** Whether the week view shows Saturday and Sunday, remembered per person on this device (shown by default). */
-function useWeekends(userId?: string): [boolean, () => void] {
-  const key = `ava:weekWeekends:${userId ?? 'anon'}`;
-  const [on, setOn] = useState(true);
-  useEffect(() => {
-    let live = true;
-    AsyncStorage.getItem(key)
-      .then((v) => live && setOn(v !== 'off'))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [key]);
-  const toggle = () =>
-    setOn((was) => {
-      AsyncStorage.setItem(key, was ? 'off' : 'on').catch(() => {});
-      return !was;
-    });
-  return [on, toggle];
 }
 
 /** A day column of the week grid; a drop sets the day and, from where it lands, the time. */

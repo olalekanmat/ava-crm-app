@@ -74,7 +74,7 @@ export function RepHome() {
             attainment={m.attainment}
             planned={m.planned}
             health={health}
-            unit={`${m.onPlan}/${m.planned} calls · ${daysLeft(cycle)} days left`}
+            unit={`${m.onPlan}/${m.planned} calls · ${daysLeft(cycle)} working days left`}
             onPress={() => router.navigate('/plan')}
             empty={`You have no plan for ${cycle.name} yet. Build one in a minute from your accounts.`}
           />

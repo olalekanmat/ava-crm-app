@@ -6,7 +6,7 @@ import { providerLabel } from '@/cloud/drive';
 import { APP_VERSION } from '@/cloud/relay';
 import { roleLabel } from '@/data/access';
 import { rulesV2 } from '@/data/erp';
-import { can } from '@/data/roles';
+import { can, distributorUser } from '@/data/roles';
 import { canViewReports } from '@/data/reports';
 import { feedbackMail, PLAY_URL } from '@/data/reviewPrompt';
 import { useMe, useStore } from '@/data/store';
@@ -66,13 +66,20 @@ export default function MoreScreen() {
             {(can(me, 'finance') || can(me, 'invoicing') || can(me, 'creditApprover')) && <ListRow icon="briefcase-outline" tone={colors.crimson} title="Finance desk" subtitle="Payments to confirm, orders, holds, credit, debt" onPress={() => router.push('/erp/finance')} />}
             <ListRow icon="stats-chart-outline" tone={colors.success} title="Sales & invoices" subtitle="What was sold, collected and is owed" onPress={() => router.push('/erp')} />
             <ListRow icon="people-outline" tone={colors.primaryInk} title="Customers & balances" subtitle="Who owes what, statements" onPress={() => router.push('/erp/customers')} />
-            <ListRow icon="cube-outline" tone={colors.orange} title="Stock" subtitle={me.role === 'Rep' ? 'What you hold' : 'Warehouse and team stock'} onPress={() => router.push('/erp/stock')} />
+            <ListRow icon="cube-outline" tone={colors.orange} title="Stock" subtitle={me.role === 'Rep' ? 'What you hold, batches and expiry' : 'Warehouse and team stock, batches and expiry'} onPress={() => router.push('/erp/stock')} />
+            <ListRow icon="call-outline" tone={colors.crimson} title="Collections" subtitle="Overdue and due soon, reminders, promises to pay" onPress={() => router.push('/erp/collections')} />
+            {(me.role !== 'Rep' || can(me, 'marketing') || distributorUser(me)) && <ListRow icon="git-network-outline" tone={colors.sky} title="Distributor sales" subtitle="Monthly sell-out uploads against what we sold them" onPress={() => router.push('/erp/secondary')} />}
           </Card>
         </>
       )}
 
       <SectionTitle>Field work</SectionTitle>
       <Card style={{ padding: 0 }}>
+        <ListRow icon="flag-outline" tone={colors.success} title="Targets" subtitle={me.role === 'Rep' ? 'Your month: sales, collection and calls' : 'Set and follow your team’s monthly targets'} onPress={() => router.push('/targets')} />
+        <ListRow icon="wallet-outline" tone={colors.orange} title="Expenses" subtitle="Claim with a receipt photo; your manager approves" onPress={() => router.push('/expenses')} />
+        <ListRow icon="warning-outline" tone={colors.danger} title="Report a safety issue" subtitle="Adverse event, product complaint or medical question" onPress={() => router.push('/safety')} />
+        <ListRow icon="albums-outline" tone={colors.primaryInk} title="Content library" subtitle="Approved brochures, detail aids and videos" onPress={() => router.push('/content')} />
+        <ListRow icon="megaphone-outline" tone={colors.crimson} title="Campaigns" subtitle="Product pushes: who to see and how often" onPress={() => router.push('/campaigns')} />
         <ListRow icon="checkbox-outline" title="Tasks & reminders" subtitle="Follow-ups and to-dos, with phone reminders" onPress={() => router.push('/tasks')} />
         {me.role !== 'Admin' && <ListRow icon="map-outline" tone={colors.success} title="Today’s route" subtitle="Today’s visits in the best order" onPress={() => router.push('/route')} />}
         <ListRow icon="earth-outline" tone={colors.sky} title="Accounts map" subtitle="Accounts by tier, with overdue ones ringed in red" onPress={() => router.push('/map')} />
@@ -105,17 +112,7 @@ export default function MoreScreen() {
       <Card style={{ padding: 0 }}>
         <ListRow icon="download-outline" tone={colors.success} title="Export data" subtitle="CSV files you can open in Excel or Sheets" onPress={() => router.push('/export')} />
         {canViewReports(me) && <ListRow icon="bar-chart-outline" tone={colors.primary} title="Reports" subtitle={admin ? 'Build, save and export reports' : 'Your team’s reports, as tables and CSV'} onPress={() => router.push('/reports')} />}
-        {admin && <ListRow icon="cloud-upload-outline" tone={colors.orange} title="Import CSV" subtitle="Accounts, users, products" onPress={() => router.push('/admin/import')} />}
-        {admin && <ListRow icon="business-outline" tone={colors.primaryInk} title="Company & approval" subtitle={`${company.name} · company code, logo, ${drive} folder, licence`} onPress={() => router.push('/admin/company')} />}
-        {admin && <ListRow icon="people-outline" title="Users & roles" onPress={() => router.push('/admin/users')} />}
-        {admin && <ListRow icon="grid-outline" tone={colors.success} title="Edit in a grid" subtitle="Change many accounts or users at once, with undo" onPress={() => router.push('/admin/grid')} />}
-        {admin && <ListRow icon="swap-horizontal-outline" tone={colors.orange} title="Hand over work" subtitle="Move a leaver’s accounts, plans and stock to someone else" onPress={() => router.push('/admin/handover')} />}
-        {admin && <ListRow icon="shield-checkmark-outline" tone={colors.primaryInk} title="Sign-in & app versions" subtitle="Two-step sign-in, app versions, who signed in as whom" onPress={() => router.push('/admin/security')} />}
-        {admin && <ListRow icon="layers-outline" tone={colors.orange} title="Tier names" subtitle="Tiering for each team (default ST, T1, T2, T3)" onPress={() => router.push('/admin/tiers')} />}
-        {admin && <ListRow icon="options-outline" tone={colors.crimson} title="Products & rules" subtitle="Product catalogue, check-in rules, planning cycles" onPress={() => router.push('/admin/settings')} />}
-        {admin && <ListRow icon="git-merge-outline" tone={colors.primaryInk} title="Duplicates" subtitle="Find and merge duplicate doctors and hospitals" onPress={() => router.push('/admin/duplicates')} />}
-        {admin && <ListRow icon="link-outline" tone={colors.success} title="Live data for Excel" subtitle="Tables Excel and Power BI refresh from your drive" onPress={() => router.push('/admin/live-data')} />}
-        {admin && <ListRow icon="document-lock-outline" tone={colors.muted} title="Audit log" subtitle="Every change, who made it and when" onPress={() => router.push('/admin/audit')} />}
+        {admin && <ListRow icon="settings-outline" tone={colors.primaryInk} title="Administration" subtitle={`${company.name} · users, products, rules, imports, security`} onPress={() => router.push('/admin')} />}
         {(me.role === 'SLM' || admin) && <ListRow icon="globe-outline" title="Organisation overview" onPress={() => router.push('/overview')} />}
       </Card>
 

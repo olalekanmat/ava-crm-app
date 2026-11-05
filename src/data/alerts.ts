@@ -14,7 +14,9 @@ export interface AlertItem {
     // 2.7
     | 'plan-approved' | 'account-review' | 'account-new' | 'change-decided' | 'task-assigned' | 'event-soon'
     // 2.13
-    | 'order-invoice' | 'order-hold' | 'payment-confirm' | 'credit-approve' | 'order-decided' | 'payment-decided' | 'credit-decided';
+    | 'order-invoice' | 'order-hold' | 'payment-confirm' | 'credit-approve' | 'order-decided' | 'payment-decided' | 'credit-decided'
+    // 2.14 and 2.15
+    | 'return-approve' | 'expense-approve' | 'expense-pay' | 'content-approve' | 'safety-new' | 'stock-expiring';
   title: string;
   /** The call or plan the alert is about. */
   callId?: string;
@@ -26,7 +28,7 @@ export interface AlertItem {
 }
 
 /** Alerts that also arrive as a phone notification when they first appear (2.7). */
-export const NOTIFY_KINDS = new Set<AlertItem['kind']>(['plan-returned', 'plan-review', 'plan-approved', 'leave-review', 'leave-decided', 'account-review', 'account-new', 'change-decided', 'task-assigned', 'order-invoice', 'order-hold', 'payment-confirm', 'credit-approve', 'order-decided', 'payment-decided', 'credit-decided']);
+export const NOTIFY_KINDS = new Set<AlertItem['kind']>(['plan-returned', 'plan-review', 'plan-approved', 'leave-review', 'leave-decided', 'account-review', 'account-new', 'change-decided', 'task-assigned', 'order-invoice', 'order-hold', 'payment-confirm', 'credit-approve', 'order-decided', 'payment-decided', 'credit-decided', 'return-approve', 'expense-approve', 'content-approve', 'safety-new']);
 
 export interface AlertSummary {
   items: AlertItem[];

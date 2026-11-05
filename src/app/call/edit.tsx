@@ -7,6 +7,7 @@ import { CallNoteAssist } from '@/ai/CallNoteAssist';
 import { addDays, formatDate, parseLocal, timeKey, toDateKey } from '@/data/dates';
 import { distanceM, formatDistance, hasLocation } from '@/data/geo';
 import { newId } from '@/data/ids';
+import { deckAllowed } from '@/data/ops';
 import { callProblems, managersOf } from '@/data/mutations';
 import { batchStock, sampleStock } from '@/data/samples';
 import { useMe, useStore } from '@/data/store';
@@ -84,7 +85,8 @@ export default function EditCallScreen() {
   // Batches of a product still in stock and not expired, soonest expiry first.
   const usableBatches = (p: string) => batches.filter((b) => b.product === p && b.balance > 0 && b.batch && (!b.expiry || b.expiry >= thisMonth));
   const expiredBatches = (p: string) => batches.filter((b) => b.product === p && b.balance > 0 && b.expiry && b.expiry < thisMonth);
-  const decks = productsWithDecks(products);
+  // 2.15: with content approval on, only presentations Medical approved (and not expired) can be shown.
+  const decks = productsWithDecks(products).filter((p) => deckAllowed(data, p.deck?.hash, toDateKey(new Date())));
   const deckOrder = [...decks].sort((a, b) => (chosen.indexOf(a.name) + 1 || 99) - (chosen.indexOf(b.name) + 1 || 99));
   const carried = account && !existing ? openObjectives(callsForAccount(account.id).filter((c) => c.ownerId === me.id)).map((o) => o.text) : [];
   const signRule = data.settings.sampleSignature ?? 'optional';

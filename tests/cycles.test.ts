@@ -45,7 +45,8 @@ test('the current cycle follows the active length; quarterly stays the default',
 
   // Pace and days left work on a month as on a quarter.
   const oct = monthCycle(2026, 10);
-  assert.equal(daysLeft(oct, now), 24);
+  // 2.15: working days only (Thu 8 Oct to Fri 30 Oct: 17 weekdays).
+  assert.equal(daysLeft(oct, now), 17);
   const pace = cycleElapsed(oct, now);
   assert.ok(pace > 0.2 && pace < 0.26);
 });

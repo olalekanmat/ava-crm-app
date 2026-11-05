@@ -113,7 +113,7 @@ export function TeamDashboard({ manager }: { manager: User }) {
     <Screen wide onRefresh={syncNow} refreshing={sync.syncing}>
       <LicenseBanner />
       <HomeHeader
-        eyebrow={`Team view · ${cycle.name} · ${daysLeft(cycle)} days left`}
+        eyebrow={`Team view · ${cycle.name} · ${daysLeft(cycle)} working days left`}
         title={manager.territory ?? `${manager.name}'s team`}
         summary={`${r.reps.length} reps · ${r.onPlan} of ${r.planned} planned calls done · ${pct(elapsed)} of the cycle gone`}
         actions={
