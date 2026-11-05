@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { geoStatus } from '@/data/geo';
 import { useMe, useStore } from '@/data/store';
 import type { CallStatus } from '@/data/types';
 import { CallCalendar } from '@/ui/CallCalendar';
 import { CallRow } from '@/ui/CallRow';
+import { DndProvider, DndScrollView } from '@/ui/dnd';
 import { AgendaView, WeekView } from '@/ui/Schedule';
 import { Button, Chip, Empty, Segmented, text } from '@/ui/components';
 import { columnsFor, useLayout } from '@/ui/layout';
@@ -41,7 +42,7 @@ export default function CallsScreen() {
   );
 
   return (
-    <View style={styles.root}>
+    <DndProvider style={styles.root}>
       <View style={[styles.inner, { maxWidth: maxWide, padding: pad }]}>
         <View style={styles.top}>
           <View style={{ flex: 1 }}>
@@ -60,14 +61,14 @@ export default function CallsScreen() {
         </View>
         {view === 'Week' ? (
           <View style={{ flex: 1, paddingBottom: pad }}>
-            <WeekView calls={scoped} showRep={showOwners} panel={panel} />
+            <WeekView calls={scoped} showRep={showOwners} panel={panel} plan={isRep} />
           </View>
         ) : view === 'Agenda' ? (
           <AgendaView calls={scoped} showRep={showOwners} />
         ) : view === 'Month' ? (
-          <ScrollView contentContainerStyle={{ paddingBottom: space.xl }} refreshControl={refresh}>
-            <CallCalendar calls={scoped} showRep={showOwners} />
-          </ScrollView>
+          <DndScrollView contentContainerStyle={{ paddingBottom: space.xl }} refreshControl={refresh}>
+            <CallCalendar calls={scoped} showRep={showOwners} plan={isRep} />
+          </DndScrollView>
         ) : (
           <FlatList
             key={`cols-${cols}`}
@@ -87,7 +88,7 @@ export default function CallsScreen() {
           />
         )}
       </View>
-    </View>
+    </DndProvider>
   );
 }
 

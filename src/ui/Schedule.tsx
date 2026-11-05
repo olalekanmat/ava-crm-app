@@ -1,15 +1,18 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { calendarState } from '@/data/calendar';
 import { addDays, toDateKey } from '@/data/dates';
 import { agenda, hourOf, hourRange, weekKeys, weekStart } from '@/data/schedule';
 import { useStore } from '@/data/store';
 import type { Call } from '@/data/types';
 import { CallPopover, STATE_LABEL } from './CallPopover';
+import { canMoveCall } from '@/data/calendarPlan';
 import { CalendarLegend } from './CallCalendar';
+import { DndScrollView, Draggable, useDropTarget, type DragItem } from './dnd';
+import { PlanDoctors, useCalendarDrop } from './PlanDoctors';
 import { Empty, IconButton, SearchBox, TierBadge, text } from './components';
 import { calendarColors, colors, radius, shadow, space } from './theme';
 
@@ -76,13 +79,24 @@ function useWeekends(userId?: string): [boolean, () => void] {
   return [on, toggle];
 }
 
+/** A day column of the week grid; a drop sets the day and, from where it lands, the time. */
+function WeekColumn({ k, from, hour, onDrop, style, children }: { k: string; from: number; hour: number; onDrop: (item: DragItem, day: string, h: number) => void; style: object; children: ReactNode }) {
+  const { ref, over } = useDropTarget(`wk:${k}`, (item, _x, y, rect) => onDrop(item, k, from + (y - rect.y) / hour - 0.25));
+  return (
+    <View ref={ref} collapsable={false} style={[style, over && styles.colOver]}>
+      {children}
+    </View>
+  );
+}
+
 /**
  * Week schedule: 7 day columns (5 with weekends turned off) with hourly slots, day headers with call counts, today tinted and a
  * line at the current time. Tapping a call opens its card. On wide screens `panel` shows the
  * rep's accounts beside the week, to start planning a visit.
  */
-export function WeekView({ calls, showRep, panel }: { calls: Call[]; showRep?: boolean; panel?: boolean }) {
+export function WeekView({ calls, showRep, panel, plan }: { calls: Call[]; showRep?: boolean; panel?: boolean; plan?: boolean }) {
   const { getAccount, getUser, me } = useStore();
+  const { drop, bar } = useCalendarDrop();
   const now = useNow();
   const [monday, setMonday] = useState(() => weekStart(new Date()));
   const [open, setOpen] = useState<Call | null>(null);
@@ -151,7 +165,7 @@ export function WeekView({ calls, showRep, panel }: { calls: Call[]; showRep?: b
           );
         })}
       </View>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: 10, paddingBottom: space.md }}>
+      <DndScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: 10, paddingBottom: space.md }}>
         <View style={{ height: (to - from) * HOUR + 8, flexDirection: 'row' }}>
           <View style={{ width: GUTTER }}>
             {Array.from({ length: to - from + 1 }, (_, i) => (
@@ -161,7 +175,7 @@ export function WeekView({ calls, showRep, panel }: { calls: Call[]; showRep?: b
             ))}
           </View>
           {keys.map((k, d) => (
-            <View key={k} style={[styles.col, k === today && styles.colToday, d === 0 && { borderLeftWidth: 1 }]}>
+            <WeekColumn key={k} k={k} from={from} hour={HOUR} onDrop={drop} style={[styles.col, k === today && styles.colToday, d === 0 && { borderLeftWidth: 1 }]}>
               {Array.from({ length: to - from }, (_, i) => (
                 <View key={i} style={[styles.slot, { top: i * HOUR, height: HOUR }]} />
               ))}
@@ -170,13 +184,19 @@ export function WeekView({ calls, showRep, panel }: { calls: Call[]; showRep?: b
                 const top = (hourOf(call.datetime) - from) * HOUR;
                 const name = getAccount(call.accountId)?.name ?? 'Account';
                 return (
-                  <Pressable
+                  <Draggable
                     key={call.id}
+                    item={{ kind: 'call', call }}
+                    label={name}
+                    disabled={!plan || !canMoveCall(call, me?.id ?? '')}
+                    style={{ position: 'absolute', top: top + 1, height: HOUR * 0.75 - 2, left: `${(lane / of) * 100}%`, width: `${100 / of}%` }}
+                  >
+                  <Pressable
                     onPress={() => setOpen(call)}
                     accessibilityLabel={`${name}, ${timeLabel(call.datetime)}, ${STATE_LABEL[st]}`}
                     style={({ pressed }) => [
                       styles.event,
-                      { top: top + 1, height: HOUR * 0.75 - 2, left: `${(lane / of) * 100}%`, width: `${100 / of}%`, borderLeftColor: calendarColors[st], backgroundColor: `${calendarColors[st]}14` },
+                      { top: 0, left: 0, right: 0, bottom: 0, borderLeftColor: calendarColors[st], backgroundColor: `${calendarColors[st]}14` },
                       pressed && { opacity: 0.7 },
                     ]}
                   >
@@ -188,6 +208,7 @@ export function WeekView({ calls, showRep, panel }: { calls: Call[]; showRep?: b
                       {showRep && !narrow ? ` · ${(getUser(call.ownerId)?.name ?? '').split(' ')[0]}` : ''}
                     </Text>
                   </Pressable>
+                  </Draggable>
                 );
               })}
               {k === today && nowH >= from && nowH <= to && (
@@ -195,19 +216,29 @@ export function WeekView({ calls, showRep, panel }: { calls: Call[]; showRep?: b
                   <View style={styles.nowDot} />
                 </View>
               )}
-            </View>
+            </WeekColumn>
           ))}
         </View>
-      </ScrollView>
+      </DndScrollView>
       <CalendarLegend />
+      {bar}
       <CallPopover call={open} onClose={() => setOpen(null)} showRep={showRep} />
     </View>
   );
 
-  if (!panel) return grid;
+  const planDay = keys.includes(today) ? today : keys[0];
+  if (!panel)
+    return plan ? (
+      <View style={{ flex: 1 }}>
+        <PlanDoctors day={planDay} layout="strip" />
+        {grid}
+      </View>
+    ) : (
+      grid
+    );
   return (
     <View style={{ flex: 1, flexDirection: 'row', gap: space.md }}>
-      <AccountsPanel />
+      {plan ? <PlanDoctors day={planDay} layout="side" /> : <AccountsPanel />}
       {grid}
     </View>
   );
@@ -320,6 +351,7 @@ const styles = StyleSheet.create({
   hour: { position: 'absolute', right: 6, fontSize: 10, color: colors.faint },
   col: { flex: 1, borderRightWidth: 1, borderColor: colors.hairline, position: 'relative' },
   colToday: { backgroundColor: '#F5F8FF' },
+  colOver: { backgroundColor: colors.primarySoft },
   slot: { position: 'absolute', left: 0, right: 0, borderTopWidth: 1, borderTopColor: colors.hairline },
   event: { position: 'absolute', borderLeftWidth: 3, borderRadius: 6, paddingHorizontal: 3, paddingVertical: 2, overflow: 'hidden' },
   eventTitle: { fontSize: 11, fontWeight: '700', color: colors.text, lineHeight: 13 },
