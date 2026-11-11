@@ -6,7 +6,7 @@
 |---|---|
 | App (Android, iOS, web) | Expo SDK 57, React Native 0.86, TypeScript, Expo Router |
 | Storage | Each company's own Google Drive / OneDrive / SharePoint folder: per-device journals replayed through the shared rules |
-| Approvals | Static page + one Netlify Function at avahealthcareltd.com/AvaCRM, Ed25519-signed licences |
+| Approvals | Static page + the site's Cloudflare Worker at avahealthcareltd.com/AvaCRM (was a Netlify Function until Nov 2026), Ed25519-signed licences |
 | Rules | `src/data/mutations.ts`, run on each change and again on every device's replay |
 | Builds | Gradle locally or EAS Build in the cloud |
 
