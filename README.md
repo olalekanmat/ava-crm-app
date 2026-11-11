@@ -58,7 +58,7 @@ Download the templates from *Admin → Import CSV*. The first row must hold the 
 
 ## Live use
 
-The app runs only against live company data (no demo mode). See [docs/SETUP.md](docs/SETUP.md) for the one-time Microsoft and Netlify steps and how the data model works.
+The app runs only against live company data (no demo mode). See [docs/SETUP.md](docs/SETUP.md) for the one-time Microsoft and Cloudflare steps and how the data model works.
 
 ## Run it
 

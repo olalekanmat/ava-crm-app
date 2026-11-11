@@ -3,7 +3,7 @@
 Ava CRM has three parts:
 
 1. **The app**: the Android APK, plus the same app on the web at `https://avahealthcareltd.com/AvaCRM/app/`.
-2. **The Ava CRM server** on this site (`/AvaCRM/api`, the Netlify function). It handles:
+2. **The Ava CRM server** on this site (`/AvaCRM/api`, run by the site's Cloudflare Worker). It handles:
    - licences, through your developer console at `https://avahealthcareltd.com/AvaCRM`;
    - sign-in;
    - passing files to and from each company's OneDrive.
@@ -36,7 +36,7 @@ In https://entra.microsoft.com > **App registrations** > **Ava CRM** (client ID 
    - Description: `Ava CRM server`. Expiry: **24 months**.
    - Copy the **Value** (not the Secret ID). It is shown only once.
    - Set a reminder to replace it before it expires.
-4. In Netlify, open the site > **Site configuration** > **Environment variables**, and add:
+4. Add these as Worker secrets in Cloudflare: **Workers & Pages** > **avahealthcareltd** > **Settings** > **Variables and Secrets** (or `npx wrangler secret put NAME` in the site repo):
 
    | Key | Value |
    |---|---|
@@ -44,9 +44,9 @@ In https://entra.microsoft.com > **App registrations** > **Ava CRM** (client ID 
    | `AVACRM_MS_CLIENT_SECRET` | the secret **Value** from step 3 |
 
    `AVACRM_SIGNING_KEY`, `AVACRM_DEV_PASSWORD` and `AVACRM_SESSION_SECRET` stay as they are. `AVACRM_SESSION_SECRET` also signs app sign-ins: changing it signs everyone out, but it does not unlink OneDrive.
-5. **Deploys** > **Trigger deploy** > **Deploy site**.
+5. Secrets take effect straight away; no redeploy is needed.
 
-The refresh token for each administrator's OneDrive is stored encrypted in Netlify Blobs. If the client secret is replaced, existing links keep working once the new secret is in Netlify.
+The refresh token for each administrator's OneDrive is stored encrypted in the site's R2 bucket (`avahealthcareltd-blobs`). If the client secret is replaced, existing links keep working once the new secret is saved as a Worker secret.
 
 ## How a company gets going
 
